@@ -32,11 +32,44 @@ DEFAULT_WORKFLOW_PATH = APP_ROOT / "default_workflow.json"
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 INTENT_EXTRACTOR_CONFIG_PATH = APP_ROOT / "intent_extractor_config.json"
 DEFAULT_HISTORY_TABLE_ID = "mnyqkvfvqub1pnb"
+DEFAULT_LOG_DIR = APP_ROOT / "logs"
+
+_LOG_WRITE_LOCK = Lock()
+_SESSION_LOG_FILE: TextIO | None = None
+_SESSION_LOG_PATH: Path | None = None
 
 
 def log(msg: str) -> None:
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{ts}] [openclaw-ptt] {msg}", file=sys.stderr, flush=True)
+    line = f"[{ts}] [openclaw-ptt] {msg}"
+    print(line, file=sys.stderr, flush=True)
+    with _LOG_WRITE_LOCK:
+        if _SESSION_LOG_FILE is not None:
+            _SESSION_LOG_FILE.write(line + "\n")
+            _SESSION_LOG_FILE.flush()
+
+
+def init_session_log(log_dir: Path, session_id: str | None = None) -> Path:
+    global _SESSION_LOG_FILE, _SESSION_LOG_PATH
+    close_session_log()
+    log_dir = log_dir.expanduser()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    suffix = re.sub(r"[^a-zA-Z0-9_-]+", "", session_id or uuid.uuid4().hex[:8])
+    log_path = log_dir / f"{stamp}-{suffix}.log"
+    with _LOG_WRITE_LOCK:
+        _SESSION_LOG_FILE = log_path.open("a", encoding="utf-8")
+        _SESSION_LOG_PATH = log_path
+    return log_path
+
+
+def close_session_log() -> None:
+    global _SESSION_LOG_FILE, _SESSION_LOG_PATH
+    with _LOG_WRITE_LOCK:
+        if _SESSION_LOG_FILE is not None:
+            _SESSION_LOG_FILE.close()
+        _SESSION_LOG_FILE = None
+        _SESSION_LOG_PATH = None
 
 
 def log_timing(stage: str) -> None:
@@ -1639,11 +1672,13 @@ async def run_intent_regression(agent: OpenAICompatibleAgent, sample_path: Path)
 
 
 def main() -> int:
+    load_env_files()
+    session_id = uuid.uuid4().hex
+    log_path = init_session_log(env_path("PTT_LOG_DIR", DEFAULT_LOG_DIR), session_id=session_id)
     log_timing("process imported, entering main()")
     cfg = parse_args()
     events = GuiEventWriter(enabled=cfg.gui_events)
     history_writer = HistoryWriter.from_config(cfg)
-    session_id = uuid.uuid4().hex
     session_started_at = format_history_timestamp()
     session_ended_at = session_started_at
     session_transcript = ""
@@ -1655,6 +1690,7 @@ def main() -> int:
     session_mode = "gui" if cfg.gui_events else "cli"
     should_record_history = False
     log_timing("parse_args() completed")
+    log(f"session log file: {log_path}")
     log("ptt openai-compatible flow started")
     events.emit("session_started", auto_close_seconds=cfg.gui_auto_close_seconds)
     try:
@@ -1793,3 +1829,4 @@ def main() -> int:
                 log("history record persisted")
             except Exception as exc:  # noqa: BLE001
                 log(f"history persist failed: {exc}")
+        close_session_log()

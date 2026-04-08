@@ -45,6 +45,7 @@ uv run press-to-talk --text-input "帮我记一下明天上午十点开会" --no
 - `PTT_STT_URL` / `PTT_STT_TOKEN`：STT 服务地址和鉴权
 - `URSOFT_REMEMBER_SCRIPT`：remember 工具脚本路径，默认指向 `~/Projects/ursoft-skills/skills/remember/scripts/manage_items.py`
 - `PTT_MODEL`：意图抽取与对话使用的模型名
+- `PTT_LOG_DIR`：运行日志目录，默认写到项目根目录下的 `logs/`
 - `VOICE_ASSISTANT_HISTORY_NOCODB_TABLE_ID`：GUI 会话历史记录表 ID，默认指向 `Voice Assistant History`
 - 其余录音阈值、TTS 参数、输出路径也都支持从 `.env` 覆盖
 
@@ -59,6 +60,7 @@ uv run press-to-talk --text-input "帮我记一下明天上午十点开会" --no
 - 分类测试：`--classify-only` 只输出意图标签
 - 回归样本：`--intent-samples-file testdata/intent_samples.jsonl`
 - 记忆语义：`record` 覆盖位置、日期、特征、事件、备注，不再局限于 location
+- 运行日志：每次启动都会自动写一份会话日志到 `logs/`
 
 ## 回归测试
 
