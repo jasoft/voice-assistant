@@ -61,7 +61,7 @@ struct AssistantShellView: View {
                         .foregroundStyle(.white.opacity(0.9))
                 )
 
-            Text("Lucid Assistant")
+            Text("大王的语音助手")
                 .font(.system(size: 23, weight: .semibold))
                 .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
 
@@ -86,29 +86,46 @@ struct AssistantShellView: View {
                 )
                 .padding(.top, 14)
 
-                Text(statusLabel)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .tracking(2.6)
-                    .foregroundStyle(Color(red: 0.07, green: 0.46, blue: 0.88))
+                statusBadge
 
                 Circle()
-                    .fill(Color(red: 0.07, green: 0.46, blue: 0.88))
+                    .fill(statusTint.opacity(0.9))
                     .frame(width: 6, height: 6)
 
-                HistoryStyleCard(title: "LIVE TRANSCRIPTION", icon: "person.fill") {
-                    Text(model.session.state.transcript.isEmpty ? "等待识别结果..." : model.session.state.transcript)
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
-                        .lineSpacing(6)
-                        .fixedSize(horizontal: false, vertical: true)
+                if shouldShowTranscriptCard {
+                    HistoryStyleCard(title: "LIVE TRANSCRIPTION", icon: "person.fill") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            if model.session.state.transcript.isEmpty {
+                                HStack(spacing: 10) {
+                                    ProgressView()
+                                        .scaleEffect(0.85)
+                                    Text("正在识别...")
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13).opacity(0.65))
+                                }
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            } else {
+                                Text(model.session.state.transcript)
+                                    .font(.system(size: 28, weight: .semibold))
+                                    .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
+                                    .lineSpacing(6)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                            }
+                        }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
 
-                HistoryStyleCard(title: "INTELLIGENCE RESPONSE", icon: "bolt.fill") {
-                    Text(model.session.state.reply.isEmpty ? "等待回复..." : model.session.state.reply)
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
-                        .lineSpacing(5)
-                        .fixedSize(horizontal: false, vertical: true)
+                if shouldShowResponseCard {
+                    HistoryStyleCard(title: "INTELLIGENCE RESPONSE", icon: "bolt.fill") {
+                        Text(model.session.state.reply)
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
+                            .lineSpacing(5)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
 
                 if let seconds = model.session.countdownSeconds, model.session.state.phase == .done {
@@ -123,6 +140,9 @@ struct AssistantShellView: View {
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 12)
+            .animation(.spring(response: 0.36, dampingFraction: 0.88), value: model.session.state.phase)
+            .animation(.easeInOut(duration: 0.22), value: model.session.state.transcript)
+            .animation(.easeInOut(duration: 0.22), value: model.session.state.reply)
         }
     }
 
@@ -184,10 +204,16 @@ struct AssistantShellView: View {
                 title: "HISTORY",
                 symbol: "clock.arrow.circlepath",
                 active: model.screenMode == .history,
-                action: { model.toggleHistory() }
+                action: {
+                    model.keepWindowOpen()
+                    model.toggleHistory()
+                }
             )
 
-            Button(action: { model.startRecording() }) {
+            Button(action: {
+                model.keepWindowOpen()
+                model.startRecording()
+            }) {
                 ZStack {
                     Circle()
                         .fill(
@@ -241,6 +267,62 @@ struct AssistantShellView: View {
             .frame(width: 96)
         }
         .buttonStyle(.plain)
+    }
+
+    private var shouldShowTranscriptCard: Bool {
+        switch model.session.state.phase {
+        case .idle, .recording:
+            return false
+        case .error, .cancelled:
+            return !model.session.state.transcript.isEmpty
+        default:
+            return true
+        }
+    }
+
+    private var shouldShowResponseCard: Bool {
+        !model.session.state.reply.isEmpty
+    }
+
+    private var statusBadge: some View {
+        let tint = statusTint
+        return HStack(spacing: 8) {
+            Circle()
+                .fill(tint)
+                .frame(width: 8, height: 8)
+                .shadow(color: tint.opacity(0.35), radius: 6, x: 0, y: 0)
+            Text(statusLabel)
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .tracking(2.6)
+        }
+        .foregroundStyle(tint)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .background(
+            Capsule(style: .continuous)
+                .fill(tint.opacity(0.12))
+        )
+    }
+
+    private var statusTint: Color {
+        switch model.session.state.phase {
+        case .recording:
+            return Color(red: 0.07, green: 0.64, blue: 0.92)
+        case .transcribing:
+            return Color(red: 0.42, green: 0.33, blue: 0.93)
+        case .thinking:
+            return Color(red: 0.91, green: 0.49, blue: 0.12)
+        case .speaking:
+            return Color(red: 0.13, green: 0.67, blue: 0.45)
+        case .done:
+            return Color(red: 0.54, green: 0.50, blue: 0.34)
+        case .error:
+            return Color(red: 0.88, green: 0.22, blue: 0.31)
+        case .cancelled:
+            return Color(red: 0.54, green: 0.56, blue: 0.61)
+        case .idle:
+            return Color(red: 0.40, green: 0.47, blue: 0.60)
+        }
     }
 }
 

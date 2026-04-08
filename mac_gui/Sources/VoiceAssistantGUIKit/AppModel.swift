@@ -49,7 +49,7 @@ public final class AppModel: ObservableObject {
     }
 
     public func keepWindowOpen() {
-        session.stopCountdown()
+        session.pinOpen()
     }
 
     public func toggleHistory() {

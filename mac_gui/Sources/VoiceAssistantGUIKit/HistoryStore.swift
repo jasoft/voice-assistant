@@ -40,7 +40,7 @@ public final class HistoryStore {
         components?.path = "/api/v2/tables/\(tableId)/records"
         components?.queryItems = [
             URLQueryItem(name: "limit", value: String(limit)),
-            URLQueryItem(name: "sort", value: "-started_at")
+            URLQueryItem(name: "sort", value: "-CreatedAt")
         ]
         guard let finalURL = components?.url else {
             throw NSError(domain: "HistoryStore", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法构建历史请求 URL"])

@@ -6,6 +6,7 @@ import Foundation
 public final class SessionViewModel: ObservableObject {
     @Published public private(set) var state = SessionState()
     @Published public private(set) var countdownSeconds: Int? = nil
+    @Published public private(set) var isPinnedOpen = false
 
     private var countdownTimer: Timer?
 
@@ -34,7 +35,15 @@ public final class SessionViewModel: ObservableObject {
         state = SessionState()
     }
 
+    public func pinOpen() {
+        isPinnedOpen = true
+        stopCountdown()
+    }
+
     private func startCountdown(seconds: Int) {
+        guard !isPinnedOpen else {
+            return
+        }
         stopCountdown()
         countdownSeconds = seconds
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
