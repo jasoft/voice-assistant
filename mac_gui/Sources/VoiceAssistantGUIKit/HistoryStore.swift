@@ -37,11 +37,11 @@ public final class HistoryStore {
         HistoryStore(workingDirectory: workingDirectory)
     }
 
-    public func loadRecent(limit: Int) async throws -> [HistoryEntry] {
+    public func loadRecent(limit: Int, query: String = "") async throws -> [HistoryEntry] {
         let resolvedWorkingDirectory = resolveWorkingDirectory(startingAt: workingDirectory)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [
+        var arguments = [
             "uv",
             "run",
             "python",
@@ -51,6 +51,11 @@ public final class HistoryStore {
             "--limit",
             String(limit),
         ]
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedQuery.isEmpty {
+            arguments.append(contentsOf: ["--query", trimmedQuery])
+        }
+        process.arguments = arguments
         process.currentDirectoryURL = resolvedWorkingDirectory
 
         let outPipe = Pipe()

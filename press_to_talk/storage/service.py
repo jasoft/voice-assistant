@@ -219,7 +219,7 @@ class BaseHistoryStore:
     def persist(self, entry: SessionHistoryRecord) -> None:
         raise NotImplementedError
 
-    def list_recent(self, *, limit: int = 10) -> list[SessionHistoryRecord]:
+    def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
         raise NotImplementedError
 
 
@@ -343,11 +343,11 @@ class NocoDbHistoryStore(BaseHistoryStore):
         response = requests.post(self._records_url(), headers=self._headers(), json=payload, timeout=30)
         response.raise_for_status()
 
-    def list_recent(self, *, limit: int = 10) -> list[SessionHistoryRecord]:
+    def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
         response = requests.get(
             self._records_url(),
             headers=self._headers(),
-            params={"limit": limit, "sort": "-CreatedAt"},
+            params={"limit": max(limit, 200 if query.strip() else limit), "sort": "-CreatedAt"},
             timeout=30,
         )
         response.raise_for_status()
@@ -373,7 +373,9 @@ class NocoDbHistoryStore(BaseHistoryStore):
                     mode=str(row.get("mode") or row.get("Mode") or ""),
                 )
             )
-        return results
+        if query.strip():
+            return score_history_rows(query, results)[:limit]
+        return results[:limit]
 
     def export_all(self) -> list[SessionHistoryRecord]:
         return self.list_recent(limit=500)
@@ -515,13 +517,11 @@ class SqliteHistoryStore(BaseHistoryStore):
                 self.state.SessionHistoryModel.session_id == entry.session_id
             ).execute()
 
-    def list_recent(self, *, limit: int = 10) -> list[SessionHistoryRecord]:
-        rows = (
-            self.state.SessionHistoryModel.select()
-            .order_by(self.state.SessionHistoryModel.created_at.desc())
-            .limit(limit)
+    def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
+        rows = self.state.SessionHistoryModel.select().order_by(
+            self.state.SessionHistoryModel.created_at.desc()
         )
-        return [
+        records = [
             SessionHistoryRecord(
                 session_id=row.session_id,
                 started_at=row.started_at,
@@ -536,6 +536,9 @@ class SqliteHistoryStore(BaseHistoryStore):
             )
             for row in rows
         ]
+        if query.strip():
+            return score_history_rows(query, records)[:limit]
+        return records[:limit]
 
     def upsert_many(self, entries: list[SessionHistoryRecord]) -> None:
         for entry in entries:
@@ -557,6 +560,52 @@ def score_item_rows(query: str, rows: list[RememberItemRecord]) -> list[Remember
     scored_rows: list[tuple[float, RememberItemRecord]] = []
     for row in rows:
         haystack = " ".join([row.name, row.content, row.record_type, row.note, row.original_text]).strip()
+        normalized_haystack = normalize_text(haystack)
+        if not normalized_haystack:
+            continue
+        matched = False
+        score = 0.0
+        if normalized_query and normalized_query in normalized_haystack:
+            score += 4.0
+            matched = True
+        for term in normalized_search_terms:
+            if term and term != normalized_query and term in normalized_haystack:
+                score += 3.0
+                matched = True
+        for token in normalized_tokens:
+            if token in normalized_haystack:
+                score += 2.0
+                matched = True
+        if matched:
+            scored_rows.append((score, row))
+    scored_rows.sort(key=lambda item: item[0], reverse=True)
+    return [row for score, row in scored_rows if score >= 1.0]
+
+
+def score_history_rows(query: str, rows: list[SessionHistoryRecord]) -> list[SessionHistoryRecord]:
+    normalized_query = normalize_text(query)
+    search_terms = expand_search_terms(query)
+    normalized_search_terms = [normalize_text(term) for term in search_terms if normalize_text(term)]
+    tokens: list[str] = []
+    for term in search_terms:
+        tokens.extend(tokenize_query(term))
+    normalized_tokens = []
+    for token in tokens:
+        normalized_token = normalize_text(token)
+        if normalized_token and (len(normalized_token) >= 2 or is_cjk_text(token)):
+            normalized_tokens.append(normalized_token)
+    scored_rows: list[tuple[float, SessionHistoryRecord]] = []
+    for row in rows:
+        haystack = " ".join(
+            [
+                row.session_id,
+                row.started_at,
+                row.ended_at,
+                row.transcript,
+                row.reply,
+                row.mode,
+            ]
+        ).strip()
         normalized_haystack = normalize_text(haystack)
         if not normalized_haystack:
             continue

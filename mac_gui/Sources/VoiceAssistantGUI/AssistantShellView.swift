@@ -139,6 +139,8 @@ struct AssistantShellView: View {
                     }
                 }
 
+                historySearchField
+
                 if let error = model.historyError {
                     HistoryStyleCard(title: "HISTORY ERROR", icon: "exclamationmark.triangle.fill") {
                         Text(error)
@@ -147,8 +149,29 @@ struct AssistantShellView: View {
                     }
                 }
 
+                if let selectedEntry = model.selectedHistoryEntry {
+                    selectedHistoryCard(entry: selectedEntry)
+                }
+
+                if !model.isLoadingHistory && model.historyEntries.isEmpty && model.historyError == nil {
+                    HistoryStyleCard(title: "NO MATCHES", icon: "magnifyingglass") {
+                        Text(model.historyQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "还没有历史记录。" : "没有找到匹配的历史记录。")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.38, green: 0.44, blue: 0.56))
+                    }
+                }
+
                 ForEach(model.historyEntries) { entry in
-                    HistoryEntryCard(entry: entry)
+                    HistoryEntryCard(
+                        entry: entry,
+                        isSelected: model.selectedHistoryEntry?.id == entry.id,
+                        onSelect: {
+                            model.selectHistoryEntry(entry)
+                        },
+                        onPreview: {
+                            model.previewHistoryEntry(entry)
+                        }
+                    )
                 }
             }
             .padding(.horizontal, 22)
@@ -242,6 +265,34 @@ struct AssistantShellView: View {
         return nil
     }
 
+    private var historySearchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(red: 0.51, green: 0.58, blue: 0.71))
+            TextField("搜索识别文本或回复", text: $model.historyQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
+                .disableAutocorrection(true)
+            if !model.historyQuery.isEmpty {
+                Button(action: { model.historyQuery = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.65, green: 0.70, blue: 0.80))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.88))
+                .shadow(color: Color.black.opacity(0.04), radius: 14, x: 0, y: 6)
+        )
+    }
+
     @ViewBuilder
     private func errorBanner(message: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
@@ -267,6 +318,65 @@ struct AssistantShellView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color(red: 0.99, green: 0.90, blue: 0.92))
         )
+    }
+
+    @ViewBuilder
+    private func selectedHistoryCard(entry: HistoryEntry) -> some View {
+        HistoryStyleCard(title: "SELECTED SESSION", icon: "clock.badge.checkmark") {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.startedAt)
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
+                        Text(entry.mode.uppercased())
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .tracking(1.4)
+                            .foregroundStyle(Color(red: 0.07, green: 0.64, blue: 0.92))
+                    }
+                    Spacer()
+                    Button(action: { model.previewHistoryEntry(entry) }) {
+                        Text("放回主界面")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(Color(red: 0.07, green: 0.64, blue: 0.92))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if !entry.transcript.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("识别文本")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .tracking(1.4)
+                            .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
+                        Text(entry.transcript)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                if !entry.reply.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("助手回复")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .tracking(1.4)
+                            .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
+                        Text(entry.reply)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(Color(red: 0.29, green: 0.35, blue: 0.48))
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
     }
 
 }
@@ -440,6 +550,9 @@ private struct HistoryStyleCard<Content: View>: View {
 
 private struct HistoryEntryCard: View {
     let entry: HistoryEntry
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onPreview: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -473,13 +586,46 @@ private struct HistoryEntryCard: View {
             }
             .font(.system(size: 11, weight: .semibold, design: .rounded))
             .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
+
+            HStack(spacing: 10) {
+                Button(action: onSelect) {
+                    Text(isSelected ? "已选中" : "查看详情")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(isSelected ? Color(red: 0.07, green: 0.64, blue: 0.92) : Color(red: 0.33, green: 0.39, blue: 0.51))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(isSelected ? Color(red: 0.88, green: 0.95, blue: 1.0) : Color(red: 0.95, green: 0.96, blue: 0.99))
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onPreview) {
+                    Text("放回主界面")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color(red: 0.07, green: 0.64, blue: 0.92))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.05), radius: 18, x: 0, y: 8)
+                .fill(isSelected ? Color(red: 0.96, green: 0.99, blue: 1.0) : Color.white)
+                .shadow(color: isSelected ? Color(red: 0.07, green: 0.64, blue: 0.92).opacity(0.12) : Color.black.opacity(0.05), radius: 18, x: 0, y: 8)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(isSelected ? Color(red: 0.07, green: 0.64, blue: 0.92).opacity(0.22) : Color.clear, lineWidth: 1)
+        )
+        .onTapGesture(perform: onSelect)
     }
 }

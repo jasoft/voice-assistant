@@ -40,6 +40,18 @@ public final class SessionViewModel: ObservableObject {
         stopCountdown()
     }
 
+    public func loadHistoryPreview(transcript: String, reply: String) {
+        state.phase = .done
+        state.transcript = transcript
+        state.reply = reply
+        state.audioLevel = 0
+        state.audioSpeaking = false
+        state.timeoutProgress = 1
+        state.errorMessage = ""
+        state.diagnosticMessage = ""
+        state.diagnosticLevel = ""
+    }
+
     private func startCountdown(seconds: Int) {
         guard !isPinnedOpen else {
             return

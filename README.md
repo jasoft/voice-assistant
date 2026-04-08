@@ -76,6 +76,14 @@ uv run python -m press_to_talk.storage_cli sync-nocodb-to-sqlite
 
 导入完成后，把 `VOICE_ASSISTANT_DATA_BACKEND=sqlite` 写进 `.env`，GUI 历史页和 remember 工具都会统一读写本地 SQLite。
 
+历史记录也支持统一接口搜索：
+
+```bash
+uv run python -m press_to_talk.storage_cli list-history --limit 20 --query "护照"
+```
+
+GUI 的 History 面板会走同一条接口，支持按识别文本或回复内容搜索，并可把某条历史重新放回主界面查看。
+
 ## 回归测试
 
 ```bash

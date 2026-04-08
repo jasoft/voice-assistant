@@ -158,6 +158,58 @@ class HistoryWriterTests(unittest.TestCase):
             finally:
                 service.close()
 
+    def test_sqlite_history_search_filters_by_transcript_or_reply(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = StorageService(
+                StorageConfig(
+                    backend="sqlite",
+                    sqlite_path=Path(tmpdir) / "assistant.db",
+                    remember_nocodb_url="",
+                    remember_nocodb_token="",
+                    remember_nocodb_table_id="",
+                    history_nocodb_url="",
+                    history_nocodb_token="",
+                    history_nocodb_table_id="",
+                )
+            )
+            try:
+                service.history_store().persist(
+                    SessionHistoryRecord(
+                        session_id="history-1",
+                        started_at="2026-04-08T17:00:00+08:00",
+                        ended_at="2026-04-08T17:01:00+08:00",
+                        transcript="帮我找护照",
+                        reply="护照在书房抽屉",
+                        peak_level=0.87,
+                        mean_level=0.41,
+                        auto_closed=True,
+                        reopened_by_click=False,
+                        mode="gui",
+                    )
+                )
+                service.history_store().persist(
+                    SessionHistoryRecord(
+                        session_id="history-2",
+                        started_at="2026-04-08T18:00:00+08:00",
+                        ended_at="2026-04-08T18:01:00+08:00",
+                        transcript="今天几点开会",
+                        reply="上午十点开会",
+                        peak_level=0.42,
+                        mean_level=0.18,
+                        auto_closed=False,
+                        reopened_by_click=False,
+                        mode="gui",
+                    )
+                )
+
+                by_transcript = service.history_store().list_recent(limit=5, query="护照")
+                by_reply = service.history_store().list_recent(limit=5, query="十点")
+
+                self.assertEqual([entry.session_id for entry in by_transcript], ["history-1"])
+                self.assertEqual([entry.session_id for entry in by_reply], ["history-2"])
+            finally:
+                service.close()
+
     def test_sqlite_remember_store_can_add_and_find(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             service = StorageService(
