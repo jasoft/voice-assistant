@@ -53,8 +53,13 @@ public struct SessionState: Equatable {
             }
         case "reply":
             if let text = payload["text"] as? String {
-                reply = text.replacingOccurrences(
-                    of: "(?is)<think\\b[^>]*>.*?(?:</think>|$)",
+                let withoutClosedThink = text.replacingOccurrences(
+                    of: "(?is)<think\\b[^>]*>.*?</think\\s*>",
+                    with: "",
+                    options: .regularExpression
+                )
+                reply = withoutClosedThink.replacingOccurrences(
+                    of: "(?is)<think\\b[^>]*>.*$",
                     with: "",
                     options: .regularExpression
                 ).trimmingCharacters(in: .whitespacesAndNewlines)

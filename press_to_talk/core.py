@@ -375,22 +375,20 @@ def preview_text(text: str, limit: int = 240) -> str:
 
 
 def strip_think_tags(text: str) -> str:
-    cleaned = re.sub(
-        r"(?is)<think\b[^>]*>.*?(?:</think>|(?=\n[^\s<])|$)",
-        "",
-        text,
-    )
+    cleaned = re.sub(r"(?is)<think\b[^>]*>.*?</think\s*>", "", text)
+    cleaned = re.sub(r"(?is)<think\b[^>]*>.*\n", "", cleaned)
+    cleaned = re.sub(r"(?is)<think\b[^>]*>.*$", "", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
 
 
 def audio_visual_level(rms: float, threshold: float) -> float:
-    floor = max(threshold * 1.5, 0.01)
-    ceiling = max(threshold * 8.0, floor * 2.5)
+    floor = max(threshold * 0.55, 0.002)
+    ceiling = max(threshold * 3.2, floor * 4.0)
     if rms <= floor:
         return 0.0
     level = (rms - floor) / (ceiling - floor)
-    return max(0.0, min(level, 1.0))
+    return max(0.0, min(level, 1.0)) ** 0.72
 
 
 def format_history_timestamp(ts: datetime | None = None) -> str:

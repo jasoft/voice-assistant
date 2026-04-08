@@ -52,6 +52,10 @@ class ThinkTagFilterTests(unittest.TestCase):
         raw = "<think>internal reasoning</think>\n最终答案"
         self.assertEqual(core.strip_think_tags(raw), "最终答案")
 
+    def test_strip_think_tags_removes_multiline_block_content(self) -> None:
+        raw = "<think>第一行思考\n第二行思考\n</think>\n最终答案"
+        self.assertEqual(core.strip_think_tags(raw), "最终答案")
+
     def test_strip_think_tags_removes_unclosed_block(self) -> None:
         raw = "<think>internal reasoning\n最终答案"
         self.assertEqual(core.strip_think_tags(raw), "最终答案")

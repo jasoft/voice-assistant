@@ -476,7 +476,7 @@ private struct RecordingOrbView: View {
     }
 
     private var normalizedLevel: Double {
-        max(0.0, min(level, 1.0))
+        pow(max(0.0, min(level, 1.0)), 0.6)
     }
 
     var body: some View {
@@ -486,33 +486,67 @@ private struct RecordingOrbView: View {
                     .fill(
                         RadialGradient(
                             colors: [
-                                Color(red: 0.48, green: 0.75, blue: 1.0).opacity(active ? 0.95 : 0.35),
-                                Color(red: 0.16, green: 0.50, blue: 0.96).opacity(active ? 0.9 : 0.25),
-                                Color(red: 0.06, green: 0.22, blue: 0.60).opacity(active ? 0.75 : 0.18)
+                                Color(red: 0.48, green: 0.90, blue: 1.0).opacity(active ? 0.34 : 0.10),
+                                Color(red: 0.54, green: 0.56, blue: 0.97).opacity(active ? 0.24 : 0.08),
+                                Color.clear
+                            ],
+                            center: .center,
+                            startRadius: 8,
+                            endRadius: 130
+                        )
+                    )
+                    .frame(width: 250, height: 250)
+                    .scaleEffect(active ? 0.92 + normalizedLevel * 0.42 : 0.82)
+                    .blur(radius: active ? 8 : 14)
+                    .opacity(active ? 0.95 : 0.55)
+
+                Circle()
+                    .fill(
+                        AngularGradient(
+                            gradient: Gradient(colors: [
+                                Color(red: 0.42, green: 0.88, blue: 1.0).opacity(active ? 0.42 : 0.10),
+                                Color(red: 0.58, green: 0.52, blue: 0.98).opacity(active ? 0.34 : 0.10),
+                                Color(red: 0.42, green: 0.88, blue: 1.0).opacity(active ? 0.42 : 0.10)
+                            ]),
+                            center: .center
+                        )
+                    )
+                    .frame(width: 188, height: 188)
+                    .blur(radius: active ? 18 : 24)
+                    .scaleEffect(active ? 0.94 + normalizedLevel * 0.30 : 0.86)
+
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color(red: 0.40, green: 0.78, blue: 1.0).opacity(active ? 0.98 : 0.40),
+                                Color(red: 0.21, green: 0.52, blue: 0.97).opacity(active ? 0.92 : 0.30),
+                                Color(red: 0.40, green: 0.26, blue: 0.86).opacity(active ? 0.82 : 0.20)
                             ],
                             center: .center,
                             startRadius: 2,
-                            endRadius: 44
+                            endRadius: 52
                         )
                     )
-                    .frame(width: 84, height: 84)
-                    .scaleEffect(active ? 0.82 + normalizedLevel * 0.95 : 0.72)
-                    .shadow(color: Color.blue.opacity(active ? 0.28 : 0.10), radius: 18, x: 0, y: 8)
+                    .frame(width: 96, height: 96)
+                    .scaleEffect(active ? 0.88 + normalizedLevel * 1.18 : 0.78)
+                    .shadow(color: Color(red: 0.34, green: 0.72, blue: 1.0).opacity(active ? 0.34 : 0.12), radius: 24, x: 0, y: 12)
 
                 Circle()
                     .strokeBorder(Color.white.opacity(active ? 0.38 : 0.18), lineWidth: 2)
-                    .frame(width: 106, height: 106)
-                    .scaleEffect(active ? 0.92 + normalizedLevel * 0.18 : 0.9)
+                    .frame(width: 120, height: 120)
+                    .scaleEffect(active ? 0.94 + normalizedLevel * 0.30 : 0.9)
                     .opacity(active ? 0.8 : 0.35)
 
                 Circle()
                     .strokeBorder(Color.white.opacity(active ? 0.22 : 0.08), lineWidth: 1)
-                    .frame(width: 126, height: 126)
-                    .scaleEffect(active ? 0.9 + normalizedLevel * 0.28 : 0.86)
+                    .frame(width: 148, height: 148)
+                    .scaleEffect(active ? 0.92 + normalizedLevel * 0.46 : 0.86)
                     .opacity(active ? 0.6 : 0.18)
             }
-            .animation(.easeOut(duration: 0.12), value: normalizedLevel)
-            .animation(.easeInOut(duration: 0.18), value: active)
+            .frame(height: 240)
+            .animation(.spring(response: 0.18, dampingFraction: 0.74), value: normalizedLevel)
+            .animation(.easeInOut(duration: 0.28), value: active)
 
             Text(active ? "正在听你说话" : "等待录音开始")
                 .font(.system(size: 14, weight: .medium))
