@@ -53,7 +53,11 @@ public struct SessionState: Equatable {
             }
         case "reply":
             if let text = payload["text"] as? String {
-                reply = text
+                reply = text.replacingOccurrences(
+                    of: "(?is)<think\\b[^>]*>.*?(?:</think>|$)",
+                    with: "",
+                    options: .regularExpression
+                ).trimmingCharacters(in: .whitespacesAndNewlines)
             }
         case "error":
             phase = .error

@@ -342,7 +342,13 @@ def preview_text(text: str, limit: int = 240) -> str:
 
 
 def strip_think_tags(text: str) -> str:
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    cleaned = re.sub(
+        r"(?is)<think\b[^>]*>.*?(?:</think>|(?=\n[^\s<])|$)",
+        "",
+        text,
+    )
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def audio_visual_level(rms: float, threshold: float) -> float:

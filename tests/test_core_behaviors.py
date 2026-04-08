@@ -52,6 +52,14 @@ class ThinkTagFilterTests(unittest.TestCase):
         raw = "<think>internal reasoning</think>\n最终答案"
         self.assertEqual(core.strip_think_tags(raw), "最终答案")
 
+    def test_strip_think_tags_removes_unclosed_block(self) -> None:
+        raw = "<think>internal reasoning\n最终答案"
+        self.assertEqual(core.strip_think_tags(raw), "最终答案")
+
+    def test_strip_think_tags_handles_case_and_attributes(self) -> None:
+        raw = "<THINK class='hidden'>internal</THINK>\n最终答案"
+        self.assertEqual(core.strip_think_tags(raw), "最终答案")
+
     def test_default_remember_script_stays_in_ursoft_skills(self) -> None:
         self.assertEqual(
             core.default_remember_script_path(),
