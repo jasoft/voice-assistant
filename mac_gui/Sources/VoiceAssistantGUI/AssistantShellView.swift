@@ -92,6 +92,14 @@ struct AssistantShellView: View {
                     .fill(statusTint.opacity(0.9))
                     .frame(width: 6, height: 6)
 
+                if let diagnostic = diagnosticMessage, !diagnostic.isEmpty {
+                    diagnosticStrip(message: diagnostic, level: diagnosticLevel)
+                }
+
+                if let errorMessage = visibleErrorMessage, !errorMessage.isEmpty {
+                    errorBanner(message: errorMessage)
+                }
+
                 if shouldShowTranscriptCard {
                     HistoryStyleCard(title: "LIVE TRANSCRIPTION", icon: "person.fill") {
                         VStack(alignment: .leading, spacing: 12) {
@@ -274,7 +282,7 @@ struct AssistantShellView: View {
         case .idle, .recording:
             return false
         case .error, .cancelled:
-            return !model.session.state.transcript.isEmpty
+            return false
         default:
             return true
         }
@@ -322,6 +330,139 @@ struct AssistantShellView: View {
             return Color(red: 0.54, green: 0.56, blue: 0.61)
         case .idle:
             return Color(red: 0.40, green: 0.47, blue: 0.60)
+        }
+    }
+
+    private var diagnosticMessage: String? {
+        switch model.session.state.phase {
+        case .idle:
+            return model.session.state.diagnosticMessage.isEmpty
+                ? "点击麦克风开始录音"
+                : model.session.state.diagnosticMessage
+        case .recording:
+            if !model.session.state.diagnosticMessage.isEmpty {
+                return model.session.state.diagnosticMessage
+            }
+            return model.session.state.audioLevel > 0.06
+                ? "已检测到声音，麦克风正在稳定采集"
+                : "麦克风已打开，正在等待你开口"
+        case .transcribing:
+            return "录音完成，正在识别文本"
+        case .thinking:
+            return "识别完成，正在生成回复"
+        case .speaking:
+            return "正在播报回复"
+        case .done:
+            return model.session.countdownSeconds == nil ? "会话已结束" : "会话结束，等待自动关闭"
+        case .error:
+            if !model.session.state.errorMessage.isEmpty {
+                return nil
+            }
+            return model.session.state.diagnosticMessage.isEmpty ? "录音出错" : model.session.state.diagnosticMessage
+        case .cancelled:
+            return model.session.state.diagnosticMessage.isEmpty
+                ? "录音已取消"
+                : model.session.state.diagnosticMessage
+        }
+    }
+
+    private var diagnosticLevel: String {
+        if !model.session.state.diagnosticLevel.isEmpty {
+            return model.session.state.diagnosticLevel
+        }
+        switch model.session.state.phase {
+        case .error:
+            return "error"
+        case .recording:
+            return model.session.state.audioLevel > 0.06 ? "success" : "info"
+        case .transcribing, .thinking, .speaking, .done:
+            return "info"
+        case .cancelled:
+            return "warning"
+        case .idle:
+            return "info"
+        }
+    }
+
+    private var visibleErrorMessage: String? {
+        if !model.session.state.errorMessage.isEmpty {
+            return model.session.state.errorMessage
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private func diagnosticStrip(message: String, level: String) -> some View {
+        let tint = diagnosticTint(level: level)
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: diagnosticIcon(level: level))
+                .font(.system(size: 12, weight: .bold))
+            Text(message)
+                .font(.system(size: 12, weight: .semibold))
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(tint)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(tint.opacity(0.10))
+        )
+    }
+
+    @ViewBuilder
+    private func errorBanner(message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(red: 0.88, green: 0.22, blue: 0.31))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("录音错误")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .tracking(1.0)
+                    .foregroundStyle(Color(red: 0.88, green: 0.22, blue: 0.31))
+                Text(message)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(red: 0.34, green: 0.12, blue: 0.16))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(red: 0.99, green: 0.90, blue: 0.92))
+        )
+    }
+
+    private func diagnosticTint(level: String) -> Color {
+        switch level.lowercased() {
+        case "success":
+            return Color(red: 0.13, green: 0.67, blue: 0.45)
+        case "warning":
+            return Color(red: 0.91, green: 0.49, blue: 0.12)
+        case "error":
+            return Color(red: 0.88, green: 0.22, blue: 0.31)
+        default:
+            return Color(red: 0.07, green: 0.64, blue: 0.92)
+        }
+    }
+
+    private func diagnosticIcon(level: String) -> String {
+        switch level.lowercased() {
+        case "success":
+            return "checkmark.circle.fill"
+        case "warning":
+            return "mic.slash.fill"
+        case "error":
+            return "exclamationmark.circle.fill"
+        default:
+            return "waveform.circle.fill"
         }
     }
 }

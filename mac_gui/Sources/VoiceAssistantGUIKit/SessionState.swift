@@ -21,6 +21,8 @@ public struct SessionState: Equatable {
     public var transcript: String = ""
     public var reply: String = ""
     public var errorMessage: String = ""
+    public var diagnosticMessage: String = ""
+    public var diagnosticLevel: String = ""
     public var autoCloseSeconds: Int = 0
 
     public init() {}
@@ -56,6 +58,9 @@ public struct SessionState: Equatable {
         case "error":
             phase = .error
             errorMessage = (payload["message"] as? String) ?? "Unknown error"
+        case "diagnostic":
+            diagnosticMessage = (payload["message"] as? String) ?? ""
+            diagnosticLevel = (payload["level"] as? String) ?? "info"
         default:
             break
         }

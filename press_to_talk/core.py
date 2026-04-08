@@ -520,6 +520,8 @@ class VisualRecorder:
         self.audio_level_peak = 0.0
         self.audio_level_sum = 0.0
         self.audio_level_count = 0
+        self.last_audio_status_text = ""
+        self.last_diagnostic_key = ""
         self.lock = Lock()
         log(
             "timing %8.1fms | recorder init ready (imports+state)"
@@ -533,6 +535,13 @@ class VisualRecorder:
         # Increase threshold slightly to be less sensitive to background hum
         self.effective_threshold = max(self.cfg.threshold, ambient_rms * 3.2 + 0.005)
 
+    def _emit_diagnostic(self, key: str, level: str, message: str) -> None:
+        with self.lock:
+            if key == self.last_diagnostic_key:
+                return
+            self.last_diagnostic_key = key
+        self.events.emit("diagnostic", level=level, message=message)
+
     def on_press(self, key: Any) -> Any:
         if self.keyboard is not None and key == self.keyboard.Key.enter:
             self.should_stop = True
@@ -540,7 +549,18 @@ class VisualRecorder:
 
     def _callback(self, indata: Any, frames: int, _time_info, status) -> None:
         if status:
-            log(f"audio status: {status}")
+            status_text = str(status)
+            with self.lock:
+                is_new_status = status_text != self.last_audio_status_text
+                if is_new_status:
+                    self.last_audio_status_text = status_text
+            if is_new_status:
+                log(f"audio status: {status_text}")
+                self._emit_diagnostic(
+                    f"audio-status:{status_text}",
+                    "warning",
+                    f"麦克风状态异常：{status_text}",
+                )
         chunk = indata.copy()
         rms = float(self.np.sqrt(self.np.mean(self.np.square(chunk), dtype=self.np.float64)))
         should_stop_stream = False
@@ -574,7 +594,17 @@ class VisualRecorder:
                 if is_speech:
                     self.speech_started = True
                     self.silent_samples = 0
+                    self._emit_diagnostic(
+                        "speech-started",
+                        "success",
+                        "已检测到声音，正在录音",
+                    )
                 elif self.total_samples >= self.no_speech_timeout_target:
+                    self._emit_diagnostic(
+                        "no-speech-timeout",
+                        "warning",
+                        "未检测到语音，请检查麦克风或提高说话音量",
+                    )
                     should_stop_stream = True
             else:
                 if is_speech:
@@ -705,6 +735,11 @@ class VisualRecorder:
         log("ptt-flow: Recording session started")
         log_timing("record() entered")
         self.events.emit("status", phase="recording")
+        self._emit_diagnostic(
+            "recording-started",
+            "info",
+            "麦克风已打开，正在等待你的声音",
+        )
         listener = None
 
         try:
