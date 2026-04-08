@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "press-to-talk"
+version = "0.1.0"
+description = "Push-to-talk recorder that sends transcript to OpenClaw and speaks replies with qwen-tts."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "numpy>=2.2.0",
+  "sounddevice>=0.5.2",
+  "openai>=1.40.0",
+  "pynput>=1.7.7",
+  "rich>=13.7.0",
+  "mcp>=1.2.1",
+  "requests>=2.32.0",
+]
+
+[project.scripts]
+press-to-talk = "press_to_talk.cli:run_as_console_script"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+include = ["press_to_talk*"]

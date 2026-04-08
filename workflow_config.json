@@ -1,0 +1,51 @@
+{
+    "intents": {
+        "record": {
+            "description": "记录或更新个人物品、日期、特征、事件等相关信息。当用户想要‘记住’、'记录'、'保存'、'更新'某个东西的信息（如放哪了、什么时候买的、生日、特征等）时使用。",
+            "keywords": ["记", "存", "保存", "记录", "更新"],
+            "system_prompt": "你是一个信息记录助手。请使用 remember_add 工具来记录用户提到的物品及其相关信息（位置、时间、日期、特征、事件、描述等）。回复必须控制在30字以内。",
+            "tools": ["remember_add"]
+        },
+        "find": {
+            "description": "查询个人物品的相关信息。当用户询问某个东西‘在哪里’、‘什么时候买的’、‘生日是什么时候’、或者询问‘有哪些记录’时使用。默认优先本地记事查询。",
+            "keywords": [
+                "记住",
+                "帮我记一下",
+                "记一下",
+                "保存",
+                "更新",
+                "找",
+                "在哪",
+                "位置",
+                "查询",
+                "什么时候",
+                "哪些",
+                "查找"
+            ],
+            "system_prompt": "你是一个信息查询助手。请务必使用 remember_find 或 remember_list 工具来查找用户询问的物品信息。即便用户问的是时间、生日、属性或特征，也请尝试通过 find 工具搜索关键词。回复必须控制在30字以内。",
+            "tools": ["remember_find", "remember_list"]
+        },
+        "chat": {
+            "description": "除记忆查询外的所有对话都使用 chat；chat 也负责联网搜索、网页抓取与一般问答。",
+            "keywords": [],
+            "system_prompt": "你是一个中文助手。除非要做本地记事查询，否则都走 chat。你可以根据需要使用 brave-search 或 fetch 工具来联网查资料、抓网页或回答实时问题。回答要自然、完整、口语化，不要故意压缩长度。当前位置：南京。",
+            "tools": ["brave-search___brave-search", "brave-search___search", "fetch___fetch"]
+        }
+    },
+    "mcp_servers": {
+        "brave-search": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+            "env": {
+                "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+            }
+        },
+        "fetch": {
+            "command": "uvx",
+            "args": ["mcp-server-fetch"]
+        }
+    },
+    "remember_summary": {
+        "system_prompt": "你是一个智能助手。现在你有一个用户询问的问题，已经从数据库中获得了答案，你需要根据问题把这个答案总结一下，用友好简短的方式告诉我。"
+    }
+}
