@@ -82,19 +82,12 @@ struct AssistantShellView: View {
             VStack(spacing: 24) {
                 RecordingOrbView(
                     level: model.session.state.audioLevel,
-                    phase: model.session.state.phase
+                    phase: model.session.state.phase,
+                    isSpeaking: model.session.state.audioSpeaking,
+                    timeoutProgress: model.session.state.timeoutProgress
                 )
-                .padding(.top, 14)
-
-                statusBadge
-
-                Circle()
-                    .fill(statusTint.opacity(0.9))
-                    .frame(width: 6, height: 6)
-
-                if let diagnostic = diagnosticMessage, !diagnostic.isEmpty {
-                    diagnosticStrip(message: diagnostic, level: diagnosticLevel)
-                }
+                .padding(.top, 28)
+                .padding(.bottom, 8)
 
                 if let errorMessage = visibleErrorMessage, !errorMessage.isEmpty {
                     errorBanner(message: errorMessage)
@@ -102,25 +95,12 @@ struct AssistantShellView: View {
 
                 if shouldShowTranscriptCard {
                     HistoryStyleCard(title: "LIVE TRANSCRIPTION", icon: "person.fill") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            if model.session.state.transcript.isEmpty {
-                                HStack(spacing: 10) {
-                                    ProgressView()
-                                        .scaleEffect(0.85)
-                                    Text("正在识别...")
-                                        .font(.system(size: 20, weight: .semibold))
-                                        .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13).opacity(0.65))
-                                }
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            } else {
-                                Text(model.session.state.transcript)
-                                    .font(.system(size: 28, weight: .semibold))
-                                    .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
-                                    .lineSpacing(6)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                            }
-                        }
+                        Text(model.session.state.transcript)
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
+                            .lineSpacing(6)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     }
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
@@ -136,15 +116,6 @@ struct AssistantShellView: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
 
-                if let seconds = model.session.countdownSeconds, model.session.state.phase == .done {
-                    Text("\(seconds) 秒后自动关闭，点击任意位置取消倒计时")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color.secondary)
-                } else {
-                    Text("点击任意位置可保持窗口，点击麦克风重新录音")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color.secondary)
-                }
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 12)
@@ -182,27 +153,6 @@ struct AssistantShellView: View {
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 12)
-        }
-    }
-
-    private var statusLabel: String {
-        switch model.session.state.phase {
-        case .recording:
-            return "LISTENING"
-        case .transcribing:
-            return "TRANSCRIBING"
-        case .thinking:
-            return "THINKING"
-        case .speaking:
-            return "SPEAKING"
-        case .done:
-            return "DONE"
-        case .error:
-            return "ERROR"
-        case .cancelled:
-            return "CANCELLED"
-        case .idle:
-            return "READY"
         }
     }
 
@@ -278,110 +228,11 @@ struct AssistantShellView: View {
     }
 
     private var shouldShowTranscriptCard: Bool {
-        switch model.session.state.phase {
-        case .idle, .recording:
-            return false
-        case .error, .cancelled:
-            return false
-        default:
-            return true
-        }
+        !model.session.state.transcript.isEmpty
     }
 
     private var shouldShowResponseCard: Bool {
         !model.session.state.reply.isEmpty
-    }
-
-    private var statusBadge: some View {
-        let tint = statusTint
-        return HStack(spacing: 8) {
-            Circle()
-                .fill(tint)
-                .frame(width: 8, height: 8)
-                .shadow(color: tint.opacity(0.35), radius: 6, x: 0, y: 0)
-            Text(statusLabel)
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .tracking(2.6)
-        }
-        .foregroundStyle(tint)
-        .padding(.vertical, 8)
-        .padding(.horizontal, 14)
-        .background(
-            Capsule(style: .continuous)
-                .fill(tint.opacity(0.12))
-        )
-    }
-
-    private var statusTint: Color {
-        switch model.session.state.phase {
-        case .recording:
-            return Color(red: 0.07, green: 0.64, blue: 0.92)
-        case .transcribing:
-            return Color(red: 0.42, green: 0.33, blue: 0.93)
-        case .thinking:
-            return Color(red: 0.91, green: 0.49, blue: 0.12)
-        case .speaking:
-            return Color(red: 0.13, green: 0.67, blue: 0.45)
-        case .done:
-            return Color(red: 0.54, green: 0.50, blue: 0.34)
-        case .error:
-            return Color(red: 0.88, green: 0.22, blue: 0.31)
-        case .cancelled:
-            return Color(red: 0.54, green: 0.56, blue: 0.61)
-        case .idle:
-            return Color(red: 0.40, green: 0.47, blue: 0.60)
-        }
-    }
-
-    private var diagnosticMessage: String? {
-        switch model.session.state.phase {
-        case .idle:
-            return model.session.state.diagnosticMessage.isEmpty
-                ? "点击麦克风开始录音"
-                : model.session.state.diagnosticMessage
-        case .recording:
-            if !model.session.state.diagnosticMessage.isEmpty {
-                return model.session.state.diagnosticMessage
-            }
-            return model.session.state.audioLevel > 0.06
-                ? "已检测到声音，麦克风正在稳定采集"
-                : "麦克风已打开，正在等待你开口"
-        case .transcribing:
-            return "录音完成，正在识别文本"
-        case .thinking:
-            return "识别完成，正在生成回复"
-        case .speaking:
-            return "正在播报回复"
-        case .done:
-            return model.session.countdownSeconds == nil ? "会话已结束" : "会话结束，等待自动关闭"
-        case .error:
-            if !model.session.state.errorMessage.isEmpty {
-                return nil
-            }
-            return model.session.state.diagnosticMessage.isEmpty ? "录音出错" : model.session.state.diagnosticMessage
-        case .cancelled:
-            return model.session.state.diagnosticMessage.isEmpty
-                ? "录音已取消"
-                : model.session.state.diagnosticMessage
-        }
-    }
-
-    private var diagnosticLevel: String {
-        if !model.session.state.diagnosticLevel.isEmpty {
-            return model.session.state.diagnosticLevel
-        }
-        switch model.session.state.phase {
-        case .error:
-            return "error"
-        case .recording:
-            return model.session.state.audioLevel > 0.06 ? "success" : "info"
-        case .transcribing, .thinking, .speaking, .done:
-            return "info"
-        case .cancelled:
-            return "warning"
-        case .idle:
-            return "info"
-        }
     }
 
     private var visibleErrorMessage: String? {
@@ -389,28 +240,6 @@ struct AssistantShellView: View {
             return model.session.state.errorMessage
         }
         return nil
-    }
-
-    @ViewBuilder
-    private func diagnosticStrip(message: String, level: String) -> some View {
-        let tint = diagnosticTint(level: level)
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: diagnosticIcon(level: level))
-                .font(.system(size: 12, weight: .bold))
-            Text(message)
-                .font(.system(size: 12, weight: .semibold))
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(tint)
-        .padding(.vertical, 10)
-        .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(tint.opacity(0.10))
-        )
     }
 
     @ViewBuilder
@@ -440,117 +269,141 @@ struct AssistantShellView: View {
         )
     }
 
-    private func diagnosticTint(level: String) -> Color {
-        switch level.lowercased() {
-        case "success":
-            return Color(red: 0.13, green: 0.67, blue: 0.45)
-        case "warning":
-            return Color(red: 0.91, green: 0.49, blue: 0.12)
-        case "error":
-            return Color(red: 0.88, green: 0.22, blue: 0.31)
-        default:
-            return Color(red: 0.07, green: 0.64, blue: 0.92)
-        }
-    }
-
-    private func diagnosticIcon(level: String) -> String {
-        switch level.lowercased() {
-        case "success":
-            return "checkmark.circle.fill"
-        case "warning":
-            return "mic.slash.fill"
-        case "error":
-            return "exclamationmark.circle.fill"
-        default:
-            return "waveform.circle.fill"
-        }
-    }
 }
 
 private struct RecordingOrbView: View {
     let level: Double
     let phase: SessionPhase
+    let isSpeaking: Bool
+    let timeoutProgress: Double
 
     private var active: Bool {
-        phase == .recording || phase == .transcribing
+        phase == .recording || phase == .transcribing || phase == .thinking || phase == .speaking || phase == .done
     }
 
     private var normalizedLevel: Double {
         pow(max(0.0, min(level, 1.0)), 0.6)
     }
 
-    var body: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                Color(red: 0.48, green: 0.90, blue: 1.0).opacity(active ? 0.34 : 0.10),
-                                Color(red: 0.54, green: 0.56, blue: 0.97).opacity(active ? 0.24 : 0.08),
-                                Color.clear
-                            ],
-                            center: .center,
-                            startRadius: 8,
-                            endRadius: 130
-                        )
-                    )
-                    .frame(width: 250, height: 250)
-                    .scaleEffect(active ? 0.92 + normalizedLevel * 0.42 : 0.82)
-                    .blur(radius: active ? 8 : 14)
-                    .opacity(active ? 0.95 : 0.55)
-
-                Circle()
-                    .fill(
-                        AngularGradient(
-                            gradient: Gradient(colors: [
-                                Color(red: 0.42, green: 0.88, blue: 1.0).opacity(active ? 0.42 : 0.10),
-                                Color(red: 0.58, green: 0.52, blue: 0.98).opacity(active ? 0.34 : 0.10),
-                                Color(red: 0.42, green: 0.88, blue: 1.0).opacity(active ? 0.42 : 0.10)
-                            ]),
-                            center: .center
-                        )
-                    )
-                    .frame(width: 188, height: 188)
-                    .blur(radius: active ? 18 : 24)
-                    .scaleEffect(active ? 0.94 + normalizedLevel * 0.30 : 0.86)
-
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                Color(red: 0.40, green: 0.78, blue: 1.0).opacity(active ? 0.98 : 0.40),
-                                Color(red: 0.21, green: 0.52, blue: 0.97).opacity(active ? 0.92 : 0.30),
-                                Color(red: 0.40, green: 0.26, blue: 0.86).opacity(active ? 0.82 : 0.20)
-                            ],
-                            center: .center,
-                            startRadius: 2,
-                            endRadius: 52
-                        )
-                    )
-                    .frame(width: 96, height: 96)
-                    .scaleEffect(active ? 0.88 + normalizedLevel * 1.18 : 0.78)
-                    .shadow(color: Color(red: 0.34, green: 0.72, blue: 1.0).opacity(active ? 0.34 : 0.12), radius: 24, x: 0, y: 12)
-
-                Circle()
-                    .strokeBorder(Color.white.opacity(active ? 0.38 : 0.18), lineWidth: 2)
-                    .frame(width: 120, height: 120)
-                    .scaleEffect(active ? 0.94 + normalizedLevel * 0.30 : 0.9)
-                    .opacity(active ? 0.8 : 0.35)
-
-                Circle()
-                    .strokeBorder(Color.white.opacity(active ? 0.22 : 0.08), lineWidth: 1)
-                    .frame(width: 148, height: 148)
-                    .scaleEffect(active ? 0.92 + normalizedLevel * 0.46 : 0.86)
-                    .opacity(active ? 0.6 : 0.18)
+    private var orbColor: [Color] {
+        switch phase {
+        case .recording:
+            if isSpeaking {
+                return [
+                    Color(red: 1.0, green: 0.47, blue: 0.45),
+                    Color(red: 0.92, green: 0.20, blue: 0.22),
+                    Color(red: 0.63, green: 0.06, blue: 0.10)
+                ]
             }
-            .frame(height: 240)
-            .animation(.spring(response: 0.18, dampingFraction: 0.74), value: normalizedLevel)
-            .animation(.easeInOut(duration: 0.28), value: active)
+            return [
+                Color(red: 1.0, green: 0.87, blue: 0.44),
+                Color(red: 0.93, green: 0.70, blue: 0.10),
+                Color(red: 0.73, green: 0.49, blue: 0.04)
+            ]
+        case .transcribing, .thinking, .speaking, .done:
+            return [
+                Color(red: 0.56, green: 0.94, blue: 0.65),
+                Color(red: 0.20, green: 0.74, blue: 0.38),
+                Color(red: 0.07, green: 0.52, blue: 0.25)
+            ]
+        case .noSpeech, .transcribeEmpty:
+            return [
+                Color(red: 1.0, green: 0.87, blue: 0.44),
+                Color(red: 0.93, green: 0.70, blue: 0.10),
+                Color(red: 0.73, green: 0.49, blue: 0.04)
+            ]
+        case .error:
+            return [
+                Color(red: 1.0, green: 0.67, blue: 0.67),
+                Color(red: 0.87, green: 0.28, blue: 0.34),
+                Color(red: 0.62, green: 0.12, blue: 0.18)
+            ]
+        case .cancelled, .idle:
+            return [
+                Color(red: 0.76, green: 0.82, blue: 0.93),
+                Color(red: 0.52, green: 0.60, blue: 0.76),
+                Color(red: 0.34, green: 0.40, blue: 0.56)
+            ]
+        }
+    }
 
-            Text(active ? "正在听你说话" : "等待录音开始")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color.secondary)
+    private var pulseScale: Double {
+        if phase == .recording && isSpeaking {
+            return 0.95 + normalizedLevel * 1.28
+        }
+        return 0.96
+    }
+
+    var body: some View {
+        ZStack {
+            TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let breathing = 1.0 + 0.035 * sin(t * 2.1)
+
+                ZStack {
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    orbColor[0].opacity(active ? 0.28 : 0.12),
+                                    orbColor[1].opacity(active ? 0.18 : 0.07),
+                                    Color.clear
+                                ],
+                                center: .center,
+                                startRadius: 14,
+                                endRadius: 144
+                            )
+                        )
+                        .frame(width: 260, height: 260)
+                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * 0.24 : 0.94))
+                        .blur(radius: 12)
+
+                    Circle()
+                        .fill(
+                            AngularGradient(
+                                gradient: Gradient(colors: [
+                                    orbColor[0].opacity(active ? 0.30 : 0.10),
+                                    orbColor[1].opacity(active ? 0.22 : 0.08),
+                                    orbColor[0].opacity(active ? 0.30 : 0.10)
+                                ]),
+                                center: .center
+                            )
+                        )
+                        .frame(width: 192, height: 192)
+                        .blur(radius: 20)
+                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * 0.16 : 0.96))
+
+                    if phase == .recording && !isSpeaking {
+                        Circle()
+                            .trim(from: 0, to: max(0.02, timeoutProgress))
+                            .stroke(
+                                orbColor[1],
+                                style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                            )
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: 170, height: 170)
+                            .opacity(0.95)
+                    }
+
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    orbColor[0].opacity(0.98),
+                                    orbColor[1].opacity(0.92),
+                                    orbColor[2].opacity(0.82)
+                                ],
+                                center: .center,
+                                startRadius: 4,
+                                endRadius: 58
+                            )
+                        )
+                        .frame(width: 104, height: 104)
+                        .scaleEffect(breathing * pulseScale)
+                        .shadow(color: orbColor[1].opacity(active ? 0.34 : 0.14), radius: 24, x: 0, y: 12)
+                }
+                .frame(height: 250)
+            }
         }
         .padding(.vertical, 4)
     }

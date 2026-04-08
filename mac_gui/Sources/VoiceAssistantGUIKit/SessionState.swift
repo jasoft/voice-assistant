@@ -4,6 +4,8 @@ public enum SessionPhase: String, Equatable {
     case idle
     case recording
     case transcribing
+    case noSpeech
+    case transcribeEmpty
     case thinking
     case speaking
     case done
@@ -18,6 +20,8 @@ public enum SessionStateError: Error {
 public struct SessionState: Equatable {
     public var phase: SessionPhase = .idle
     public var audioLevel: Double = 0.0
+    public var audioSpeaking: Bool = false
+    public var timeoutProgress: Double = 0.0
     public var transcript: String = ""
     public var reply: String = ""
     public var errorMessage: String = ""
@@ -46,6 +50,16 @@ public struct SessionState: Equatable {
                 audioLevel = max(0.0, min(level, 1.0))
             } else if let level = payload["level"] as? NSNumber {
                 audioLevel = max(0.0, min(level.doubleValue, 1.0))
+            }
+            if let speaking = payload["speaking"] as? Bool {
+                audioSpeaking = speaking
+            } else if let speaking = payload["speaking"] as? NSNumber {
+                audioSpeaking = speaking.boolValue
+            }
+            if let progress = payload["timeout_progress"] as? Double {
+                timeoutProgress = max(0.0, min(progress, 1.0))
+            } else if let progress = payload["timeout_progress"] as? NSNumber {
+                timeoutProgress = max(0.0, min(progress.doubleValue, 1.0))
             }
         case "transcript":
             if let text = payload["text"] as? String {
@@ -82,16 +96,30 @@ public struct SessionState: Equatable {
         switch phaseValue {
         case "recording":
             phase = .recording
+            timeoutProgress = 0.0
         case "transcribing":
             phase = .transcribing
+            audioSpeaking = false
+            timeoutProgress = 1.0
+        case "no_speech":
+            phase = .noSpeech
+            audioSpeaking = false
+            timeoutProgress = 1.0
+        case "transcribe_empty":
+            phase = .transcribeEmpty
+            audioSpeaking = false
+            timeoutProgress = 1.0
         case "thinking":
             phase = .thinking
         case "speaking":
             phase = .speaking
         case "done":
             phase = .done
+            audioSpeaking = false
+            timeoutProgress = 1.0
         case "cancelled":
             phase = .cancelled
+            audioSpeaking = false
         default:
             break
         }
