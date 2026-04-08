@@ -4,6 +4,7 @@ mac_gui/.build/
 output.wav
 press_to_talk.egg-info/
 press_to_talk/__pycache__/
+press_to_talk/storage/__pycache__/
 scripts/__pycache__/
 tests/__pycache__/
 tmp/
