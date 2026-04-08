@@ -566,6 +566,7 @@ class VisualRecorder:
         should_stop_stream = False
         audio_level = 0.0
         is_speech = False
+        pending_diagnostic: tuple[str, str, str] | None = None
         with self.lock:
             self.frames.append(chunk)
             self.total_samples += frames
@@ -594,13 +595,13 @@ class VisualRecorder:
                 if is_speech:
                     self.speech_started = True
                     self.silent_samples = 0
-                    self._emit_diagnostic(
+                    pending_diagnostic = (
                         "speech-started",
                         "success",
                         "已检测到声音，正在录音",
                     )
                 elif self.total_samples >= self.no_speech_timeout_target:
-                    self._emit_diagnostic(
+                    pending_diagnostic = (
                         "no-speech-timeout",
                         "warning",
                         "未检测到语音，请检查麦克风或提高说话音量",
@@ -617,6 +618,8 @@ class VisualRecorder:
             if self.should_stop:
                 should_stop_stream = True
 
+        if pending_diagnostic is not None:
+            self._emit_diagnostic(*pending_diagnostic)
         self.events.emit("audio_level", level=audio_level, rms=rms, speaking=is_speech)
         if should_stop_stream:
             raise self.sd.CallbackStop()

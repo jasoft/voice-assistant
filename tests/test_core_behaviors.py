@@ -3,7 +3,10 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+
+import numpy as np
 
 from press_to_talk import core
 
@@ -96,6 +99,64 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(kwargs["json"]["transcript"], "你好")
         self.assertEqual(kwargs["json"]["reply"], "在这里")
         self.assertTrue(kwargs["json"]["auto_closed"])
+
+
+class NonReentrantLock:
+    def __init__(self) -> None:
+        self._held = False
+
+    def __enter__(self) -> "NonReentrantLock":
+        if self._held:
+            raise AssertionError("lock re-entered")
+        self._held = True
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._held = False
+
+
+class RecorderCallbackTests(unittest.TestCase):
+    def test_callback_does_not_reenter_lock_when_speech_starts(self) -> None:
+        recorder = core.VisualRecorder.__new__(core.VisualRecorder)
+        recorder.np = np
+        recorder.sd = SimpleNamespace(CallbackStop=RuntimeError)
+        recorder.cfg = SimpleNamespace(
+            threshold=0.02,
+            sample_rate=16000,
+            channels=1,
+            silence_seconds=3.0,
+            no_speech_timeout_seconds=2.0,
+            calibration_seconds=0.3,
+        )
+        recorder.events = core.GuiEventWriter(enabled=False)
+        recorder.frames = []
+        recorder.total_samples = 0
+        recorder.silent_samples = 0
+        recorder.silence_target = int(recorder.cfg.silence_seconds * recorder.cfg.sample_rate)
+        recorder.no_speech_timeout_target = int(
+            recorder.cfg.no_speech_timeout_seconds * recorder.cfg.sample_rate
+        )
+        recorder.calibration_target = 0
+        recorder.calibration_rms = []
+        recorder.last_rms = 0.0
+        recorder.ema_rms = 0.0
+        recorder.is_speech_active = False
+        recorder.speech_started = False
+        recorder.effective_threshold = recorder.cfg.threshold
+        recorder.should_stop = False
+        recorder.audio_level_peak = 0.0
+        recorder.audio_level_sum = 0.0
+        recorder.audio_level_count = 0
+        recorder.last_audio_status_text = ""
+        recorder.last_diagnostic_key = ""
+        recorder.lock = NonReentrantLock()
+
+        chunk = np.full((160, 1), 0.2, dtype=np.float32)
+
+        recorder._callback(chunk, 160, None, None)
+
+        self.assertTrue(recorder.speech_started)
+        self.assertGreater(recorder.audio_level_peak, 0.0)
 
 
 if __name__ == "__main__":
