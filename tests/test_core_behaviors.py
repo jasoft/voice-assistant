@@ -1,42 +1,57 @@
 from __future__ import annotations
 
-import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
 
 import numpy as np
 
 from press_to_talk import core
+from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageService
+
+
+class FakeRememberStore:
+    def add(self, **kwargs) -> str:
+        return f"ADD:{kwargs['item']}:{kwargs['content']}"
+
+    def find(self, *, query: str) -> str:
+        return f"FIND:{query}"
+
+    def list_recent(self, *, limit: int = 20) -> str:
+        return "LIST"
+
+
+class FakeStorageService:
+    def __init__(self) -> None:
+        self.history_entries: list[SessionHistoryRecord] = []
+
+    def remember_store(self) -> FakeRememberStore:
+        return FakeRememberStore()
+
+    def history_store(self) -> "FakeStorageService":
+        return self
+
+    def persist(self, entry: SessionHistoryRecord) -> None:
+        self.history_entries.append(entry)
 
 
 class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_remember_find_uses_current_python_interpreter(self) -> None:
+    async def test_remember_find_uses_storage_backend(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
-        agent.remember_script = Path("/tmp/manage_items.py")
+        agent.storage = FakeStorageService()
 
-        fake_proc = AsyncMock()
-        fake_proc.communicate.return_value = (b"ok", b"")
+        result = await core.OpenAICompatibleAgent._execute_remember_tool(
+            agent,
+            "remember_find",
+            {"query": "护照"},
+        )
 
-        with patch(
-            "press_to_talk.core.asyncio.create_subprocess_exec",
-            new=AsyncMock(return_value=fake_proc),
-        ) as create_proc:
-            await core.OpenAICompatibleAgent._execute_remember_tool(
-                agent,
-                "remember_find",
-                {"query": "护照"},
-            )
-
-        cmd = create_proc.await_args.args
-        self.assertEqual(cmd[0], sys.executable)
-        self.assertEqual(cmd[1], "/tmp/manage_items.py")
-        self.assertEqual(cmd[2:], ("find", "护照"))
+        self.assertEqual(result, "FIND:护照")
 
     async def test_remember_unknown_tool_returns_error(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
-        agent.remember_script = Path("/tmp/manage_items.py")
+        agent.storage = FakeStorageService()
 
         result = await core.OpenAICompatibleAgent._execute_remember_tool(
             agent,
@@ -81,8 +96,9 @@ class ThinkTagFilterTests(unittest.TestCase):
 
 
 class HistoryWriterTests(unittest.TestCase):
-    def test_history_writer_posts_session_payload(self) -> None:
-        writer = core.HistoryWriter("http://nocodb.local", "token-123", "table-456")
+    def test_history_writer_persists_to_storage_service(self) -> None:
+        service = FakeStorageService()
+        writer = core.HistoryWriter(service)
         entry = core.SessionHistory(
             session_id="session-1",
             started_at="2026-04-08T17:00:00+08:00",
@@ -96,21 +112,81 @@ class HistoryWriterTests(unittest.TestCase):
             mode="gui",
         )
 
-        with patch("press_to_talk.core.requests.post") as post:
-            post.return_value.status_code = 200
-            writer.persist(entry)
+        writer.persist(entry)
 
-        post.assert_called_once()
-        args, kwargs = post.call_args
-        self.assertEqual(
-            args[0],
-            "http://nocodb.local/api/v2/tables/table-456/records",
-        )
-        self.assertEqual(kwargs["headers"]["xc-token"], "token-123")
-        self.assertEqual(kwargs["json"]["session_id"], "session-1")
-        self.assertEqual(kwargs["json"]["transcript"], "你好")
-        self.assertEqual(kwargs["json"]["reply"], "在这里")
-        self.assertTrue(kwargs["json"]["auto_closed"])
+        self.assertEqual(len(service.history_entries), 1)
+        stored = service.history_entries[0]
+        self.assertEqual(stored.session_id, "session-1")
+        self.assertEqual(stored.transcript, "你好")
+        self.assertEqual(stored.reply, "在这里")
+        self.assertTrue(stored.auto_closed)
+
+    def test_sqlite_storage_persists_and_lists_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = StorageService(
+                StorageConfig(
+                    backend="sqlite",
+                    sqlite_path=Path(tmpdir) / "assistant.db",
+                    remember_nocodb_url="",
+                    remember_nocodb_token="",
+                    remember_nocodb_table_id="",
+                    history_nocodb_url="",
+                    history_nocodb_token="",
+                    history_nocodb_table_id="",
+                )
+            )
+            try:
+                entry = SessionHistoryRecord(
+                    session_id="session-sqlite-1",
+                    started_at="2026-04-08T17:00:00+08:00",
+                    ended_at="2026-04-08T17:01:00+08:00",
+                    transcript="你好",
+                    reply="在这里",
+                    peak_level=0.87,
+                    mean_level=0.41,
+                    auto_closed=True,
+                    reopened_by_click=False,
+                    mode="gui",
+                )
+
+                service.history_store().persist(entry)
+                records = service.history_store().list_recent(limit=5)
+
+                self.assertEqual(len(records), 1)
+                self.assertEqual(records[0].session_id, "session-sqlite-1")
+                self.assertEqual(records[0].reply, "在这里")
+            finally:
+                service.close()
+
+    def test_sqlite_remember_store_can_add_and_find(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = StorageService(
+                StorageConfig(
+                    backend="sqlite",
+                    sqlite_path=Path(tmpdir) / "assistant.db",
+                    remember_nocodb_url="",
+                    remember_nocodb_token="",
+                    remember_nocodb_table_id="",
+                    history_nocodb_url="",
+                    history_nocodb_token="",
+                    history_nocodb_table_id="",
+                )
+            )
+            try:
+                add_result = service.remember_store().add(
+                    item="护照",
+                    content="书房抽屉里",
+                    record_type="location",
+                    note="蓝色封皮",
+                    original_text="帮我记住护照在书房抽屉里",
+                )
+                find_result = service.remember_store().find(query="护照")
+
+                self.assertIn("✅ 已记录", add_result)
+                self.assertIn("护照", find_result)
+                self.assertIn("书房抽屉里", find_result)
+            finally:
+                service.close()
 
 
 class NonReentrantLock:

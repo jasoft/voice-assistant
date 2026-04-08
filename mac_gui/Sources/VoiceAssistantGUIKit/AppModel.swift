@@ -16,7 +16,6 @@ public final class AppModel: ObservableObject {
     @Published public var historyError: String?
 
     private let bridge: PTTProcessBridge
-    private let historyStore: HistoryStore?
     private let forwardedArgs: [String]
     private let workingDirectory: URL
     private var cancellables = Set<AnyCancellable>()
@@ -27,7 +26,6 @@ public final class AppModel: ObservableObject {
         self.forwardedArgs = forwardedArgs
         self.workingDirectory = workingDirectory
         self.bridge = PTTProcessBridge(viewModel: session)
-        self.historyStore = HistoryStore.fromEnvironment()
         session.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -60,14 +58,11 @@ public final class AppModel: ObservableObject {
     }
 
     public func loadHistory() {
-        guard let historyStore else {
-            historyError = "未配置历史记录 NocoDB"
-            return
-        }
         isLoadingHistory = true
         historyError = nil
         Task { @MainActor in
             do {
+                let historyStore = HistoryStore.fromEnvironment(workingDirectory: workingDirectory)
                 historyEntries = try await historyStore.loadRecent(limit: 10)
             } catch {
                 historyError = error.localizedDescription

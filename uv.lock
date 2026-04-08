@@ -481,6 +481,15 @@ wheels = [
 ]
 
 [[package]]
+name = "peewee"
+version = "4.0.4"
+source = { registry = "https://mirrors.cernet.edu.cn/pypi/web/simple" }
+sdist = { url = "https://mirror.nju.edu.cn/pypi/web/packages/ad/8e/8fe6b93914ed40b9cb5162e45e1be4f8bb8cf7f5a49333aa1a2d383e4870/peewee-4.0.4.tar.gz", hash = "sha256:70e07c14a10bec8d663514bda5854e44ef15d5b03974b41f7218066b6fd3a065" }
+wheels = [
+    { url = "https://mirror.nju.edu.cn/pypi/web/packages/c0/9b/bee274b72adc7c692bf7cb8d6b0cd4071acf2957e82dace45d3f2770470e/peewee-4.0.4-py3-none-any.whl", hash = "sha256:37ccd3f89e523c7b42eed023cd90b48d088753ddff1d74e854a9c6445e7bd797" },
+]
+
+[[package]]
 name = "press-to-talk"
 version = "0.1.0"
 source = { editable = "." }
@@ -488,6 +497,7 @@ dependencies = [
     { name = "mcp" },
     { name = "numpy" },
     { name = "openai" },
+    { name = "peewee" },
     { name = "pynput" },
     { name = "requests" },
     { name = "rich" },
@@ -499,6 +509,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.2.1" },
     { name = "numpy", specifier = ">=2.2.0" },
     { name = "openai", specifier = ">=1.40.0" },
+    { name = "peewee", specifier = ">=3.17.0" },
     { name = "pynput", specifier = ">=1.7.7" },
     { name = "requests", specifier = ">=2.32.0" },
     { name = "rich", specifier = ">=13.7.0" },

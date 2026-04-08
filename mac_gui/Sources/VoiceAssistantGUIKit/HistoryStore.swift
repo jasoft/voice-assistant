@@ -1,6 +1,6 @@
 import Foundation
 
-public struct HistoryEntry: Identifiable, Equatable {
+public struct HistoryEntry: Identifiable, Equatable, Decodable {
     public let id: String
     public let startedAt: String
     public let endedAt: String
@@ -11,165 +11,85 @@ public struct HistoryEntry: Identifiable, Equatable {
     public let autoClosed: Bool
     public let reopenedByClick: Bool
     public let mode: String
+
+    enum CodingKeys: String, CodingKey {
+        case id = "session_id"
+        case startedAt = "started_at"
+        case endedAt = "ended_at"
+        case transcript
+        case reply
+        case peakLevel = "peak_level"
+        case meanLevel = "mean_level"
+        case autoClosed = "auto_closed"
+        case reopenedByClick = "reopened_by_click"
+        case mode
+    }
 }
 
 public final class HistoryStore {
-    private let url: String
-    private let token: String
-    private let tableId: String
+    private let workingDirectory: URL
 
-    public init(url: String, token: String, tableId: String) {
-        self.url = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.token = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.tableId = tableId.trimmingCharacters(in: .whitespacesAndNewlines)
+    public init(workingDirectory: URL) {
+        self.workingDirectory = workingDirectory
     }
 
-    public static func fromEnvironment() -> HistoryStore? {
-        let env = EnvironmentConfig.load()
-        guard !env.url.isEmpty, !env.token.isEmpty, !env.tableId.isEmpty else {
-            return nil
-        }
-        return HistoryStore(url: env.url, token: env.token, tableId: env.tableId)
+    public static func fromEnvironment(workingDirectory: URL) -> HistoryStore {
+        HistoryStore(workingDirectory: workingDirectory)
     }
 
     public func loadRecent(limit: Int) async throws -> [HistoryEntry] {
-        guard let requestURL = URL(string: url) else {
-            throw NSError(domain: "HistoryStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "无效的 NocoDB URL"])
-        }
-        var components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false)
-        components?.path = "/api/v2/tables/\(tableId)/records"
-        components?.queryItems = [
-            URLQueryItem(name: "limit", value: String(limit)),
-            URLQueryItem(name: "sort", value: "-CreatedAt")
+        let resolvedWorkingDirectory = resolveWorkingDirectory(startingAt: workingDirectory)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "press_to_talk.storage_cli",
+            "list-history",
+            "--limit",
+            String(limit),
         ]
-        guard let finalURL = components?.url else {
-            throw NSError(domain: "HistoryStore", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法构建历史请求 URL"])
+        process.currentDirectoryURL = resolvedWorkingDirectory
+
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        if process.terminationStatus != 0 {
+            let message = String(decoding: stderrData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw NSError(
+                domain: "HistoryStore",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: message.isEmpty ? "历史记录请求失败" : message]
+            )
         }
-        var request = URLRequest(url: finalURL)
-        request.setValue(token, forHTTPHeaderField: "xc-token")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw NSError(domain: "HistoryStore", code: 3, userInfo: [NSLocalizedDescriptionKey: "历史记录请求失败"])
-        }
-        guard
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let list = json["list"] as? [[String: Any]]
-        else {
-            return []
-        }
-        return list.compactMap(HistoryEntry.init(record:))
+
+        let decoder = JSONDecoder()
+        return try decoder.decode([HistoryEntry].self, from: data)
     }
-}
 
-extension HistoryEntry {
-    fileprivate init?(record: [String: Any]) {
-        func string(_ keys: [String]) -> String {
-            for key in keys {
-                if let value = record[key] as? String {
-                    return value
-                }
-                if let value = record[key] as? NSNumber {
-                    return value.stringValue
-                }
+    private func resolveWorkingDirectory(startingAt directory: URL) -> URL {
+        var cursor = directory
+        let fm = FileManager.default
+        for _ in 0..<5 {
+            let marker = cursor.appendingPathComponent("press_to_talk/core.py").path
+            if fm.fileExists(atPath: marker) {
+                return cursor
             }
-            return ""
-        }
-        func double(_ keys: [String]) -> Double {
-            for key in keys {
-                if let value = record[key] as? Double {
-                    return value
-                }
-                if let value = record[key] as? NSNumber {
-                    return value.doubleValue
-                }
-                if let value = record[key] as? String, let parsed = Double(value) {
-                    return parsed
-                }
+            let parent = cursor.deletingLastPathComponent()
+            if parent.path == cursor.path {
+                break
             }
-            return 0
+            cursor = parent
         }
-        func bool(_ keys: [String]) -> Bool {
-            for key in keys {
-                if let value = record[key] as? Bool {
-                    return value
-                }
-                if let value = record[key] as? NSNumber {
-                    return value.boolValue
-                }
-                if let value = record[key] as? String {
-                    return ["1", "true", "yes"].contains(value.lowercased())
-                }
-            }
-            return false
-        }
-
-        let sessionId = string(["session_id", "Session ID"])
-        guard !sessionId.isEmpty else {
-            return nil
-        }
-        self.id = sessionId
-        self.startedAt = string(["started_at", "Started At"])
-        self.endedAt = string(["ended_at", "Ended At"])
-        self.transcript = string(["transcript", "Transcript"])
-        self.reply = string(["reply", "Reply"])
-        self.peakLevel = double(["peak_level", "Peak Level"])
-        self.meanLevel = double(["mean_level", "Mean Level"])
-        self.autoClosed = bool(["auto_closed", "Auto Closed"])
-        self.reopenedByClick = bool(["reopened_by_click", "Reopened By Click"])
-        self.mode = string(["mode", "Mode"])
+        return directory
     }
-}
-
-private struct EnvironmentConfig {
-    let url: String
-    let token: String
-    let tableId: String
-
-    static func load() -> EnvironmentConfig {
-        let env = ProcessInfo.processInfo.environment
-        let loaded = loadDotEnv()
-        return EnvironmentConfig(
-            url: env["VOICE_ASSISTANT_HISTORY_NOCODB_URL"]
-                ?? loaded["VOICE_ASSISTANT_HISTORY_NOCODB_URL"]
-                ?? env["REMEMBER_NOCODB_URL"]
-                ?? loaded["REMEMBER_NOCODB_URL"]
-                ?? "",
-            token: env["VOICE_ASSISTANT_HISTORY_NOCODB_API_TOKEN"]
-                ?? loaded["VOICE_ASSISTANT_HISTORY_NOCODB_API_TOKEN"]
-                ?? env["REMEMBER_NOCODB_API_TOKEN"]
-                ?? loaded["REMEMBER_NOCODB_API_TOKEN"]
-                ?? "",
-            tableId: env["VOICE_ASSISTANT_HISTORY_NOCODB_TABLE_ID"]
-                ?? loaded["VOICE_ASSISTANT_HISTORY_NOCODB_TABLE_ID"]
-                ?? "mnyqkvfvqub1pnb"
-        )
-    }
-}
-
-private func loadDotEnv() -> [String: String] {
-    let fm = FileManager.default
-    let cwd = URL(fileURLWithPath: fm.currentDirectoryPath)
-    let candidates = [
-        cwd.appendingPathComponent(".env"),
-        cwd.deletingLastPathComponent().appendingPathComponent(".env"),
-        cwd.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".env")
-    ]
-    for url in candidates where fm.fileExists(atPath: url.path) {
-        if let data = try? String(contentsOf: url, encoding: .utf8) {
-            var values: [String: String] = [:]
-            for rawLine in data.split(whereSeparator: \.isNewline) {
-                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !line.isEmpty, !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else {
-                    continue
-                }
-                let key = String(line[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let value = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !key.isEmpty {
-                    values[key] = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                }
-            }
-            return values
-        }
-    }
-    return [:]
 }

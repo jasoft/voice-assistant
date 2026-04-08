@@ -1,0 +1,36 @@
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import asdict
+
+from .storage import StorageService
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="press-to-talk-storage")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    parser_history = subparsers.add_parser("list-history", help="List recent history records as JSON")
+    parser_history.add_argument("--limit", type=int, default=10)
+
+    subparsers.add_parser("sync-nocodb-to-sqlite", help="Copy NocoDB remember/history data into local sqlite")
+
+    args = parser.parse_args()
+    service = StorageService.from_env()
+
+    if args.command == "list-history":
+        records = service.history_store().list_recent(limit=max(1, args.limit))
+        print(json.dumps([asdict(item) for item in records], ensure_ascii=False))
+        return 0
+
+    if args.command == "sync-nocodb-to-sqlite":
+        summary = service.sync_nocodb_to_sqlite()
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

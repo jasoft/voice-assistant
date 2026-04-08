@@ -43,10 +43,12 @@ uv run press-to-talk --text-input "帮我记一下明天上午十点开会" --no
 - `OPENAI_BASE_URL`：兼容 OpenAI 协议的服务地址
 - `BRAVE_API_KEY`：Brave Search API Key
 - `PTT_STT_URL` / `PTT_STT_TOKEN`：STT 服务地址和鉴权
-- `URSOFT_REMEMBER_SCRIPT`：remember 工具脚本路径，默认指向 `~/Projects/ursoft-skills/skills/remember/scripts/manage_items.py`
 - `PTT_MODEL`：意图抽取与对话使用的模型名
 - `PTT_LOG_DIR`：运行日志目录，默认写到项目根目录下的 `logs/`
-- `VOICE_ASSISTANT_HISTORY_NOCODB_TABLE_ID`：GUI 会话历史记录表 ID，默认指向 `Voice Assistant History`
+- `VOICE_ASSISTANT_DATA_BACKEND`：数据源后端，支持 `nocodb` 和 `sqlite`
+- `VOICE_ASSISTANT_SQLITE_PATH`：SQLite 数据库路径，默认写到 `data/voice_assistant.sqlite3`
+- `REMEMBER_NOCODB_URL` / `REMEMBER_NOCODB_API_TOKEN` / `REMEMBER_NOCODB_TABLE_ID`：remember 数据的 NocoDB 配置
+- `VOICE_ASSISTANT_HISTORY_NOCODB_URL` / `VOICE_ASSISTANT_HISTORY_NOCODB_API_TOKEN` / `VOICE_ASSISTANT_HISTORY_NOCODB_TABLE_ID`：历史记录数据的 NocoDB 配置
 - 其余录音阈值、TTS 参数、输出路径也都支持从 `.env` 覆盖
 
 ## 开发说明
@@ -61,6 +63,18 @@ uv run press-to-talk --text-input "帮我记一下明天上午十点开会" --no
 - 回归样本：`--intent-samples-file testdata/intent_samples.jsonl`
 - 记忆语义：`record` 覆盖位置、日期、特征、事件、备注，不再局限于 location
 - 运行日志：每次启动都会自动写一份会话日志到 `logs/`
+- 数据后端：remember 和历史记录都统一走 `StorageService`，可用环境变量在 `NocoDB` 和 `SQLite` 之间切换
+
+## 数据同步
+
+首次切到桌面本地模式时，可以先把 NocoDB 的 remember 和历史记录导入到 SQLite：
+
+```bash
+uv run press-to-talk --sync-nocodb-to-sqlite --data-backend sqlite
+uv run python -m press_to_talk.storage_cli sync-nocodb-to-sqlite
+```
+
+导入完成后，把 `VOICE_ASSISTANT_DATA_BACKEND=sqlite` 写进 `.env`，GUI 历史页和 remember 工具都会统一读写本地 SQLite。
 
 ## 回归测试
 

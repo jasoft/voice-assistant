@@ -21,7 +21,11 @@ from pathlib import Path
 from threading import Lock, Thread
 from typing import Any, TextIO
 
-import requests
+from press_to_talk.storage import (
+    SessionHistoryRecord,
+    StorageConfig,
+    StorageService,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PTT_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -116,6 +120,19 @@ def load_workflow_defaults() -> dict[str, Any]:
     return json.loads(json.dumps(MINIMAL_WORKFLOW))
 
 
+def build_storage_config(cfg: Config) -> StorageConfig:
+    return StorageConfig(
+        backend=cfg.data_backend,
+        sqlite_path=cfg.sqlite_path,
+        remember_nocodb_url=env_str("REMEMBER_NOCODB_URL", "").strip(),
+        remember_nocodb_token=env_str("REMEMBER_NOCODB_API_TOKEN", "").strip(),
+        remember_nocodb_table_id=env_str("REMEMBER_NOCODB_TABLE_ID", "").strip(),
+        history_nocodb_url=cfg.history_nocodb_url,
+        history_nocodb_token=cfg.history_nocodb_token,
+        history_nocodb_table_id=cfg.history_nocodb_table_id,
+    )
+
+
 def default_remember_script_path() -> Path:
     return PROJECT_ROOT.parent / "ursoft-skills/skills/remember/scripts/manage_items.py"
 
@@ -152,6 +169,9 @@ class Config:
     history_nocodb_url: str
     history_nocodb_token: str
     history_nocodb_table_id: str
+    data_backend: str
+    sqlite_path: Path
+    sync_nocodb_to_sqlite: bool
     debug: bool
     llm_api_key: str
     llm_base_url: str
@@ -397,39 +417,32 @@ def format_history_timestamp(ts: datetime | None = None) -> str:
 
 
 class HistoryWriter:
-    def __init__(self, url: str, token: str, table_id: str) -> None:
-        self.url = url.strip()
-        self.token = token.strip()
-        self.table_id = table_id.strip()
+    def __init__(self, service: StorageService) -> None:
+        self.service = service
 
     @property
     def enabled(self) -> bool:
-        return bool(self.url and self.token and self.table_id)
+        return True
 
     @classmethod
     def from_config(cls, cfg: Config) -> "HistoryWriter":
-        return cls(cfg.history_nocodb_url, cfg.history_nocodb_token, cfg.history_nocodb_table_id)
+        return cls(StorageService(build_storage_config(cfg)))
 
     def persist(self, entry: SessionHistory) -> None:
-        if not self.enabled:
-            return
-        url = f"{self.url.rstrip('/')}/api/v2/tables/{self.table_id}/records"
-        payload = {
-            "session_id": entry.session_id,
-            "started_at": entry.started_at,
-            "ended_at": entry.ended_at,
-            "transcript": entry.transcript,
-            "reply": entry.reply,
-            "peak_level": round(entry.peak_level, 6),
-            "mean_level": round(entry.mean_level, 6),
-            "auto_closed": bool(entry.auto_closed),
-            "reopened_by_click": bool(entry.reopened_by_click),
-            "mode": entry.mode,
-        }
-        headers = {"Content-Type": "application/json", "xc-token": self.token}
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-        if response.status_code not in (200, 201):
-            raise RuntimeError(response.text)
+        self.service.history_store().persist(
+            SessionHistoryRecord(
+                session_id=entry.session_id,
+                started_at=entry.started_at,
+                ended_at=entry.ended_at,
+                transcript=entry.transcript,
+                reply=entry.reply,
+                peak_level=entry.peak_level,
+                mean_level=entry.mean_level,
+                auto_closed=entry.auto_closed,
+                reopened_by_click=entry.reopened_by_click,
+                mode=entry.mode,
+            )
+        )
 
 
 def write_wav(path: Path, audio: np.ndarray, sample_rate: int, channels: int) -> None:
@@ -872,6 +885,7 @@ class OpenAICompatibleAgent:
         self.cfg = cfg
         self.model = cfg.llm_model
         self.remember_script = cfg.remember_script
+        self.storage = StorageService(build_storage_config(cfg))
         self.messages: list[Any] = []
         self._load_workflow_config()
 
@@ -1126,35 +1140,24 @@ class OpenAICompatibleAgent:
         }
 
     async def _execute_remember_tool(self, name: str, args: dict) -> str:
-        cmd = [sys.executable, str(self.remember_script)]
         log(f"remember tool request: name={name} args={json.dumps(args, ensure_ascii=False)}")
-        if name == "remember_add":
-            content = args.get("content", "") or args.get("location", "")
-            cmd.extend(["add", args["item"], content])
-            if args.get("type"):
-                cmd.extend(["--type", str(args["type"])])
-            if args.get("note"):
-                cmd.extend(["--note", str(args["note"])])
-            if args.get("original_text"):
-                cmd.extend(["--original-text", str(args["original_text"])])
-            if args.get("image"):
-                cmd.extend(["--image", args["image"]])
-        elif name == "remember_find":
-            cmd.extend(["find", args["query"]])
-        elif name == "remember_list":
-            cmd.append("list")
-        else:
-            return f"Error: Unknown tool {name}"
-
+        remember_store = self.storage.remember_store()
         try:
-            log(f"Executing remember tool: {' '.join(cmd)}")
-            proc = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-            output = (stdout.decode() + "\n" + stderr.decode()).strip()
-            if len(output) > 500:
-                output = output[:500] + "...(truncated)"
+            if name == "remember_add":
+                output = remember_store.add(
+                    item=str(args["item"]),
+                    content=str(args.get("content", "") or args.get("location", "")),
+                    record_type=str(args.get("type", "")),
+                    note=str(args.get("note", "")),
+                    original_text=str(args.get("original_text", "")),
+                    image=str(args.get("image", "")),
+                )
+            elif name == "remember_find":
+                output = remember_store.find(query=str(args["query"]))
+            elif name == "remember_list":
+                output = remember_store.list_recent()
+            else:
+                return f"Error: Unknown tool {name}"
             log(f"remember tool result: {preview_text(output)}")
             return output
         except Exception as e:
@@ -1567,6 +1570,22 @@ def parse_args() -> Config:
         help="NocoDB table id for session history",
     )
     parser.add_argument(
+        "--data-backend",
+        default=env_str("VOICE_ASSISTANT_DATA_BACKEND", "nocodb"),
+        help="Data backend: nocodb or sqlite",
+    )
+    parser.add_argument(
+        "--sqlite-path",
+        type=Path,
+        default=env_path("VOICE_ASSISTANT_SQLITE_PATH", APP_ROOT / "data" / "voice_assistant.sqlite3"),
+        help="SQLite database path for local desktop mode",
+    )
+    parser.add_argument(
+        "--sync-nocodb-to-sqlite",
+        action="store_true",
+        help="Copy remember/history data from NocoDB into local sqlite and exit",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="输出更详细的调试日志",
@@ -1593,6 +1612,37 @@ def parse_args() -> Config:
 
     args = parser.parse_args()
     text_input = resolve_text_input(args)
+    if args.sync_nocodb_to_sqlite:
+        return Config(
+            sample_rate=args.sample_rate,
+            channels=args.channels,
+            threshold=args.threshold,
+            silence_seconds=args.silence_seconds,
+            no_speech_timeout_seconds=args.no_speech_timeout_seconds,
+            calibration_seconds=args.calibration_seconds,
+            stt_url=args.stt_url,
+            stt_token=args.stt_token,
+            audio_file=args.audio_file,
+            text_input=text_input,
+            classify_only=args.classify_only,
+            intent_samples_file=args.intent_samples_file,
+            no_tts=args.no_tts,
+            gui_events=args.gui_events,
+            gui_auto_close_seconds=max(0, args.gui_auto_close_seconds),
+            history_nocodb_url=args.history_url,
+            history_nocodb_token=args.history_token,
+            history_nocodb_table_id=args.history_table_id,
+            data_backend=args.data_backend.strip().lower(),
+            sqlite_path=args.sqlite_path.expanduser(),
+            sync_nocodb_to_sqlite=bool(args.sync_nocodb_to_sqlite),
+            debug=args.debug,
+            llm_api_key=args.api_key,
+            llm_base_url=args.base_url,
+            llm_model=args.model,
+            workspace_root=args.workspace_root,
+            remember_script=args.remember_script,
+        )
+
     if not text_input and not args.intent_samples_file and not args.stt_url:
         parser.error("missing STT url; set PTT_STT_URL in .env or pass --stt-url")
     if not text_input and not args.intent_samples_file and not args.stt_token:
@@ -1619,6 +1669,9 @@ def parse_args() -> Config:
         history_nocodb_url=args.history_url,
         history_nocodb_token=args.history_token,
         history_nocodb_table_id=args.history_table_id,
+        data_backend=args.data_backend.strip().lower(),
+        sqlite_path=args.sqlite_path.expanduser(),
+        sync_nocodb_to_sqlite=bool(args.sync_nocodb_to_sqlite),
         debug=args.debug,
         llm_api_key=args.api_key,
         llm_base_url=args.base_url,
@@ -1711,6 +1764,13 @@ def main() -> int:
     log("ptt openai-compatible flow started")
     events.emit("session_started", auto_close_seconds=cfg.gui_auto_close_seconds)
     try:
+        if cfg.sync_nocodb_to_sqlite:
+            summary = StorageService(build_storage_config(cfg)).sync_nocodb_to_sqlite()
+            log(f"sync complete: items={summary['items']} histories={summary['histories']}")
+            if not cfg.gui_events:
+                print(json.dumps(summary, ensure_ascii=False))
+            return 0
+
         if cfg.intent_samples_file:
             log(f"llm model: {cfg.llm_model}")
             if cfg.llm_base_url:
