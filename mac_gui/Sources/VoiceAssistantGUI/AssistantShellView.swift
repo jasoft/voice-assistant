@@ -128,11 +128,13 @@ struct AssistantShellView: View {
                                     }
                                 }
 
-                                MarkdownBodyText(
-                                    text: responseCardBodyText,
-                                    fontSize: 16,
-                                    primaryColor: responseCardBodyColor
-                                )
+                                if !responseCardBodyText.isEmpty {
+                                    MarkdownBodyText(
+                                        text: responseCardBodyText,
+                                        fontSize: 16,
+                                        primaryColor: responseCardBodyColor
+                                    )
+                                }
                             }
                         }
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -296,14 +298,7 @@ struct AssistantShellView: View {
         if !model.session.state.reply.isEmpty {
             return model.session.state.reply
         }
-        switch model.session.state.phase {
-        case .thinking:
-            return "正在整理你的问题，并准备回答内容..."
-        case .speaking:
-            return "正在生成语音并准备开始回答..."
-        default:
-            return ""
-        }
+        return ""
     }
 
     private var responseCardBodyColor: Color {
