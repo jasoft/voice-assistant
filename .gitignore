@@ -1,4 +1,5 @@
 .env
+.codex/
 .superpowers/
 mac_gui/.build/
 output.wav
