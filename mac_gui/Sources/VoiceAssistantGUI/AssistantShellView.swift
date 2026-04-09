@@ -93,6 +93,11 @@ struct AssistantShellView: View {
                     errorBanner(message: errorMessage)
                 }
 
+                if model.session.state.phase == .speaking {
+                    stopSpeakingButton
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
+
                 if shouldShowTranscriptCard {
                     HistoryStyleCard(title: "LIVE TRANSCRIPTION", icon: "person.fill") {
                         Text(model.session.state.transcript)
@@ -291,6 +296,37 @@ struct AssistantShellView: View {
                 .fill(Color.white.opacity(0.88))
                 .shadow(color: Color.black.opacity(0.04), radius: 14, x: 0, y: 6)
         )
+    }
+
+    private var stopSpeakingButton: some View {
+        Button(action: {
+            model.stopSpeaking()
+        }) {
+            HStack(spacing: 10) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 14, weight: .bold))
+                Text("停止语音播放")
+                    .font(.system(size: 14, weight: .bold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.94, green: 0.24, blue: 0.28),
+                                Color(red: 0.73, green: 0.07, blue: 0.12)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .shadow(color: Color.red.opacity(0.22), radius: 16, x: 0, y: 8)
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

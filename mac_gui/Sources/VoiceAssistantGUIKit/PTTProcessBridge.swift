@@ -16,6 +16,7 @@ public final class PTTProcessBridge {
     private var receivedEvent = false
     private var generation = 0
     private var stoppedGenerations = Set<Int>()
+    private var controlDirectory: URL?
 
     public init(viewModel: SessionViewModel) {
         self.viewModel = viewModel
@@ -27,6 +28,10 @@ public final class PTTProcessBridge {
         stdoutBuffer = Data()
         stderrBuffer = Data()
         receivedEvent = false
+        let controlDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voice-assistant-gui-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: controlDirectory, withIntermediateDirectories: true)
+        self.controlDirectory = controlDirectory
 
         let resolvedWorkingDirectory = resolveWorkingDirectory(startingAt: workingDirectory)
         let process = Process()
@@ -37,6 +42,9 @@ public final class PTTProcessBridge {
         args.append(contentsOf: filtered)
         process.arguments = args
         process.currentDirectoryURL = resolvedWorkingDirectory
+        var environment = ProcessInfo.processInfo.environment
+        environment["PTT_GUI_CONTROL_DIR"] = controlDirectory.path
+        process.environment = environment
 
         let outPipe = Pipe()
         let errPipe = Pipe()
@@ -64,6 +72,7 @@ public final class PTTProcessBridge {
                     currentPhase: self.viewModel.state.phase
                 )
                 self.stoppedGenerations.remove(currentGeneration)
+                self.cleanupControlDirectory()
                 if let errorMessage = disposition.errorMessage {
                     self.emitLocalEvent(["type": "error", "message": errorMessage])
                 }
@@ -89,6 +98,14 @@ public final class PTTProcessBridge {
             process.terminate()
         }
         process = nil
+    }
+
+    public func stopSpeechPlayback() {
+        guard let controlDirectory else {
+            return
+        }
+        let signalURL = controlDirectory.appendingPathComponent("stop_tts")
+        FileManager.default.createFile(atPath: signalURL.path, contents: Data())
     }
 
     private func setupStdoutReader() {
@@ -155,6 +172,14 @@ public final class PTTProcessBridge {
             return
         }
         viewModel.apply(jsonLine: line)
+    }
+
+    private func cleanupControlDirectory() {
+        guard let controlDirectory else {
+            return
+        }
+        try? FileManager.default.removeItem(at: controlDirectory)
+        self.controlDirectory = nil
     }
 
     static func terminationDisposition(

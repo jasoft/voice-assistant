@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -93,6 +94,17 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertGreater(loud, 0.0)
         self.assertLessEqual(loud, 1.0)
         self.assertGreater(loud, quiet)
+
+    def test_consume_tts_stop_request_removes_signal_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            control_dir = Path(tmpdir)
+            signal_path = control_dir / core.TTS_STOP_SIGNAL_FILENAME
+            signal_path.write_text("stop", encoding="utf-8")
+
+            with patch.dict(core.os.environ, {"PTT_GUI_CONTROL_DIR": str(control_dir)}, clear=False):
+                self.assertTrue(core.consume_tts_stop_request())
+                self.assertFalse(signal_path.exists())
+                self.assertFalse(core.consume_tts_stop_request())
 
 
 class HistoryWriterTests(unittest.TestCase):

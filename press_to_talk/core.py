@@ -41,6 +41,7 @@ DEFAULT_LOG_DIR = APP_ROOT / "logs"
 _LOG_WRITE_LOCK = Lock()
 _SESSION_LOG_FILE: TextIO | None = None
 _SESSION_LOG_PATH: Path | None = None
+TTS_STOP_SIGNAL_FILENAME = "stop_tts"
 
 
 def log(msg: str) -> None:
@@ -467,6 +468,22 @@ def run_cmd(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProces
         msg = stderr or stdout or f"command failed with code {proc.returncode}"
         raise RuntimeError(msg)
     return proc
+
+
+def tts_stop_signal_path() -> Path | None:
+    raw = os.environ.get("PTT_GUI_CONTROL_DIR", "").strip()
+    if not raw:
+        return None
+    return Path(raw).expanduser() / TTS_STOP_SIGNAL_FILENAME
+
+
+def consume_tts_stop_request() -> bool:
+    signal_path = tts_stop_signal_path()
+    if signal_path is None or not signal_path.exists():
+        return False
+    with contextlib.suppress(OSError):
+        signal_path.unlink()
+    return True
 
 
 def parse_json_output(*streams: str) -> object:
@@ -1717,14 +1734,43 @@ def play_chime(kind: str, sample_rate: int, *, wait: bool = True) -> None:
     Thread(target=_play_file, daemon=True).start()
 
 
-def speak_text(text: str) -> None:
+def speak_text(text: str) -> bool:
     clean_text = sanitize_for_tts(text)
     if not clean_text:
         raise RuntimeError("tts text became empty after sanitize")
 
     qwen_tts = ensure_bin("qwen-tts")
     log("speaking reply with qwen-tts --play --speaker serena --stream")
-    run_cmd([qwen_tts, "--play", clean_text, "--speaker", "serena", "--stream"])
+    consume_tts_stop_request()
+    proc = subprocess.Popen(
+        [qwen_tts, "--play", clean_text, "--speaker", "serena", "--stream"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        while True:
+            if consume_tts_stop_request():
+                log("received GUI stop request for qwen-tts")
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                return False
+            code = proc.poll()
+            if code is not None:
+                stdout, stderr = proc.communicate()
+                if code != 0:
+                    msg = (stderr or stdout or f"command failed with code {code}").strip()
+                    raise RuntimeError(msg)
+                return True
+            time.sleep(0.1)
+    finally:
+        with contextlib.suppress(Exception):
+            if proc.poll() is None:
+                proc.kill()
 
 
 async def run_intent_regression(agent: OpenAICompatibleAgent, sample_path: Path) -> int:
@@ -1888,7 +1934,9 @@ def main() -> int:
         else:
             log(f"reply: {reply}")
             events.emit("status", phase="speaking")
-            speak_text(reply)
+            completed = speak_text(reply)
+            if not completed:
+                log("tts playback stopped by GUI")
             events.emit(
                 "status",
                 phase="done",

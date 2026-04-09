@@ -55,6 +55,11 @@ public final class AppModel: ObservableObject {
         bridge.stop()
     }
 
+    public func stopSpeaking() {
+        keepWindowOpen()
+        bridge.stopSpeechPlayback()
+    }
+
     public func keepWindowOpen() {
         session.pinOpen()
     }
