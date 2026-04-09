@@ -578,7 +578,7 @@ private struct RecordingOrbView: View {
 
     private var pulseScale: Double {
         if phase == .recording && isSpeaking {
-            return 0.95 + normalizedLevel * 1.28
+            return 0.92 + normalizedLevel * 0.44
         }
         return 0.96
     }
@@ -588,6 +588,12 @@ private struct RecordingOrbView: View {
             TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 let breathing = 1.0 + 0.035 * sin(t * 2.1)
+                let isLiveSpeaking = phase == .recording && isSpeaking
+                let wobbleX = sin(t * 5.4) * (isLiveSpeaking ? 10 + normalizedLevel * 14 : 4)
+                let wobbleY = cos(t * 4.7) * (isLiveSpeaking ? 8 + normalizedLevel * 10 : 3)
+                let opposingX = cos(t * 3.8 + .pi / 3) * (isLiveSpeaking ? 8 + normalizedLevel * 12 : 3)
+                let opposingY = sin(t * 4.2 + .pi / 5) * (isLiveSpeaking ? 7 + normalizedLevel * 10 : 3)
+                let blobStretch = isLiveSpeaking ? 1.0 + normalizedLevel * 0.16 : 1.0
 
                 ZStack {
                     Circle()
@@ -605,7 +611,8 @@ private struct RecordingOrbView: View {
                         )
                         .frame(width: 260, height: 260)
                         .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * 0.24 : 0.94))
-                        .blur(radius: 12)
+                        .offset(x: wobbleX * 0.12, y: wobbleY * 0.10)
+                        .blur(radius: isLiveSpeaking ? 18 : 12)
 
                     Circle()
                         .fill(
@@ -619,8 +626,9 @@ private struct RecordingOrbView: View {
                             )
                         )
                         .frame(width: 192, height: 192)
-                        .blur(radius: 20)
+                        .blur(radius: isLiveSpeaking ? 28 : 20)
                         .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * 0.16 : 0.96))
+                        .offset(x: opposingX * 0.18, y: opposingY * 0.16)
 
                     if phase == .recording && !isSpeaking {
                         Circle()
@@ -634,22 +642,55 @@ private struct RecordingOrbView: View {
                             .opacity(0.95)
                     }
 
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [
-                                    orbColor[0].opacity(0.98),
-                                    orbColor[1].opacity(0.92),
-                                    orbColor[2].opacity(0.82)
-                                ],
-                                center: .center,
-                                startRadius: 4,
-                                endRadius: 58
+                    ZStack {
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        orbColor[0].opacity(0.98),
+                                        orbColor[1].opacity(0.90),
+                                        orbColor[2].opacity(0.78)
+                                    ],
+                                    center: .center,
+                                    startRadius: 4,
+                                    endRadius: 58
+                                )
                             )
-                        )
-                        .frame(width: 104, height: 104)
-                        .scaleEffect(breathing * pulseScale)
-                        .shadow(color: orbColor[1].opacity(active ? 0.34 : 0.14), radius: 24, x: 0, y: 12)
+                            .frame(width: 104, height: 104)
+                            .scaleEffect(x: blobStretch, y: 2.0 - blobStretch)
+                            .rotationEffect(.degrees(sin(t * 3.9) * (isLiveSpeaking ? 7 : 2)))
+
+                        Circle()
+                            .fill(orbColor[0].opacity(0.44))
+                            .frame(width: 58, height: 58)
+                            .blur(radius: 6)
+                            .offset(x: wobbleX * 0.34, y: -14 + wobbleY * 0.18)
+
+                        Circle()
+                            .fill(orbColor[2].opacity(0.26))
+                            .frame(width: 64, height: 64)
+                            .blur(radius: 10)
+                            .offset(x: -18 + opposingX * 0.24, y: 16 + opposingY * 0.22)
+                    }
+                    .frame(width: 116, height: 116)
+                    .scaleEffect(breathing * pulseScale)
+                    .shadow(color: orbColor[1].opacity(active ? 0.34 : 0.14), radius: 24, x: 0, y: 12)
+
+                    if isLiveSpeaking {
+                        Circle()
+                            .stroke(orbColor[0].opacity(0.24), lineWidth: 2.5)
+                            .frame(width: 132, height: 132)
+                            .scaleEffect(1.0 + normalizedLevel * 0.18 + 0.04 * sin(t * 6.2))
+                            .blur(radius: 1.5)
+                            .opacity(0.95)
+
+                        Circle()
+                            .stroke(orbColor[1].opacity(0.18), lineWidth: 3.0)
+                            .frame(width: 154, height: 154)
+                            .scaleEffect(1.0 + normalizedLevel * 0.26 + 0.05 * cos(t * 5.4))
+                            .blur(radius: 2.2)
+                            .opacity(0.72)
+                    }
                 }
                 .frame(height: 250)
             }
