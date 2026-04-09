@@ -15,12 +15,14 @@ from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageSe
 class FakeRememberStore:
     def __init__(self) -> None:
         self.add_calls: list[dict[str, object]] = []
+        self.find_calls: list[str] = []
 
     def add(self, **kwargs) -> str:
         self.add_calls.append(dict(kwargs))
         return f"ADD:{kwargs['memory']}"
 
     def find(self, *, query: str) -> str:
+        self.find_calls.append(query)
         return f"FIND:{query}"
 
     def list_recent(self, *, limit: int = 20) -> str:
@@ -236,6 +238,46 @@ class ThinkTagFilterTests(unittest.TestCase):
                 "original_text": "记录一下，今天是伊朗和美国停战两个星期。",
             },
         )
+
+    def test_chat_fallback_to_find_normalizes_query_to_topic(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient(
+            '{"intent":"chat","tool":"remember_find","args":{"memory":"","query":"小狗"},"confidence":0.8,"notes":"拆解本地 find 参数"}'
+        )
+        agent.model = "test-model"
+        agent.workflow = {
+            "intents": {"record": {}, "find": {}, "chat": {}},
+            "remember_summary": {"system_prompt": "请整理结果。"},
+        }
+        agent.storage = FakeStorageService()
+
+        payload = self.async_run(agent._extract_intent_payload("查找关于小狗的信息。"))
+        result = self.async_run(
+            agent._execute_structured_tool(
+                payload.get("tool"),
+                payload.get("args", {}),
+                user_input="查找关于小狗的信息。",
+            )
+        )
+
+        self.assertEqual(payload["intent"], "find")
+        self.assertEqual(payload["args"]["query"], "小狗")
+        self.assertEqual(agent.storage.remember_store().find_calls[0], "小狗")
+        self.assertIn("query", payload["args"])
+
+    def test_local_record_intent_stays_record_while_llm_only_extracts_args(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient(
+            '{"intent":"chat","tool":null,"args":{"memory":"用户安装了显示器的增高板","query":"","note":""},"confidence":0.8,"notes":"拆解本地 record 参数"}'
+        )
+        agent.model = "test-model"
+        agent.workflow = {"intents": {"record": {}, "find": {}, "chat": {}}}
+
+        payload = self.async_run(agent._extract_intent_payload("记录一下，我今天安装了显示器的增高板"))
+
+        self.assertEqual(payload["intent"], "record")
+        self.assertEqual(payload["tool"], "remember_add")
+        self.assertEqual(payload["args"]["memory"], "用户安装了显示器的增高板")
 
     def async_run(self, coroutine):
         import asyncio

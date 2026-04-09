@@ -243,30 +243,16 @@ def sanitize_for_tts(text: str) -> str:
     return text.strip()
 
 
-def normalize_find_query(query: str) -> str:
-    query = query.strip()
-    if not query:
-        return query
-    query = re.sub(r"^(?:我的|我 的|帮我找下|帮我找找|帮我查下|帮我查找|请帮我找下|请帮我查下)", "", query)
-    query = re.sub(
-        r"(?:的位置|在哪里|在哪儿|在哪|放哪了|放哪里了|位置|地点|地方|时间|日期|生日|特征|颜色|属性|内容|是什么|是多少)$",
-        "",
-        query,
-    )
-    query = re.sub(r"[ \t]+", "", query)
-    return query.strip()
-
-
 def wants_explicit_search(text: str) -> bool:
     normalized = re.sub(r"[ \t]+", "", text or "")
     return "联网搜索" in normalized or "上网搜索" in normalized
 
 
-def prefers_local_find(text: str) -> bool:
+def prefers_local_record(text: str) -> bool:
     normalized = re.sub(r"[ \t]+", "", text or "")
     if wants_explicit_search(normalized):
         return False
-    local_markers = [
+    record_markers = [
         "记住",
         "帮我记一下",
         "帮我记住",
@@ -274,6 +260,15 @@ def prefers_local_find(text: str) -> bool:
         "记录",
         "保存",
         "更新",
+    ]
+    return any(marker in normalized for marker in record_markers)
+
+
+def prefers_local_find(text: str) -> bool:
+    normalized = re.sub(r"[ \t]+", "", text or "")
+    if wants_explicit_search(normalized):
+        return False
+    local_markers = [
         "找",
         "查找",
         "查询",
@@ -289,6 +284,14 @@ def prefers_local_find(text: str) -> bool:
         "属性",
     ]
     return any(marker in normalized for marker in local_markers)
+
+
+def detect_local_intent(text: str) -> str | None:
+    if prefers_local_record(text):
+        return "record"
+    if prefers_local_find(text):
+        return "find"
+    return None
 
 
 def _candidate_env_files() -> list[Path]:
@@ -1019,7 +1022,7 @@ class OpenAICompatibleAgent:
         return workflow
 
     def _build_intent_extractor_messages(
-        self, user_input: str
+        self, user_input: str, forced_intent: str | None = None
     ) -> list[dict[str, str]]:
         extractor_cfg = load_json_file(INTENT_EXTRACTOR_CONFIG_PATH)
         intent_desc = "\n".join(
@@ -1040,8 +1043,13 @@ class OpenAICompatibleAgent:
                 "role": "system",
                 "content": (
                     "你是一个中文意图识别与结构化抽取器。"
-                    "请根据用户输入，判断意图，并把要记录、要查找、要联网搜索的内容拆解成 JSON。\n\n"
-                    "意图列表：\n"
+                    + (
+                        f"本次意图已经由本地规则确定为 {forced_intent}。"
+                        "不要改 intent，只需要按这个 intent 拆解参数并输出 JSON。\n\n"
+                        if forced_intent
+                        else "请根据用户输入，判断意图，并把要记录、要查找、要联网搜索的内容拆解成 JSON。\n\n"
+                    )
+                    + "意图列表：\n"
                     f"{intent_desc}\n\n"
                     "规则：\n"
                     f"{instructions}\n\n"
@@ -1063,7 +1071,10 @@ class OpenAICompatibleAgent:
         return messages
 
     async def _extract_intent_payload(self, user_input: str) -> dict[str, Any]:
-        extract_messages = self._build_intent_extractor_messages(user_input)
+        local_intent = detect_local_intent(user_input)
+        extract_messages = self._build_intent_extractor_messages(
+            user_input, forced_intent=local_intent
+        )
         try:
             log_llm_prompt("intent extractor", extract_messages)
             response = self.client.chat.completions.create(
@@ -1117,17 +1128,22 @@ class OpenAICompatibleAgent:
                 }
                 payload["confidence"] = max(float(payload.get("confidence", 0.0) or 0.0), 0.8)
                 payload["notes"] = "search 已合并到 chat"
-            if payload.get("intent") == "chat" and prefers_local_find(user_input):
-                payload["intent"] = "find"
-                payload["tool"] = "remember_find"
+            if local_intent in {"find", "record"}:
+                payload["intent"] = local_intent
                 payload.setdefault("args", {})
                 args = payload["args"] if isinstance(payload["args"], dict) else {}
-                args["query"] = normalize_find_query(str(args.get("query", "") or user_input))
                 args.setdefault("memory", "")
+                args.setdefault("query", "")
                 args.setdefault("note", "")
                 payload["args"] = args
+                if local_intent == "record":
+                    payload["tool"] = "remember_add"
+                else:
+                    tool_name = str(payload.get("tool", "") or "").strip()
+                    if tool_name not in {"remember_find", "remember_list"}:
+                        payload["tool"] = "remember_find"
                 payload["confidence"] = max(float(payload.get("confidence", 0.0) or 0.0), 0.95)
-                payload["notes"] = "本地记事关键词优先"
+                payload["notes"] = "本地规则已确定意图，LLM 仅拆参数"
             if payload.get("intent") == "record":
                 payload.setdefault("args", {})
                 args = payload["args"] if isinstance(payload["args"], dict) else {}
@@ -1389,7 +1405,7 @@ class OpenAICompatibleAgent:
                 },
             )
         if tool_name == "remember_find":
-            query = normalize_find_query(str(args.get("query", "")).strip())
+            query = str(args.get("query", "")).strip()
             if not query:
                 return "Error: structured remember_find missing query"
             raw = await self._execute_remember_tool(tool_name, {"query": query})
