@@ -112,11 +112,26 @@ struct AssistantShellView: View {
 
                 if shouldShowResponseCard {
                     HistoryStyleCard(title: "INTELLIGENCE RESPONSE", icon: "bolt.fill") {
-                        Text(model.session.state.reply)
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
-                            .lineSpacing(5)
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 14) {
+                            if let responseStatusText {
+                                HStack(spacing: 10) {
+                                    ThinkingDotsView(
+                                        tint: responseStatusTint,
+                                        isActive: model.session.state.phase == .thinking || model.session.state.phase == .speaking
+                                    )
+                                    Text(responseStatusText)
+                                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                                        .tracking(1.0)
+                                        .foregroundStyle(responseStatusTint)
+                                }
+                            }
+
+                            Text(responseCardBodyText)
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundStyle(responseCardBodyColor)
+                                .lineSpacing(5)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
@@ -260,7 +275,53 @@ struct AssistantShellView: View {
     }
 
     private var shouldShowResponseCard: Bool {
-        !model.session.state.reply.isEmpty
+        if !model.session.state.reply.isEmpty {
+            return true
+        }
+        return model.session.state.phase == .thinking || model.session.state.phase == .speaking
+    }
+
+    private var responseCardBodyText: String {
+        if !model.session.state.reply.isEmpty {
+            return model.session.state.reply
+        }
+        switch model.session.state.phase {
+        case .thinking:
+            return "正在整理你的问题，并准备回答内容..."
+        case .speaking:
+            return "正在生成语音并准备开始回答..."
+        default:
+            return ""
+        }
+    }
+
+    private var responseCardBodyColor: Color {
+        if model.session.state.reply.isEmpty {
+            return Color(red: 0.39, green: 0.46, blue: 0.58)
+        }
+        return Color(red: 0.08, green: 0.09, blue: 0.13)
+    }
+
+    private var responseStatusText: String? {
+        switch model.session.state.phase {
+        case .thinking:
+            return "正在准备回答"
+        case .speaking:
+            return "正在回答"
+        default:
+            return nil
+        }
+    }
+
+    private var responseStatusTint: Color {
+        switch model.session.state.phase {
+        case .thinking:
+            return Color(red: 0.07, green: 0.64, blue: 0.92)
+        case .speaking:
+            return Color(red: 0.83, green: 0.20, blue: 0.24)
+        default:
+            return Color(red: 0.55, green: 0.63, blue: 0.77)
+        }
     }
 
     private var visibleErrorMessage: String? {
@@ -415,6 +476,40 @@ struct AssistantShellView: View {
         }
     }
 
+}
+
+private struct ThinkingDotsView: View {
+    let tint: Color
+    let isActive: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 10.0)) { timeline in
+            let tick = Int(timeline.date.timeIntervalSinceReferenceDate * 6)
+            HStack(spacing: 5) {
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(tint.opacity(dotOpacity(index: index, tick: tick)))
+                        .frame(width: 7, height: 7)
+                        .scaleEffect(dotScale(index: index, tick: tick))
+                }
+            }
+        }
+        .frame(width: 34, height: 10, alignment: .leading)
+    }
+
+    private func dotOpacity(index: Int, tick: Int) -> Double {
+        guard isActive else {
+            return index == 0 ? 0.95 : 0.45
+        }
+        return tick % 3 == index ? 1.0 : 0.35
+    }
+
+    private func dotScale(index: Int, tick: Int) -> Double {
+        guard isActive else {
+            return 1.0
+        }
+        return tick % 3 == index ? 1.18 : 0.86
+    }
 }
 
 private struct RecordingOrbView: View {
