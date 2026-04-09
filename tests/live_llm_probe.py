@@ -21,7 +21,7 @@ def main() -> int:
         "--prompt",
         default="明天会不会下雨呢？这个弹得有点变得太快了，就是弹得动的有点太大，没有那种柔顺的感觉。",
     )
-    parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--max-tokens", type=int)
     args = parser.parse_args()
 
     load_env_files()
@@ -41,23 +41,26 @@ def main() -> int:
         client_kwargs["base_url"] = base_url
     client = OpenAI(**client_kwargs)
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
+    request: dict[str, object] = {
+        "model": model,
+        "messages": [
             {
                 "role": "system",
                 "content": f"当前时间：{current_time_text()}。当前位置：南京。\n{system_prompt}",
             },
             {"role": "user", "content": args.prompt},
         ],
-        max_tokens=args.max_tokens,
-    )
+    }
+    if args.max_tokens is not None:
+        request["max_tokens"] = args.max_tokens
+    response = client.chat.completions.create(**request)
     choice = response.choices[0]
     content = str(choice.message.content or "")
     print(
         json.dumps(
             {
                 "model": response.model,
+                "requested_max_tokens": args.max_tokens,
                 "finish_reason": choice.finish_reason,
                 "has_tool_calls": bool(choice.message.tool_calls),
                 "content_len": len(content),

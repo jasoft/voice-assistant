@@ -1454,7 +1454,6 @@ class OpenAICompatibleAgent:
                     api_params: dict[str, Any] = {
                         "model": self.model,
                         "messages": messages,  # type: ignore
-                        "max_tokens": 512,
                     }
                     if tools:
                         api_params["tools"] = tools
