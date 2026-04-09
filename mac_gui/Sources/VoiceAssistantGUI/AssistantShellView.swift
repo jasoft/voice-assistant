@@ -703,6 +703,10 @@ private struct RecordingOrbView: View {
         compact ? 56 : 250
     }
 
+    private var compactCanvasSize: CGFloat {
+        compact ? 78 : containerHeight
+    }
+
     var body: some View {
         ZStack {
             TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
@@ -814,7 +818,7 @@ private struct RecordingOrbView: View {
                 .frame(height: containerHeight)
             }
         }
-        .frame(width: compact ? containerHeight : nil, height: containerHeight, alignment: .leading)
+        .frame(width: compact ? compactCanvasSize : nil, height: compact ? compactCanvasSize : containerHeight, alignment: .leading)
         .padding(.vertical, compact ? 0 : 4)
         .onAppear {
             smoothedLevel = level
