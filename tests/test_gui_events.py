@@ -2,12 +2,26 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tempfile
 import unittest
+from contextlib import contextmanager
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from press_to_talk import core
+from press_to_talk import storage_cli
+
+
+@contextmanager
+def chdir(path: Path):
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
 
 
 class GuiEventWriterTests(unittest.TestCase):
@@ -68,6 +82,36 @@ class LoggingTests(unittest.TestCase):
             self.assertEqual(log_path.parent, Path(tmpdir))
             self.assertIn("session-xyz", log_path.name)
             self.assertEqual(log_path.suffix, ".log")
+
+
+class StorageCliTests(unittest.TestCase):
+    def test_list_history_loads_backend_from_env_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            db_path = tmp_path / "assistant.db"
+            env_path = tmp_path / ".env"
+            env_path.write_text(
+                "\n".join(
+                    [
+                        "VOICE_ASSISTANT_DATA_BACKEND=sqlite",
+                        f"VOICE_ASSISTANT_SQLITE_PATH={db_path}",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            stderr = io.StringIO()
+            stdout = io.StringIO()
+            with chdir(tmp_path), patch.object(
+                storage_cli.sys,
+                "argv",
+                ["press_to_talk.storage_cli", "list-history", "--limit", "5"],
+            ), patch.dict(os.environ, {}, clear=True), redirect_stdout(stdout), redirect_stderr(stderr):
+                code = storage_cli.main()
+
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(stdout.getvalue().strip()), [])
+            self.assertEqual(stderr.getvalue(), "")
 
 
 if __name__ == "__main__":
