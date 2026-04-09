@@ -540,6 +540,8 @@ def run_stt(stt_url: str, stt_token: str, audio_file: Path) -> str:
 
 
 class VisualRecorder:
+    SPEECH_RELEASE_HOLD_SECONDS = 0.35
+
     def __init__(self, cfg: Config, events: GuiEventWriter | None = None) -> None:
         init_start = time.perf_counter()
         import numpy as np
@@ -556,6 +558,10 @@ class VisualRecorder:
         self.total_samples = 0
         self.silent_samples = 0
         self.silence_target = int(cfg.silence_seconds * cfg.sample_rate)
+        self.speech_release_hold_target = max(
+            1, int(self.SPEECH_RELEASE_HOLD_SECONDS * cfg.sample_rate)
+        )
+        self.speech_release_hold_remaining = 0
         self.no_speech_timeout_target = int(
             cfg.no_speech_timeout_seconds * cfg.sample_rate
         )
@@ -636,7 +642,6 @@ class VisualRecorder:
                 self._refresh_thresholds()
 
             is_speech = self.ema_rms >= self.effective_threshold
-            self.is_speech_active = is_speech
             audio_level = audio_visual_level(self.ema_rms, self.effective_threshold)
             self.audio_level_peak = max(self.audio_level_peak, audio_level)
             self.audio_level_sum += audio_level
@@ -646,6 +651,8 @@ class VisualRecorder:
                 if is_speech:
                     self.speech_started = True
                     self.silent_samples = 0
+                    self.speech_release_hold_remaining = self.speech_release_hold_target
+                    self.is_speech_active = True
                     pending_diagnostic = (
                         "speech-started",
                         "success",
@@ -664,16 +671,28 @@ class VisualRecorder:
                         self.total_samples / max(self.no_speech_timeout_target, 1),
                         1.0,
                     )
+                    self.is_speech_active = False
             else:
                 if is_speech:
                     self.silent_samples = 0
+                    self.speech_release_hold_remaining = self.speech_release_hold_target
+                    self.is_speech_active = True
                     timeout_progress = 0.0
                 else:
-                    self.silent_samples += frames
-                    timeout_progress = min(
-                        self.silent_samples / max(self.silence_target, 1),
-                        1.0,
-                    )
+                    if self.speech_release_hold_remaining > 0:
+                        self.speech_release_hold_remaining = max(
+                            0,
+                            self.speech_release_hold_remaining - frames,
+                        )
+                        self.is_speech_active = True
+                        timeout_progress = 0.0
+                    else:
+                        self.is_speech_active = False
+                        self.silent_samples += frames
+                        timeout_progress = min(
+                            self.silent_samples / max(self.silence_target, 1),
+                            1.0,
+                        )
                 if self.silent_samples >= self.silence_target:
                     timeout_progress = 1.0
                     should_stop_stream = True
@@ -687,7 +706,7 @@ class VisualRecorder:
             "audio_level",
             level=audio_level,
             rms=rms,
-            speaking=is_speech,
+            speaking=self.is_speech_active,
             timeout_progress=timeout_progress,
         )
         if should_stop_stream:

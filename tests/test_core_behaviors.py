@@ -273,6 +273,10 @@ class RecorderCallbackTests(unittest.TestCase):
         recorder.total_samples = 0
         recorder.silent_samples = 0
         recorder.silence_target = int(recorder.cfg.silence_seconds * recorder.cfg.sample_rate)
+        recorder.speech_release_hold_target = int(
+            core.VisualRecorder.SPEECH_RELEASE_HOLD_SECONDS * recorder.cfg.sample_rate
+        )
+        recorder.speech_release_hold_remaining = 0
         recorder.no_speech_timeout_target = int(
             recorder.cfg.no_speech_timeout_seconds * recorder.cfg.sample_rate
         )
@@ -297,6 +301,63 @@ class RecorderCallbackTests(unittest.TestCase):
 
         self.assertTrue(recorder.speech_started)
         self.assertGreater(recorder.audio_level_peak, 0.0)
+
+    def test_callback_keeps_speaking_state_during_short_pause(self) -> None:
+        recorder = core.VisualRecorder.__new__(core.VisualRecorder)
+        recorder.np = np
+        recorder.sd = SimpleNamespace(CallbackStop=RuntimeError)
+        recorder.cfg = SimpleNamespace(
+            threshold=0.02,
+            sample_rate=16000,
+            channels=1,
+            silence_seconds=3.0,
+            no_speech_timeout_seconds=2.0,
+            calibration_seconds=0.3,
+        )
+        captured_events: list[dict[str, object]] = []
+        recorder.events = SimpleNamespace(
+            enabled=True,
+            emit=lambda event_type, **payload: captured_events.append(
+                {"type": event_type, **payload}
+            ),
+        )
+        recorder.frames = []
+        recorder.total_samples = 0
+        recorder.silent_samples = 0
+        recorder.silence_target = int(recorder.cfg.silence_seconds * recorder.cfg.sample_rate)
+        recorder.speech_release_hold_target = int(
+            core.VisualRecorder.SPEECH_RELEASE_HOLD_SECONDS * recorder.cfg.sample_rate
+        )
+        recorder.speech_release_hold_remaining = 0
+        recorder.no_speech_timeout_target = int(
+            recorder.cfg.no_speech_timeout_seconds * recorder.cfg.sample_rate
+        )
+        recorder.calibration_target = 0
+        recorder.calibration_rms = []
+        recorder.last_rms = 0.0
+        recorder.ema_rms = 0.0
+        recorder.is_speech_active = False
+        recorder.speech_started = False
+        recorder.effective_threshold = recorder.cfg.threshold
+        recorder.should_stop = False
+        recorder.audio_level_peak = 0.0
+        recorder.audio_level_sum = 0.0
+        recorder.audio_level_count = 0
+        recorder.last_audio_status_text = ""
+        recorder.last_diagnostic_key = ""
+        recorder.lock = NonReentrantLock()
+
+        speech_chunk = np.full((160, 1), 0.2, dtype=np.float32)
+        quiet_chunk = np.zeros((160, 1), dtype=np.float32)
+
+        recorder._callback(speech_chunk, 160, None, None)
+        recorder._callback(quiet_chunk, 160, None, None)
+
+        audio_events = [event for event in captured_events if event["type"] == "audio_level"]
+        self.assertGreaterEqual(len(audio_events), 2)
+        self.assertTrue(audio_events[0]["speaking"])
+        self.assertTrue(audio_events[1]["speaking"])
+        self.assertEqual(recorder.silent_samples, 0)
 
 
 if __name__ == "__main__":
