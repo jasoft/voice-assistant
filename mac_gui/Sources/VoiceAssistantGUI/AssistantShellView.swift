@@ -86,58 +86,60 @@ struct AssistantShellView: View {
                     isSpeaking: model.session.state.audioSpeaking,
                     timeoutProgress: model.session.state.timeoutProgress
                 )
-                .padding(.top, 28)
-                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 18)
+                .padding(.bottom, 4)
 
-                if let errorMessage = visibleErrorMessage, !errorMessage.isEmpty {
-                    errorBanner(message: errorMessage)
-                }
-
-                if model.session.state.phase == .speaking {
-                    stopSpeakingButton
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }
-
-                if shouldShowTranscriptCard {
-                    HistoryStyleCard(title: "LIVE TRANSCRIPTION", icon: "person.fill") {
-                        Text(model.session.state.transcript)
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
-                            .foregroundStyle(primaryBodyColor)
-                            .lineSpacing(4)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                VStack(spacing: 24) {
+                    if let errorMessage = visibleErrorMessage, !errorMessage.isEmpty {
+                        errorBanner(message: errorMessage)
                     }
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
 
-                if shouldShowResponseCard {
-                    HistoryStyleCard(title: "INTELLIGENCE RESPONSE", icon: "bolt.fill") {
-                        VStack(alignment: .leading, spacing: 14) {
-                            if let responseStatusText {
-                                HStack(spacing: 10) {
-                                    ThinkingDotsView(
-                                        tint: responseStatusTint,
-                                        isActive: model.session.state.phase == .thinking || model.session.state.phase == .speaking
-                                    )
-                                    Text(responseStatusText)
-                                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                                        .tracking(1.0)
-                                        .foregroundStyle(responseStatusTint)
-                                }
-                            }
+                    if model.session.state.phase == .speaking {
+                        stopSpeakingButton
+                            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    }
 
-                            Text(responseCardBodyText)
-                                .font(.system(size: 20, weight: .medium, design: .rounded))
-                                .foregroundStyle(responseCardBodyColor)
+                    if shouldShowTranscriptCard {
+                        HistoryStyleCard(title: "LIVE TRANSCRIPTION", icon: "person.fill") {
+                            Text(model.session.state.transcript)
+                                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                                .foregroundStyle(primaryBodyColor)
                                 .lineSpacing(4)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         }
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
 
+                    if shouldShowResponseCard {
+                        HistoryStyleCard(title: "INTELLIGENCE RESPONSE", icon: "bolt.fill") {
+                            VStack(alignment: .leading, spacing: 14) {
+                                if let responseStatusText {
+                                    HStack(spacing: 10) {
+                                        ThinkingDotsView(
+                                            tint: responseStatusTint,
+                                            isActive: model.session.state.phase == .thinking || model.session.state.phase == .speaking
+                                        )
+                                        Text(responseStatusText)
+                                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                                            .tracking(1.0)
+                                            .foregroundStyle(responseStatusTint)
+                                    }
+                                }
+
+                                Text(responseCardBodyText)
+                                    .font(.system(size: 20, weight: .medium, design: .rounded))
+                                    .foregroundStyle(responseCardBodyColor)
+                                    .lineSpacing(4)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+                .padding(.horizontal, 22)
             }
-            .padding(.horizontal, 22)
             .padding(.bottom, 12)
             .animation(.spring(response: 0.36, dampingFraction: 0.88), value: model.session.state.phase)
             .animation(.easeInOut(duration: 0.22), value: model.session.state.transcript)
@@ -526,12 +528,14 @@ private struct RecordingOrbView: View {
     let isSpeaking: Bool
     let timeoutProgress: Double
 
+    @State private var smoothedLevel: Double = 0.0
+
     private var active: Bool {
         phase == .recording || phase == .transcribing || phase == .thinking || phase == .speaking || phase == .done
     }
 
     private var normalizedLevel: Double {
-        pow(max(0.0, min(level, 1.0)), 0.6)
+        pow(max(0.0, min(smoothedLevel, 1.0)), 0.6)
     }
 
     private var orbColor: [Color] {
@@ -578,7 +582,7 @@ private struct RecordingOrbView: View {
 
     private var pulseScale: Double {
         if phase == .recording && isSpeaking {
-            return 0.92 + normalizedLevel * 0.44
+            return 0.95 + normalizedLevel * 0.24
         }
         return 0.96
     }
@@ -605,11 +609,11 @@ private struct RecordingOrbView: View {
                                 ],
                                 center: .center,
                                 startRadius: 14,
-                                endRadius: 144
+                                endRadius: 132
                             )
                         )
-                        .frame(width: 260, height: 260)
-                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * 0.24 : 0.94))
+                        .frame(width: 240, height: 240)
+                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * 0.18 : 0.94))
                         .offset(x: wobbleX * 0.12, y: wobbleY * 0.10)
                         .blur(radius: isLiveSpeaking ? 18 : 12)
 
@@ -624,9 +628,9 @@ private struct RecordingOrbView: View {
                                 center: .center
                             )
                         )
-                        .frame(width: 192, height: 192)
-                        .blur(radius: isLiveSpeaking ? 28 : 20)
-                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * 0.16 : 0.96))
+                        .frame(width: 176, height: 176)
+                        .blur(radius: isLiveSpeaking ? 24 : 18)
+                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * 0.12 : 0.96))
                         .offset(x: opposingX * 0.18, y: opposingY * 0.16)
 
                     if phase == .recording && !isSpeaking {
@@ -677,15 +681,15 @@ private struct RecordingOrbView: View {
                     if isLiveSpeaking {
                         Circle()
                             .stroke(orbColor[0].opacity(0.24), lineWidth: 2.5)
-                            .frame(width: 132, height: 132)
-                            .scaleEffect(1.0 + normalizedLevel * 0.18 + 0.04 * sin(t * 6.2))
+                            .frame(width: 124, height: 124)
+                            .scaleEffect(1.0 + normalizedLevel * 0.14 + 0.03 * sin(t * 6.2))
                             .blur(radius: 1.5)
                             .opacity(0.95)
 
                         Circle()
                             .stroke(orbColor[1].opacity(0.18), lineWidth: 3.0)
-                            .frame(width: 154, height: 154)
-                            .scaleEffect(1.0 + normalizedLevel * 0.26 + 0.05 * cos(t * 5.4))
+                            .frame(width: 146, height: 146)
+                            .scaleEffect(1.0 + normalizedLevel * 0.18 + 0.04 * cos(t * 5.4))
                             .blur(radius: 2.2)
                             .opacity(0.72)
                     }
@@ -694,6 +698,14 @@ private struct RecordingOrbView: View {
             }
         }
         .padding(.vertical, 4)
+        .onAppear {
+            smoothedLevel = level
+        }
+        .onChange(of: level) { _, newValue in
+            withAnimation(.interpolatingSpring(stiffness: 120, damping: 18)) {
+                smoothedLevel = newValue
+            }
+        }
     }
 }
 
