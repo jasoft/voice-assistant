@@ -100,17 +100,12 @@ struct AssistantShellView: View {
                         errorBanner(message: errorMessage)
                     }
 
-                    if model.session.state.phase == .speaking {
-                        stopSpeakingButton
-                            .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                    }
-
                     if shouldShowTranscriptCard {
-                        HistoryStyleCard(title: "LIVE TRANSCRIPTION", icon: "person.fill") {
+                        HistoryStyleCard(title: "实时转写", icon: "person.fill") {
                             Text(model.session.state.transcript)
-                                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                                .font(.system(size: 18, weight: .semibold, design: .rounded))
                                 .foregroundStyle(primaryBodyColor)
-                                .lineSpacing(4)
+                                .lineSpacing(3)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         }
@@ -118,7 +113,7 @@ struct AssistantShellView: View {
                     }
 
                     if shouldShowResponseCard {
-                        HistoryStyleCard(title: "INTELLIGENCE RESPONSE", icon: "bolt.fill") {
+                        HistoryStyleCard(title: "智能回答", icon: "bolt.fill") {
                             VStack(alignment: .leading, spacing: 14) {
                                 if let responseStatusText {
                                     HStack(spacing: 10) {
@@ -127,17 +122,17 @@ struct AssistantShellView: View {
                                             isActive: model.session.state.phase == .thinking || model.session.state.phase == .speaking
                                         )
                                         Text(responseStatusText)
-                                            .font(.system(size: 13, weight: .bold, design: .rounded))
-                                            .tracking(1.0)
+                                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                                            .tracking(0.6)
                                             .foregroundStyle(responseStatusTint)
                                     }
                                 }
 
-                                Text(responseCardBodyText)
-                                    .font(.system(size: 20, weight: .medium, design: .rounded))
-                                    .foregroundStyle(responseCardBodyColor)
-                                    .lineSpacing(4)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                MarkdownBodyText(
+                                    text: responseCardBodyText,
+                                    fontSize: 16,
+                                    primaryColor: responseCardBodyColor
+                                )
                             }
                         }
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -389,13 +384,13 @@ struct AssistantShellView: View {
         }) {
             HStack(spacing: 10) {
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                 Text("停止语音播放")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
             .background(
                 Capsule(style: .continuous)
                     .fill(
@@ -429,7 +424,7 @@ struct AssistantShellView: View {
     }
 
     private var compactOrbHeader: some View {
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .center, spacing: 14) {
             RecordingOrbView(
                 level: model.session.state.audioLevel,
                 phase: model.session.state.phase,
@@ -439,10 +434,15 @@ struct AssistantShellView: View {
             )
             .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
 
+            if model.session.state.phase == .speaking {
+                stopSpeakingButton
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 4)
+        .padding(.top, 2)
         .padding(.horizontal, 22)
     }
 
@@ -568,6 +568,40 @@ private struct ThinkingDotsView: View {
     }
 }
 
+private struct MarkdownBodyText: View {
+    let text: String
+    let fontSize: CGFloat
+    let primaryColor: Color
+
+    private var attributedText: AttributedString? {
+        guard !text.isEmpty else {
+            return nil
+        }
+        return try? AttributedString(
+            markdown: text,
+            options: AttributedString.MarkdownParsingOptions(
+                interpretedSyntax: .full,
+                failurePolicy: .returnPartiallyParsedIfPossible
+            )
+        )
+    }
+
+    var body: some View {
+        Group {
+            if let attributedText {
+                Text(attributedText)
+            } else {
+                Text(text)
+            }
+        }
+        .font(.system(size: fontSize, weight: .medium, design: .rounded))
+        .foregroundStyle(primaryColor)
+        .lineSpacing(3)
+        .fixedSize(horizontal: false, vertical: true)
+        .textSelection(.enabled)
+    }
+}
+
 private struct RecordingOrbView: View {
     let level: Double
     let phase: SessionPhase
@@ -635,43 +669,43 @@ private struct RecordingOrbView: View {
     }
 
     private var outerGlowSize: CGFloat {
-        compact ? 112 : 240
+        compact ? 74 : 240
     }
 
     private var middleGlowSize: CGFloat {
-        compact ? 82 : 176
+        compact ? 52 : 176
     }
 
     private var countdownRingSize: CGFloat {
-        compact ? 74 : 170
+        compact ? 56 : 170
     }
 
     private var coreFrameSize: CGFloat {
-        compact ? 58 : 116
+        compact ? 42 : 116
     }
 
     private var coreCircleSize: CGFloat {
-        compact ? 54 : 104
+        compact ? 38 : 104
     }
 
     private var highlightSize: CGFloat {
-        compact ? 30 : 58
+        compact ? 18 : 58
     }
 
     private var accentBlobSize: CGFloat {
-        compact ? 34 : 64
+        compact ? 20 : 64
     }
 
     private var speakingRingOneSize: CGFloat {
-        compact ? 66 : 124
+        compact ? 46 : 124
     }
 
     private var speakingRingTwoSize: CGFloat {
-        compact ? 80 : 146
+        compact ? 56 : 146
     }
 
     private var containerHeight: CGFloat {
-        compact ? 92 : 250
+        compact ? 56 : 250
     }
 
     var body: some View {
@@ -680,7 +714,7 @@ private struct RecordingOrbView: View {
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 let breathing = 1.0 + 0.035 * sin(t * 2.1)
                 let isLiveSpeaking = phase == .recording && isSpeaking
-                let compactFactor = compact ? 0.5 : 1.0
+                let compactFactor = compact ? 0.32 : 1.0
                 let wobbleX = sin(t * 5.4) * (isLiveSpeaking ? (10 + normalizedLevel * 14) * compactFactor : 4 * compactFactor)
                 let wobbleY = cos(t * 4.7) * (isLiveSpeaking ? (8 + normalizedLevel * 10) * compactFactor : 3 * compactFactor)
                 let opposingX = cos(t * 3.8 + .pi / 3) * (isLiveSpeaking ? (8 + normalizedLevel * 12) * compactFactor : 3 * compactFactor)
@@ -701,9 +735,9 @@ private struct RecordingOrbView: View {
                             )
                         )
                         .frame(width: outerGlowSize, height: outerGlowSize)
-                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * (compact ? 0.10 : 0.18) : 0.94))
+                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * (compact ? 0.04 : 0.18) : 0.94))
                         .offset(x: wobbleX * 0.12, y: wobbleY * 0.10)
-                        .blur(radius: isLiveSpeaking ? (compact ? 12 : 18) : (compact ? 8 : 12))
+                        .blur(radius: isLiveSpeaking ? (compact ? 5 : 18) : (compact ? 3 : 12))
 
                     Circle()
                         .fill(
@@ -717,8 +751,8 @@ private struct RecordingOrbView: View {
                             )
                         )
                         .frame(width: middleGlowSize, height: middleGlowSize)
-                        .blur(radius: isLiveSpeaking ? (compact ? 16 : 24) : (compact ? 11 : 18))
-                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * (compact ? 0.08 : 0.12) : 0.96))
+                        .blur(radius: isLiveSpeaking ? (compact ? 7 : 24) : (compact ? 4 : 18))
+                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * (compact ? 0.03 : 0.12) : 0.96))
                         .offset(x: opposingX * 0.18, y: opposingY * 0.16)
 
                     if phase == .recording && !isSpeaking {
@@ -753,32 +787,32 @@ private struct RecordingOrbView: View {
                         Circle()
                             .fill(orbColor[0].opacity(0.44))
                             .frame(width: highlightSize, height: highlightSize)
-                            .blur(radius: compact ? 4 : 6)
+                            .blur(radius: compact ? 2.5 : 6)
                             .offset(x: wobbleX * 0.34, y: (compact ? -8 : -14) + wobbleY * 0.18)
 
                         Circle()
                             .fill(orbColor[2].opacity(0.26))
                             .frame(width: accentBlobSize, height: accentBlobSize)
-                            .blur(radius: compact ? 6 : 10)
+                            .blur(radius: compact ? 3.0 : 10)
                             .offset(x: (compact ? -10 : -18) + opposingX * 0.24, y: (compact ? 10 : 16) + opposingY * 0.22)
                     }
                     .frame(width: coreFrameSize, height: coreFrameSize)
                     .scaleEffect(breathing * (compact ? (0.985 + max(0, pulseScale - 0.96) * 0.45) : pulseScale))
-                    .shadow(color: orbColor[1].opacity(active ? 0.34 : 0.14), radius: compact ? 14 : 24, x: 0, y: compact ? 6 : 12)
+                    .shadow(color: orbColor[1].opacity(active ? (compact ? 0.18 : 0.34) : 0.14), radius: compact ? 8 : 24, x: 0, y: compact ? 4 : 12)
 
                     if isLiveSpeaking {
                         Circle()
                             .stroke(orbColor[0].opacity(0.24), lineWidth: 2.5)
                             .frame(width: speakingRingOneSize, height: speakingRingOneSize)
-                            .scaleEffect(1.0 + normalizedLevel * (compact ? 0.08 : 0.14) + 0.03 * sin(t * 6.2))
-                            .blur(radius: compact ? 1.0 : 1.5)
+                            .scaleEffect(1.0 + normalizedLevel * (compact ? 0.04 : 0.14) + 0.03 * sin(t * 6.2))
+                            .blur(radius: compact ? 0.8 : 1.5)
                             .opacity(0.95)
 
                         Circle()
                             .stroke(orbColor[1].opacity(0.18), lineWidth: 3.0)
                             .frame(width: speakingRingTwoSize, height: speakingRingTwoSize)
-                            .scaleEffect(1.0 + normalizedLevel * (compact ? 0.10 : 0.18) + 0.04 * cos(t * 5.4))
-                            .blur(radius: compact ? 1.4 : 2.2)
+                            .scaleEffect(1.0 + normalizedLevel * (compact ? 0.05 : 0.18) + 0.04 * cos(t * 5.4))
+                            .blur(radius: compact ? 1.0 : 2.2)
                             .opacity(0.72)
                     }
                 }
@@ -810,8 +844,8 @@ private struct HistoryStyleCard<Content: View>: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
                 Text(title)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .tracking(1.8)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .tracking(0.8)
                     .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
             }
 
