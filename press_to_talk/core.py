@@ -1069,7 +1069,6 @@ class OpenAICompatibleAgent:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=extract_messages,  # type: ignore
-                max_tokens=256,
                 temperature=0,
             )
             finish_reason = str(response.choices[0].finish_reason or "")
@@ -1345,7 +1344,6 @@ class OpenAICompatibleAgent:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=200,
                 temperature=0,
             )
             finish_reason = str(response.choices[0].finish_reason or "")

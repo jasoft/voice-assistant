@@ -37,6 +37,28 @@ class FakeStorageService:
         self.history_entries.append(entry)
 
 
+class FakeChatCompletions:
+    def __init__(self, response_content: str) -> None:
+        self.response_content = response_content
+        self.calls: list[dict[str, object]] = []
+
+    def create(self, **kwargs: object) -> SimpleNamespace:
+        self.calls.append(dict(kwargs))
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(content=self.response_content),
+                )
+            ]
+        )
+
+
+class FakeClient:
+    def __init__(self, response_content: str) -> None:
+        self.chat = SimpleNamespace(completions=FakeChatCompletions(response_content))
+
+
 class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
     async def test_remember_find_uses_storage_backend(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
@@ -143,6 +165,39 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertEqual(payload["args"]["query"], "小狗")
         self.assertEqual(payload["args"]["type"], "date")
         self.assertEqual(payload["confidence"], 0.99)
+
+    def test_intent_extractor_does_not_send_max_tokens(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient(
+            '{"intent":"find","tool":"remember_find","args":{"item":"","content":"","type":"","query":"护照","image":"","note":""},"confidence":0.99,"notes":"查询护照"}'
+        )
+        agent.model = "test-model"
+        agent.workflow = {"intents": {"record": {}, "find": {}, "chat": {}}}
+
+        payload = self.async_run(agent._extract_intent_payload("护照在哪"))
+
+        self.assertEqual(payload["intent"], "find")
+        self.assertNotIn("max_tokens", agent.client.chat.completions.calls[0])
+
+    def test_remember_summary_does_not_send_max_tokens(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient("护照在书房抽屉里。")
+        agent.model = "test-model"
+        agent.workflow = {"remember_summary": {"system_prompt": "请整理结果。"}}
+
+        summary = agent._summarize_remember_output(
+            "remember_find",
+            "**护照**\n📌 内容: 书房抽屉里",
+            user_question="护照在哪",
+        )
+
+        self.assertEqual(summary, "护照在书房抽屉里。")
+        self.assertNotIn("max_tokens", agent.client.chat.completions.calls[0])
+
+    def async_run(self, coroutine):
+        import asyncio
+
+        return asyncio.run(coroutine)
 
 
 class HistoryWriterTests(unittest.TestCase):
