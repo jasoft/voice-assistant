@@ -101,9 +101,9 @@ struct AssistantShellView: View {
                 if shouldShowTranscriptCard {
                     HistoryStyleCard(title: "LIVE TRANSCRIPTION", icon: "person.fill") {
                         Text(model.session.state.transcript)
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
-                            .lineSpacing(6)
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .foregroundStyle(primaryBodyColor)
+                            .lineSpacing(4)
                             .fixedSize(horizontal: false, vertical: true)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     }
@@ -127,9 +127,9 @@ struct AssistantShellView: View {
                             }
 
                             Text(responseCardBodyText)
-                                .font(.system(size: 24, weight: .semibold))
+                                .font(.system(size: 20, weight: .medium, design: .rounded))
                                 .foregroundStyle(responseCardBodyColor)
-                                .lineSpacing(5)
+                                .lineSpacing(4)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -297,9 +297,9 @@ struct AssistantShellView: View {
 
     private var responseCardBodyColor: Color {
         if model.session.state.reply.isEmpty {
-            return Color(red: 0.39, green: 0.46, blue: 0.58)
+            return secondaryBodyColor
         }
-        return Color(red: 0.08, green: 0.09, blue: 0.13)
+        return primaryBodyColor
     }
 
     private var responseStatusText: String? {
@@ -329,6 +329,14 @@ struct AssistantShellView: View {
             return model.session.state.errorMessage
         }
         return nil
+    }
+
+    private var primaryBodyColor: Color {
+        Color(nsColor: .labelColor).opacity(0.92)
+    }
+
+    private var secondaryBodyColor: Color {
+        Color(nsColor: .secondaryLabelColor).opacity(0.95)
     }
 
     private var historySearchField: some View {
@@ -453,8 +461,8 @@ struct AssistantShellView: View {
                             .tracking(1.4)
                             .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
                         Text(entry.transcript)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .foregroundStyle(primaryBodyColor)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -466,8 +474,8 @@ struct AssistantShellView: View {
                             .tracking(1.4)
                             .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
                         Text(entry.reply)
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(Color(red: 0.29, green: 0.35, blue: 0.48))
+                            .font(.system(size: 14, weight: .regular, design: .rounded))
+                            .foregroundStyle(secondaryBodyColor)
                             .lineSpacing(4)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -700,12 +708,12 @@ private struct HistoryEntryCard: View {
             }
 
             Text(entry.transcript.isEmpty ? "无识别文本" : entry.transcript)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(red: 0.08, green: 0.09, blue: 0.13))
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color(nsColor: .labelColor).opacity(0.9))
 
             Text(entry.reply.isEmpty ? "无回复" : entry.reply)
-                .font(.system(size: 14))
-                .foregroundStyle(Color(red: 0.29, green: 0.35, blue: 0.48))
+                .font(.system(size: 13, weight: .regular, design: .rounded))
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor).opacity(0.95))
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
 
