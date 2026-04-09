@@ -129,6 +129,21 @@ class ThinkTagFilterTests(unittest.TestCase):
             self.assertIn("LLM response raw | 第二行</think>", content)
             self.assertIn("LLM response raw | 最终答案", content)
 
+    def test_salvage_truncated_intent_payload_recovers_top_level_fields(self) -> None:
+        truncated = (
+            '{"intent":"find","tool":"remember_find","args":{"item":"","content":"","type":"date",'
+            '"query":"小狗","image":""},"confidence":0.99,"notes":"用户查询小狗洗澡时间属性'
+        )
+
+        payload = core.salvage_truncated_intent_payload(truncated)
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["intent"], "find")
+        self.assertEqual(payload["tool"], "remember_find")
+        self.assertEqual(payload["args"]["query"], "小狗")
+        self.assertEqual(payload["args"]["type"], "date")
+        self.assertEqual(payload["confidence"], 0.99)
+
 
 class HistoryWriterTests(unittest.TestCase):
     def test_history_writer_persists_to_storage_service(self) -> None:

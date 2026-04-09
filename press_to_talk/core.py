@@ -426,6 +426,43 @@ def strip_think_tags(text: str) -> str:
     return cleaned.strip()
 
 
+def salvage_truncated_intent_payload(text: str) -> dict[str, Any] | None:
+    intent_match = re.search(r'"intent"\s*:\s*"([^"]+)"', text)
+    if not intent_match:
+        return None
+
+    tool_match = re.search(r'"tool"\s*:\s*(null|"([^"]+)")', text)
+    confidence_match = re.search(r'"confidence"\s*:\s*([0-9]+(?:\.[0-9]+)?)', text)
+    notes_match = re.search(r'"notes"\s*:\s*"([^"]*)', text)
+    args_section = re.search(r'"args"\s*:\s*\{(.*)', text, flags=re.S)
+
+    args: dict[str, str] = {
+        "item": "",
+        "content": "",
+        "type": "",
+        "query": "",
+        "image": "",
+        "note": "",
+    }
+    if args_section:
+        for key in args:
+            match = re.search(rf'"{re.escape(key)}"\s*:\s*"([^"]*)', args_section.group(1))
+            if match:
+                args[key] = match.group(1)
+
+    tool_value: str | None = None
+    if tool_match:
+        tool_value = tool_match.group(2) if tool_match.group(1) != "null" else None
+
+    return {
+        "intent": intent_match.group(1),
+        "tool": tool_value,
+        "args": args,
+        "confidence": float(confidence_match.group(1)) if confidence_match else 0.0,
+        "notes": notes_match.group(1) if notes_match else "",
+    }
+
+
 def audio_visual_level(rms: float, threshold: float) -> float:
     floor = max(threshold * 0.55, 0.002)
     ceiling = max(threshold * 3.2, floor * 4.0)
@@ -1047,6 +1084,15 @@ class OpenAICompatibleAgent:
             payload = parse_json_output(clean_output)
             if not isinstance(payload, dict):
                 raise RuntimeError("intent extractor did not return a JSON object")
+            if "intent" not in payload or "args" not in payload:
+                salvaged_payload = salvage_truncated_intent_payload(clean_output)
+                if salvaged_payload is not None:
+                    log(
+                        "LLM intent payload was truncated; salvaged structured fields from partial JSON"
+                    )
+                    payload = salvaged_payload
+                else:
+                    raise RuntimeError("intent extractor returned incomplete JSON object")
             log(
                 "LLM intent parsed: "
                 + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
