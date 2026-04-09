@@ -54,6 +54,13 @@ def log(msg: str) -> None:
             _SESSION_LOG_FILE.flush()
 
 
+def log_multiline(title: str, content: str) -> None:
+    normalized = content if content else "<empty>"
+    log(f"{title}:")
+    for line in normalized.splitlines():
+        log(f"{title} | {line}")
+
+
 def init_session_log(log_dir: Path, session_id: str | None = None) -> Path:
     global _SESSION_LOG_FILE, _SESSION_LOG_PATH
     close_session_log()
@@ -1028,9 +1035,15 @@ class OpenAICompatibleAgent:
                 max_tokens=256,
                 temperature=0,
             )
+            finish_reason = str(response.choices[0].finish_reason or "")
             raw_output = str(response.choices[0].message.content or "").strip()
             clean_output = strip_think_tags(raw_output)
-            log(f"LLM intent raw: {preview_text(raw_output)}")
+            log(
+                f"LLM intent response: finish_reason={finish_reason or 'unknown'} "
+                f"chars_raw={len(raw_output)} chars_cleaned={len(clean_output)}"
+            )
+            log_multiline("LLM intent raw", raw_output)
+            log_multiline("LLM intent cleaned", clean_output)
             payload = parse_json_output(clean_output)
             if not isinstance(payload, dict):
                 raise RuntimeError("intent extractor did not return a JSON object")
@@ -1289,11 +1302,18 @@ class OpenAICompatibleAgent:
                 max_tokens=200,
                 temperature=0,
             )
-            summary = str(response.choices[0].message.content or "").strip()
-            summary = strip_think_tags(summary)
-            summary = re.sub(r"\b(?:id|ID)\b[:：]?\s*\S+", "", summary)
-            summary = re.sub(r"[ \t]+", " ", summary).strip()
-            return summary or "没有找到可用结果。"
+            finish_reason = str(response.choices[0].finish_reason or "")
+            raw_summary = str(response.choices[0].message.content or "").strip()
+            clean_summary = strip_think_tags(raw_summary)
+            clean_summary = re.sub(r"\b(?:id|ID)\b[:：]?\s*\S+", "", clean_summary)
+            clean_summary = re.sub(r"[ \t]+", " ", clean_summary).strip()
+            log(
+                f"remember summary response: finish_reason={finish_reason or 'unknown'} "
+                f"chars_raw={len(raw_summary)} chars_cleaned={len(clean_summary)}"
+            )
+            log_multiline("remember summary raw", raw_summary)
+            log_multiline("remember summary cleaned", clean_summary)
+            return clean_summary or "没有找到可用结果。"
         except Exception as e:
             log(f"remember output summary failed: {e}")
             return cleaned
@@ -1472,14 +1492,18 @@ class OpenAICompatibleAgent:
                 messages.append(resp_message.model_dump(exclude_none=True))
                 finish_reason = str(response.choices[0].finish_reason or "")
                 tool_call_count = len(resp_message.tool_calls or [])
-                clean_resp_content = strip_think_tags(str(resp_message.content or "").strip())
+                raw_resp_content = str(resp_message.content or "").strip()
+                clean_resp_content = strip_think_tags(raw_resp_content)
                 log(
-                    f"LLM response: content={preview_text(clean_resp_content)} "
-                    f"tool_calls={tool_call_count} finish_reason={finish_reason or 'unknown'}"
+                    f"LLM response meta: tool_calls={tool_call_count} "
+                    f"finish_reason={finish_reason or 'unknown'} "
+                    f"chars_raw={len(raw_resp_content)} chars_cleaned={len(clean_resp_content)}"
                 )
+                log_multiline("LLM response raw", raw_resp_content)
+                log_multiline("LLM response cleaned", clean_resp_content)
 
                 if not resp_message.tool_calls:
-                    raw_reply = str(resp_message.content or "").strip()
+                    raw_reply = raw_resp_content
                     reply_part = strip_think_tags(raw_reply)
                     if reply_part:
                         reply_segments.append(reply_part)

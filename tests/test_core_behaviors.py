@@ -115,6 +115,20 @@ class ThinkTagFilterTests(unittest.TestCase):
         )
         self.assertEqual(merged, "根据天气预报，明天南京可能会下雨。出门建议带伞。")
 
+    def test_log_multiline_writes_full_content_to_session_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = core.init_session_log(Path(tmpdir), session_id="test-log")
+            try:
+                core.log_multiline("LLM response raw", "<think>第一行\n第二行</think>\n最终答案")
+            finally:
+                core.close_session_log()
+
+            content = log_path.read_text(encoding="utf-8")
+            self.assertIn("LLM response raw:", content)
+            self.assertIn("LLM response raw | <think>第一行", content)
+            self.assertIn("LLM response raw | 第二行</think>", content)
+            self.assertIn("LLM response raw | 最终答案", content)
+
 
 class HistoryWriterTests(unittest.TestCase):
     def test_history_writer_persists_to_storage_service(self) -> None:
