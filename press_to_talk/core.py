@@ -1100,11 +1100,8 @@ class OpenAICompatibleAgent:
                 payload["intent"] = "chat"
                 payload["tool"] = None
                 payload["args"] = {
-                    "item": "",
-                    "content": "",
-                    "type": "",
+                    "memory": "",
                     "query": "",
-                    "image": "",
                     "note": "",
                 }
                 payload["confidence"] = max(float(payload.get("confidence", 0.0) or 0.0), 0.8)
@@ -1114,11 +1111,8 @@ class OpenAICompatibleAgent:
                 payload["intent"] = "chat"
                 payload["tool"] = None
                 payload["args"] = {
-                    "item": "",
-                    "content": "",
-                    "type": "",
+                    "memory": "",
                     "query": "",
-                    "image": "",
                     "note": "",
                 }
                 payload["confidence"] = max(float(payload.get("confidence", 0.0) or 0.0), 0.8)
@@ -1129,10 +1123,7 @@ class OpenAICompatibleAgent:
                 payload.setdefault("args", {})
                 args = payload["args"] if isinstance(payload["args"], dict) else {}
                 args["query"] = normalize_find_query(str(args.get("query", "") or user_input))
-                args.setdefault("item", "")
-                args.setdefault("content", "")
-                args.setdefault("type", "")
-                args.setdefault("image", "")
+                args.setdefault("memory", "")
                 args.setdefault("note", "")
                 payload["args"] = args
                 payload["confidence"] = max(float(payload.get("confidence", 0.0) or 0.0), 0.95)
@@ -1143,11 +1134,11 @@ class OpenAICompatibleAgent:
                 task = payload.get("task", {})
                 record_task = task.get("record", {}) if isinstance(task, dict) else {}
                 if isinstance(record_task, dict):
-                    args["item"] = str(args.get("item", "") or record_task.get("item", "")).strip()
-                    args["content"] = str(
-                        args.get("content", "") or record_task.get("content", "")
+                    args["memory"] = str(
+                        args.get("memory", "")
+                        or record_task.get("memory", "")
+                        or record_task.get("content", "")
                     ).strip()
-                    args["type"] = str(args.get("type", "") or record_task.get("type", "")).strip()
                     args["note"] = str(
                         args.get("note", "")
                         or args.get("notes", "")
@@ -1157,7 +1148,7 @@ class OpenAICompatibleAgent:
                 else:
                     args["note"] = str(args.get("note", "") or args.get("notes", "")).strip()
                 args.setdefault("query", "")
-                args.setdefault("image", "")
+                args.setdefault("memory", "")
                 payload["args"] = args
             return payload
         except Exception as e:
@@ -1166,11 +1157,8 @@ class OpenAICompatibleAgent:
             "intent": "chat",
             "tool": None,
             "args": {
-                "item": "",
-                "content": "",
-                "type": "",
+                "memory": "",
                 "query": "",
-                "image": "",
                 "note": "",
             },
             "confidence": 0.0,
@@ -1190,36 +1178,20 @@ class OpenAICompatibleAgent:
                 "type": "function",
                 "function": {
                     "name": "remember_add",
-                    "description": "Add a new remembered fact about an item, such as a location, date, feature, or event.",
+                    "description": "Save one concise remembered sentence distilled from the user's statement.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "item": {
+                            "memory": {
                                 "type": "string",
-                                "description": "The name of the item",
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": "The fact to remember, such as location, date, feature, or event",
-                            },
-                            "type": {
-                                "type": "string",
-                                "description": "Optional fact type: location, date, feature, event, note",
-                            },
-                            "image": {
-                                "type": "string",
-                                "description": "Optional path to an image",
-                            },
-                            "note": {
-                                "type": "string",
-                                "description": "Optional note or remark for the remembered fact",
+                                "description": "One concise remembered sentence in Chinese, such as 用户安装了显示器的增高板 or 伊朗和美国停战两周",
                             },
                             "original_text": {
                                 "type": "string",
-                                "description": "Original user utterance before structured extraction",
+                                "description": "Original user utterance before summarization",
                             },
                         },
-                        "required": ["item", "content"],
+                        "required": ["memory"],
                     },
                 },
             },
@@ -1255,12 +1227,8 @@ class OpenAICompatibleAgent:
         try:
             if name == "remember_add":
                 output = remember_store.add(
-                    item=str(args["item"]),
-                    content=str(args.get("content", "") or args.get("location", "")),
-                    record_type=str(args.get("type", "")),
-                    note=str(args.get("note", "")),
+                    memory=str(args.get("memory", "") or args.get("content", "") or args.get("location", "")),
                     original_text=str(args.get("original_text", "")),
-                    image=str(args.get("image", "")),
                 )
             elif name == "remember_find":
                 output = remember_store.find(query=str(args["query"]))
@@ -1272,6 +1240,55 @@ class OpenAICompatibleAgent:
             return output
         except Exception as e:
             return f"Error executing {name}: {e}"
+
+    def _summarize_memory_for_storage(
+        self, user_input: str, structured_args: dict[str, Any] | None = None
+    ) -> str:
+        hints = structured_args or {}
+        remember_capture_cfg = self.workflow.get("remember_capture", {})
+        system_prompt = str(remember_capture_cfg.get("system_prompt", "")).strip()
+        if not system_prompt:
+            system_prompt = (
+                "你是一个中文记忆归纳器。"
+                "请把用户想保存的内容，改写成一条适合长期存档和检索的简短记忆句。"
+                "保留核心事实，删掉寒暄、命令词和多余主语。"
+                "如果用户使用今天、昨天、两个星期这种相对表达，可以改写成更稳定、自然的表述。"
+                "不要输出解释，不要输出 JSON，只输出一句中文记忆。"
+            )
+        user_prompt = (
+            f"用户原话：{user_input.strip() or '无'}\n"
+            f"结构化线索：{json.dumps(structured_args or {}, ensure_ascii=False)}\n"
+            "请输出一条要写入记忆库的中文句子。"
+        )
+        try:
+            log_llm_prompt(
+                "remember capture",
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0,
+            )
+            raw_memory = str(response.choices[0].message.content or "").strip()
+            clean_memory = strip_think_tags(raw_memory)
+            clean_memory = re.sub(r"[ \t]+", " ", clean_memory).strip(" \n\t。")
+            log_multiline("remember capture raw", raw_memory)
+            log_multiline("remember capture cleaned", clean_memory)
+            if clean_memory:
+                return clean_memory
+        except Exception as e:
+            log(f"remember capture failed: {e}")
+
+        fallback = str(hints.get("memory", "") or hints.get("content", "") or user_input).strip()
+        fallback = re.sub(r"^(帮我)?(记一下|记录一下|记住|记下|保存一下)[，,：:]?", "", fallback).strip()
+        return fallback.strip("。")
 
     def _summarize_remember_output(
         self,
@@ -1286,22 +1303,14 @@ class OpenAICompatibleAgent:
         if cleaned.startswith("Error:") or cleaned.startswith("Error executing "):
             return cleaned
 
-        record_name = ""
-        content_value = ""
+        memory_value = ""
         created_at = ""
-        record_type = ""
-        name_match = re.search(r"\*\*(.+?)\*\*", cleaned)
-        if name_match:
-            record_name = name_match.group(1).strip()
-        content_match = re.search(r"📌 内容:\s*(.+)", cleaned)
-        if content_match:
-            content_value = content_match.group(1).strip()
+        memory_match = re.search(r"📝 记忆:\s*(.+)", cleaned)
+        if memory_match:
+            memory_value = memory_match.group(1).strip()
         time_match = re.search(r"🕒 时间:\s*([^\n]+)", cleaned)
         if time_match:
             created_at = time_match.group(1).strip()
-        type_match = re.search(r"类型:\s*([^\n]+)", cleaned)
-        if type_match:
-            record_type = type_match.group(1).strip()
 
         created_date = format_cn_date(created_at)
 
@@ -1323,11 +1332,9 @@ class OpenAICompatibleAgent:
         user_prompt = (
             f"工具名：{tool_name}\n"
             f"用户原始问题：{user_question or query or '无'}\n"
-            f"记录名：{record_name or '无'}\n"
-            f"记录类型：{record_type or '无'}\n"
+            f"记忆内容：{memory_value or '无'}\n"
             f"记录时间：{created_at or '无'}\n"
             f"记录时间日期：{created_date or '无'}\n"
-            f"记录内容：{content_value or '无'}\n"
             f"原始输出：\n{cleaned}"
         )
         try:
@@ -1371,19 +1378,14 @@ class OpenAICompatibleAgent:
             f"structured tool path selected: tool={tool_name} args={json.dumps(args, ensure_ascii=False)}"
         )
         if tool_name == "remember_add":
-            item = str(args.get("item", "")).strip()
-            content = str(args.get("content", "") or args.get("location", "")).strip()
-            if not item or not content:
-                return "Error: structured remember_add missing item/content"
+            memory = self._summarize_memory_for_storage(user_input, args)
+            if not memory:
+                return "Error: structured remember_add missing memory"
             return await self._execute_remember_tool(
                 tool_name,
                 {
-                    "item": item,
-                    "content": content,
-                    "type": str(args.get("type", "")).strip(),
-                    "note": str(args.get("note", "") or args.get("notes", "")).strip(),
+                    "memory": memory,
                     "original_text": user_input.strip(),
-                    "image": str(args.get("image", "")).strip(),
                 },
             )
         if tool_name == "remember_find":

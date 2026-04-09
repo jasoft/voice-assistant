@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import unicodedata
@@ -75,12 +74,8 @@ class StorageConfig:
 @dataclass
 class RememberItemRecord:
     id: str
-    name: str
-    content: str
-    record_type: str
-    note: str
+    memory: str
     original_text: str
-    photo_json: str
     created_at: str
 
 
@@ -127,6 +122,7 @@ def normalize_text(value: str) -> str:
     if not value:
         return ""
     value = unicodedata.normalize("NFKC", str(value)).lower()
+    value = re.sub(r"[的]", "", value)
     return re.sub(r"[\s\W_]+", "", value, flags=re.UNICODE)
 
 
@@ -179,33 +175,34 @@ def format_find_results(query: str, results: list[RememberItemRecord]) -> str:
         return f"❌ 未找到关于 '{query}' 的记录。"
     lines = [f"🔍 找到 {len(results)} 条相关记录："]
     for row in results:
-        extra: list[str] = []
-        if row.record_type:
-            extra.append(f"类型: {row.record_type}")
-        if row.note:
-            extra.append(f"备注: {row.note}")
-        extra_text = ("\n   " + "\n   ".join(extra)) if extra else ""
         lines.append(
-            f"- [ID:{row.id}] **{row.name or 'N/A'}**\n"
-            f"   📌 内容: {row.content or 'N/A'}\n"
-            f"   🕒 时间: {row.created_at or 'N/A'}{extra_text}"
+            f"- [ID:{row.id}] 📝 记忆: {row.memory or 'N/A'}\n"
+            f"   🕒 时间: {row.created_at or 'N/A'}"
         )
     return "\n".join(lines)
 
 
 def format_list_results(results: list[RememberItemRecord]) -> str:
     if not results:
-        return "📭 目前没有记录任何物品。"
-    lines = ["📋 最近记录的物品："]
+        return "📭 目前没有记录任何记忆。"
+    lines = ["📋 最近记录的记忆："]
     for row in results:
-        lines.append(
-            f"- [ID:{row.id}] {row.name or 'N/A'} (📌 {row.content or 'N/A'}) @ {row.created_at or 'N/A'}"
-        )
+        lines.append(f"- [ID:{row.id}] {row.memory or 'N/A'} @ {row.created_at or 'N/A'}")
     return "\n".join(lines)
 
 
+def compose_legacy_memory(
+    name: str = "",
+    content: str = "",
+    record_type: str = "",
+    note: str = "",
+) -> str:
+    parts = [part.strip() for part in [name, content, record_type, note] if str(part).strip()]
+    return "，".join(parts)
+
+
 class BaseRememberStore:
-    def add(self, *, item: str, content: str, record_type: str = "", note: str = "", original_text: str = "", image: str = "") -> str:
+    def add(self, *, memory: str, original_text: str = "") -> str:
         raise NotImplementedError
 
     def find(self, *, query: str) -> str:
@@ -241,33 +238,30 @@ class NocoDbRememberStore(BaseRememberStore):
         return response.json().get("list", [])
 
     def _record_from_row(self, row: dict[str, Any]) -> RememberItemRecord:
-        photo = row.get("Photo")
+        memory = str(row.get("Memory") or "").strip()
+        if not memory:
+            memory = compose_legacy_memory(
+                str(row.get("Name") or ""),
+                str(row.get("Content") or ""),
+                str(row.get("Type") or ""),
+                str(row.get("Note") or ""),
+            )
         return RememberItemRecord(
             id=str(row.get("Id", "")),
-            name=str(row.get("Name") or ""),
-            content=str(row.get("Content") or ""),
-            record_type=str(row.get("Type") or ""),
-            note=str(row.get("Note") or ""),
+            memory=memory,
             original_text=str(row.get("OriginalText") or ""),
-            photo_json=json.dumps(photo or [], ensure_ascii=False),
             created_at=str(row.get("CreatedAt") or ""),
         )
 
-    def add(self, *, item: str, content: str, record_type: str = "", note: str = "", original_text: str = "", image: str = "") -> str:
+    def add(self, *, memory: str, original_text: str = "") -> str:
         data: dict[str, Any] = {
-            "Name": item,
-            "Content": content,
-            "Type": record_type or None,
-            "Note": note or None,
+            "Memory": memory,
             "OriginalText": original_text or None,
         }
         response = requests.post(self._records_url(), headers=self._headers(), json=data, timeout=60)
         if response.status_code not in (200, 201):
             return f"❌ 记录失败：{response.text}"
-        summary = content or ""
-        if record_type:
-            summary = f"[{record_type}] {summary}" if summary else f"[{record_type}]"
-        return f"✅ 已记录：{item} -> {summary}"
+        return f"✅ 已记录：{memory}"
 
     def find(self, *, query: str) -> str:
         search_terms = expand_search_terms(query)
@@ -293,7 +287,7 @@ class NocoDbRememberStore(BaseRememberStore):
                 fetch_terms.append(token)
         for token in fetch_terms:
             params = {
-                "where": f"(Name,like,%{token}%)~or(Content,like,%{token}%)~or(Type,like,%{token}%)~or(Note,like,%{token}%)~or(OriginalText,like,%{token}%)",
+                "where": f"(Memory,like,%{token}%)~or(OriginalText,like,%{token}%)",
                 "limit": 100,
             }
             for row in self._fetch_rows(params):
@@ -394,12 +388,9 @@ class _SqliteState:
         class RememberItemModel(BaseModel):
             id = AutoField()
             remote_id = CharField(null=True)
-            name = CharField()
-            content = TextField(default="")
-            record_type = CharField(default="")
+            memory = TextField(default="")
             note = TextField(default="")
             original_text = TextField(default="")
-            photo_json = TextField(default="[]")
             created_at = DateTimeField(default=datetime.now)
 
             class Meta:
@@ -426,10 +417,52 @@ class _SqliteState:
         self.SessionHistoryModel = SessionHistoryModel
         self.db.connect(reuse_if_open=True)
         self.db.create_tables([RememberItemModel, SessionHistoryModel])
+        self._migrate_remember_table()
 
     def close(self) -> None:
         if not self.db.is_closed():
             self.db.close()
+
+    def _migrate_remember_table(self) -> None:
+        columns = {
+            row[1]
+            for row in self.db.execute_sql("PRAGMA table_info('remember_items')").fetchall()
+        }
+        if "remote_id" not in columns:
+            self.db.execute_sql("ALTER TABLE remember_items ADD COLUMN remote_id VARCHAR(255)")
+            columns.add("remote_id")
+        if "memory" not in columns:
+            self.db.execute_sql("ALTER TABLE remember_items ADD COLUMN memory TEXT DEFAULT ''")
+            columns.add("memory")
+        if "original_text" not in columns:
+            self.db.execute_sql("ALTER TABLE remember_items ADD COLUMN original_text TEXT DEFAULT ''")
+            columns.add("original_text")
+        if "note" not in columns:
+            self.db.execute_sql("ALTER TABLE remember_items ADD COLUMN note TEXT DEFAULT ''")
+            columns.add("note")
+
+        legacy_columns = [name for name in ("name", "content", "record_type", "note") if name in columns]
+        if not legacy_columns:
+            return
+
+        select_columns = ", ".join(["id", "memory", *legacy_columns])
+        rows = self.db.execute_sql(f"SELECT {select_columns} FROM remember_items").fetchall()
+        for row in rows:
+            row_map = dict(zip(["id", "memory", *legacy_columns], row, strict=False))
+            if str(row_map.get("memory") or "").strip():
+                continue
+            legacy_memory = compose_legacy_memory(
+                str(row_map.get("name") or ""),
+                str(row_map.get("content") or ""),
+                str(row_map.get("record_type") or ""),
+                str(row_map.get("note") or ""),
+            )
+            if not legacy_memory:
+                continue
+            self.db.execute_sql(
+                "UPDATE remember_items SET memory = ? WHERE id = ?",
+                (legacy_memory, row_map["id"]),
+            )
 
 
 class SqliteRememberStore(BaseRememberStore):
@@ -439,29 +472,17 @@ class SqliteRememberStore(BaseRememberStore):
     def _record_from_model(self, row: Any) -> RememberItemRecord:
         return RememberItemRecord(
             id=str(row.id),
-            name=row.name,
-            content=row.content,
-            record_type=row.record_type,
-            note=row.note,
+            memory=row.memory,
             original_text=row.original_text,
-            photo_json=row.photo_json,
             created_at=row.created_at.isoformat(timespec="seconds"),
         )
 
-    def add(self, *, item: str, content: str, record_type: str = "", note: str = "", original_text: str = "", image: str = "") -> str:
-        photo_json = json.dumps([{"path": image}] if image else [], ensure_ascii=False)
+    def add(self, *, memory: str, original_text: str = "") -> str:
         row = self.state.RememberItemModel.create(
-            name=item,
-            content=content,
-            record_type=record_type,
-            note=note,
+            memory=memory,
             original_text=original_text,
-            photo_json=photo_json,
         )
-        summary = content or ""
-        if record_type:
-            summary = f"[{record_type}] {summary}" if summary else f"[{record_type}]"
-        return f"✅ 已记录：{row.name} -> {summary}"
+        return f"✅ 已记录：{row.memory}"
 
     def find(self, *, query: str) -> str:
         rows = [self._record_from_model(row) for row in self.state.RememberItemModel.select()]
@@ -480,18 +501,14 @@ class SqliteRememberStore(BaseRememberStore):
             row = self.state.RememberItemModel.select().where(
                 ((self.state.RememberItemModel.remote_id == record.id))
                 | (
-                    (self.state.RememberItemModel.name == record.name)
-                    & (self.state.RememberItemModel.content == record.content)
+                    (self.state.RememberItemModel.memory == record.memory)
+                    & (self.state.RememberItemModel.original_text == record.original_text)
                 )
             ).first()
             payload = {
                 "remote_id": record.id,
-                "name": record.name,
-                "content": record.content,
-                "record_type": record.record_type,
-                "note": record.note,
+                "memory": record.memory,
                 "original_text": record.original_text,
-                "photo_json": record.photo_json or "[]",
             }
             if row is None:
                 self.state.RememberItemModel.create(**payload)
@@ -559,7 +576,7 @@ def score_item_rows(query: str, rows: list[RememberItemRecord]) -> list[Remember
             normalized_tokens.append(normalized_token)
     scored_rows: list[tuple[float, RememberItemRecord]] = []
     for row in rows:
-        haystack = " ".join([row.name, row.content, row.record_type, row.note, row.original_text]).strip()
+        haystack = " ".join([row.memory, row.original_text]).strip()
         normalized_haystack = normalize_text(haystack)
         if not normalized_haystack:
             continue

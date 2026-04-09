@@ -13,8 +13,12 @@ from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageSe
 
 
 class FakeRememberStore:
+    def __init__(self) -> None:
+        self.add_calls: list[dict[str, object]] = []
+
     def add(self, **kwargs) -> str:
-        return f"ADD:{kwargs['item']}:{kwargs['content']}"
+        self.add_calls.append(dict(kwargs))
+        return f"ADD:{kwargs['memory']}"
 
     def find(self, *, query: str) -> str:
         return f"FIND:{query}"
@@ -26,9 +30,10 @@ class FakeRememberStore:
 class FakeStorageService:
     def __init__(self) -> None:
         self.history_entries: list[SessionHistoryRecord] = []
+        self._remember_store = FakeRememberStore()
 
     def remember_store(self) -> FakeRememberStore:
-        return FakeRememberStore()
+        return self._remember_store
 
     def history_store(self) -> "FakeStorageService":
         return self
@@ -194,6 +199,44 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertEqual(summary, "护照在书房抽屉里。")
         self.assertNotIn("max_tokens", agent.client.chat.completions.calls[0])
 
+    def test_memory_capture_summary_does_not_send_max_tokens(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient("用户安装了显示器的增高板")
+        agent.model = "test-model"
+        agent.workflow = {"remember_capture": {"system_prompt": "请归纳记忆。"}}
+
+        memory = agent._summarize_memory_for_storage(
+            user_input="记录一下，我今天安装了显示器的增高板",
+            structured_args={"content": "今天安装了显示器的增高板"},
+        )
+
+        self.assertEqual(memory, "用户安装了显示器的增高板")
+        self.assertNotIn("max_tokens", agent.client.chat.completions.calls[0])
+
+    def test_execute_structured_remember_add_saves_single_memory_text(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient("伊朗和美国停战两周")
+        agent.model = "test-model"
+        agent.workflow = {"remember_capture": {"system_prompt": "请归纳记忆。"}}
+        agent.storage = FakeStorageService()
+
+        result = self.async_run(
+            agent._execute_structured_tool(
+                "remember_add",
+                {"item": "", "content": "今天是伊朗和美国停战两个星期。", "type": "event"},
+                user_input="记录一下，今天是伊朗和美国停战两个星期。",
+            )
+        )
+
+        self.assertEqual(result, "ADD:伊朗和美国停战两周")
+        self.assertEqual(
+            agent.storage.remember_store().add_calls[0],
+            {
+                "memory": "伊朗和美国停战两周",
+                "original_text": "记录一下，今天是伊朗和美国停战两个星期。",
+            },
+        )
+
     def async_run(self, coroutine):
         import asyncio
 
@@ -331,17 +374,13 @@ class HistoryWriterTests(unittest.TestCase):
             )
             try:
                 add_result = service.remember_store().add(
-                    item="护照",
-                    content="书房抽屉里",
-                    record_type="location",
-                    note="蓝色封皮",
+                    memory="用户安装了显示器的增高板",
                     original_text="帮我记住护照在书房抽屉里",
                 )
-                find_result = service.remember_store().find(query="护照")
+                find_result = service.remember_store().find(query="显示器增高板")
 
                 self.assertIn("✅ 已记录", add_result)
-                self.assertIn("护照", find_result)
-                self.assertIn("书房抽屉里", find_result)
+                self.assertIn("用户安装了显示器的增高板", find_result)
             finally:
                 service.close()
 

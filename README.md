@@ -21,20 +21,14 @@ uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 
 ## 记忆功能
 
-`press-to-talk` 里的 `remember` 流程不再只记“位置”，而是统一支持：
-
-- 位置
-- 日期和生日
-- 特征描述
-- 事件提醒
-- 备注补充
+`press-to-talk` 里的 `remember` 流程会先把用户原话归纳成一条可长期保存和检索的“记忆句”，再落库。数据库主查询字段不再拆成 `name/content/type`，而是统一围绕 `Memory` 检索。
 
 示例：
 
 ```bash
 uv run press-to-talk --text-input "帮我记住充电宝是黑色的" --no-tts
 uv run press-to-talk --text-input "记一下我妈生日是6月3号" --no-tts
-uv run press-to-talk --text-input "帮我记一下明天上午十点开会" --no-tts
+uv run press-to-talk --text-input "记录一下，我今天安装了显示器的增高板" --no-tts
 ```
 
 ## 环境变量

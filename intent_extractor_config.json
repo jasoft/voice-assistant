@@ -3,9 +3,7 @@
     "intent": "record|find|chat",
     "task": {
       "record": {
-        "item": "",
-        "content": "",
-        "type": "",
+        "memory": "",
         "notes": ""
       },
       "find": {
@@ -18,25 +16,22 @@
     },
     "tool": "remember_add|remember_find|remember_list|null",
     "args": {
-      "item": "",
-      "content": "",
-      "type": "",
+      "memory": "",
       "query": "",
-      "image": "",
       "note": ""
     },
     "confidence": 0.0,
     "notes": "简短中文说明"
   },
   "instructions": [
-    "record 表示要记录或更新信息，task.record 里要填 item、content、type、notes；如果有备注，也要同步写到 args.note。",
-    "find 表示要查询物品信息。若是找某个具体物品，task.find.mode 用 item；若是列出已有记录，mode 用 list；若是按属性查，mode 用 property。",
+    "record 表示要记录或更新信息，task.record.memory 和 args.memory 要写成一句适合长期保存和检索的中文记忆，不要拆成 item、content、type。",
+    "find 表示要查询已保存的记忆。若是找某个具体主题，task.find.mode 用 item；若是列出已有记录，mode 用 list；若是按属性查，mode 用 property。",
     "只要用户是在查本地记事、找东西、记住、保存、更新、查询记录、在哪里、在哪、什么时间、什么日期、生日、特征、位置、属性，这些都必须判成 find 或 record，不能判成 chat。",
     "find.args.query 必须尽量只保留核心对象词，不要把“位置、地点、时间、日期、生日、特征、颜色、属性、内容、在哪里、在哪、是什么、是多少”这类说明词拼进 query。比如“我的护照在哪里”应提取为“护照”，不是“护照位置”。",
     "除了本地记事相关内容，其余都判成 chat。",
     "chat 可以在后续调用 brave-search 或 fetch 工具完成联网搜索或网页抓取。",
     "tool 仍要给出后续应执行的工具名；无法确定时用 null。",
-    "args 要与 tool 对齐，尽量填全；record 时至少填 item 和 content，如有备注要填 args.note；find 时至少填 query。",
+    "args 要与 tool 对齐，尽量填全；record 时至少填 memory，如有备注要填 args.note；find 时至少填 query。",
     "输出必须是单个 JSON 对象，不能加 markdown，不能加解释，不能加额外文本。"
   ],
   "examples": [
@@ -46,11 +41,8 @@
         "intent": "record",
         "tool": "remember_add",
         "args": {
-          "item": "护照",
-          "content": "书房白柜子第一个抽屉里",
-          "type": "location",
-          "query": "",
-          "image": ""
+          "memory": "护照在书房白柜子第一个抽屉里",
+          "query": ""
         },
         "confidence": 0.98,
         "notes": "用户在新增记录内容"
@@ -62,11 +54,8 @@
         "intent": "record",
         "tool": "remember_add",
         "args": {
-          "item": "妈妈生日",
-          "content": "6月3号",
-          "type": "date",
-          "query": "",
-          "image": ""
+          "memory": "妈妈生日是6月3号",
+          "query": ""
         },
         "confidence": 0.98,
         "notes": "用户在记录日期信息"
@@ -78,11 +67,8 @@
         "intent": "record",
         "tool": "remember_add",
         "args": {
-          "item": "充电宝",
-          "content": "黑色",
-          "type": "feature",
-          "query": "",
-          "image": ""
+          "memory": "充电宝是黑色的",
+          "query": ""
         },
         "confidence": 0.98,
         "notes": "用户在记录特征信息"
@@ -94,11 +80,8 @@
         "intent": "record",
         "tool": "remember_add",
         "args": {
-          "item": "护照",
-          "content": "书房抽屉里",
-          "type": "location",
+          "memory": "护照在书房抽屉里",
           "query": "",
-          "image": "",
           "note": "蓝色封皮"
         },
         "confidence": 0.98,
@@ -111,11 +94,8 @@
         "intent": "find",
         "tool": "remember_find",
         "args": {
-          "item": "",
-          "content": "",
-          "type": "",
-          "query": "护照",
-          "image": ""
+          "memory": "",
+          "query": "护照"
         },
         "confidence": 0.99,
         "notes": "用户要查询护照相关记录"
@@ -127,11 +107,8 @@
         "intent": "find",
         "tool": "remember_find",
         "args": {
-          "item": "护照",
-          "content": "",
-          "type": "",
-          "query": "护照",
-          "image": ""
+          "memory": "",
+          "query": "护照"
         },
         "confidence": 0.99,
         "notes": "用户要查询护照相关记录，query 只保留核心对象词"
@@ -143,11 +120,8 @@
         "intent": "find",
         "tool": "remember_list",
         "args": {
-          "item": "",
-          "content": "",
-          "type": "",
-          "query": "",
-          "image": ""
+          "memory": "",
+          "query": ""
         },
         "confidence": 0.97,
         "notes": "用户要查看已有记录列表"
@@ -159,11 +133,8 @@
         "intent": "chat",
         "tool": null,
         "args": {
-          "item": "",
-          "content": "",
-          "type": "",
-          "query": "",
-          "image": ""
+          "memory": "",
+          "query": ""
         },
         "confidence": 0.8,
         "notes": "除本地记事外，默认都进入 chat"
@@ -175,11 +146,8 @@
         "intent": "chat",
         "tool": null,
         "args": {
-          "item": "",
-          "content": "",
-          "type": "",
-          "query": "",
-          "image": ""
+          "memory": "",
+          "query": ""
         },
         "confidence": 0.99,
         "notes": "普通闲聊"
