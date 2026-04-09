@@ -3,6 +3,7 @@ import VoiceAssistantGUIKit
 
 struct AssistantShellView: View {
     @ObservedObject var model: AppModel
+    @Namespace private var orbNamespace
 
     var body: some View {
         ZStack {
@@ -80,15 +81,19 @@ struct AssistantShellView: View {
     private var livePane: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 24) {
-                RecordingOrbView(
-                    level: model.session.state.audioLevel,
-                    phase: model.session.state.phase,
-                    isSpeaking: model.session.state.audioSpeaking,
-                    timeoutProgress: model.session.state.timeoutProgress
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.top, 18)
-                .padding(.bottom, 4)
+                if usesCompactOrbHeader {
+                    compactOrbHeader
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .leading)),
+                            removal: .opacity.combined(with: .scale(scale: 0.82, anchor: .topLeading))
+                        ))
+                } else {
+                    expandedOrbStage
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.92)),
+                            removal: .opacity.combined(with: .move(edge: .top))
+                        ))
+                }
 
                 VStack(spacing: 24) {
                     if let errorMessage = visibleErrorMessage, !errorMessage.isEmpty {
@@ -276,6 +281,15 @@ struct AssistantShellView: View {
         !model.session.state.transcript.isEmpty
     }
 
+    private var usesCompactOrbHeader: Bool {
+        switch model.session.state.phase {
+        case .transcribing, .thinking, .speaking, .done, .noSpeech, .transcribeEmpty, .error, .cancelled:
+            return true
+        case .idle, .recording:
+            return false
+        }
+    }
+
     private var shouldShowResponseCard: Bool {
         if !model.session.state.reply.isEmpty {
             return true
@@ -398,6 +412,38 @@ struct AssistantShellView: View {
             .shadow(color: Color.red.opacity(0.22), radius: 16, x: 0, y: 8)
         }
         .buttonStyle(.plain)
+    }
+
+    private var expandedOrbStage: some View {
+        RecordingOrbView(
+            level: model.session.state.audioLevel,
+            phase: model.session.state.phase,
+            isSpeaking: model.session.state.audioSpeaking,
+            timeoutProgress: model.session.state.timeoutProgress,
+            compact: false
+        )
+        .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 18)
+        .padding(.bottom, 4)
+    }
+
+    private var compactOrbHeader: some View {
+        HStack(alignment: .top, spacing: 0) {
+            RecordingOrbView(
+                level: model.session.state.audioLevel,
+                phase: model.session.state.phase,
+                isSpeaking: model.session.state.audioSpeaking,
+                timeoutProgress: model.session.state.timeoutProgress,
+                compact: true
+            )
+            .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 4)
+        .padding(.horizontal, 22)
     }
 
     @ViewBuilder
@@ -527,6 +573,7 @@ private struct RecordingOrbView: View {
     let phase: SessionPhase
     let isSpeaking: Bool
     let timeoutProgress: Double
+    let compact: Bool
 
     @State private var smoothedLevel: Double = 0.0
 
@@ -587,16 +634,57 @@ private struct RecordingOrbView: View {
         return 0.96
     }
 
+    private var outerGlowSize: CGFloat {
+        compact ? 112 : 240
+    }
+
+    private var middleGlowSize: CGFloat {
+        compact ? 82 : 176
+    }
+
+    private var countdownRingSize: CGFloat {
+        compact ? 74 : 170
+    }
+
+    private var coreFrameSize: CGFloat {
+        compact ? 58 : 116
+    }
+
+    private var coreCircleSize: CGFloat {
+        compact ? 54 : 104
+    }
+
+    private var highlightSize: CGFloat {
+        compact ? 30 : 58
+    }
+
+    private var accentBlobSize: CGFloat {
+        compact ? 34 : 64
+    }
+
+    private var speakingRingOneSize: CGFloat {
+        compact ? 66 : 124
+    }
+
+    private var speakingRingTwoSize: CGFloat {
+        compact ? 80 : 146
+    }
+
+    private var containerHeight: CGFloat {
+        compact ? 92 : 250
+    }
+
     var body: some View {
         ZStack {
             TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 let breathing = 1.0 + 0.035 * sin(t * 2.1)
                 let isLiveSpeaking = phase == .recording && isSpeaking
-                let wobbleX = sin(t * 5.4) * (isLiveSpeaking ? 10 + normalizedLevel * 14 : 4)
-                let wobbleY = cos(t * 4.7) * (isLiveSpeaking ? 8 + normalizedLevel * 10 : 3)
-                let opposingX = cos(t * 3.8 + .pi / 3) * (isLiveSpeaking ? 8 + normalizedLevel * 12 : 3)
-                let opposingY = sin(t * 4.2 + .pi / 5) * (isLiveSpeaking ? 7 + normalizedLevel * 10 : 3)
+                let compactFactor = compact ? 0.5 : 1.0
+                let wobbleX = sin(t * 5.4) * (isLiveSpeaking ? (10 + normalizedLevel * 14) * compactFactor : 4 * compactFactor)
+                let wobbleY = cos(t * 4.7) * (isLiveSpeaking ? (8 + normalizedLevel * 10) * compactFactor : 3 * compactFactor)
+                let opposingX = cos(t * 3.8 + .pi / 3) * (isLiveSpeaking ? (8 + normalizedLevel * 12) * compactFactor : 3 * compactFactor)
+                let opposingY = sin(t * 4.2 + .pi / 5) * (isLiveSpeaking ? (7 + normalizedLevel * 10) * compactFactor : 3 * compactFactor)
 
                 ZStack {
                     Circle()
@@ -612,10 +700,10 @@ private struct RecordingOrbView: View {
                                 endRadius: 132
                             )
                         )
-                        .frame(width: 240, height: 240)
-                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * 0.18 : 0.94))
+                        .frame(width: outerGlowSize, height: outerGlowSize)
+                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * (compact ? 0.10 : 0.18) : 0.94))
                         .offset(x: wobbleX * 0.12, y: wobbleY * 0.10)
-                        .blur(radius: isLiveSpeaking ? 18 : 12)
+                        .blur(radius: isLiveSpeaking ? (compact ? 12 : 18) : (compact ? 8 : 12))
 
                     Circle()
                         .fill(
@@ -628,9 +716,9 @@ private struct RecordingOrbView: View {
                                 center: .center
                             )
                         )
-                        .frame(width: 176, height: 176)
-                        .blur(radius: isLiveSpeaking ? 24 : 18)
-                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * 0.12 : 0.96))
+                        .frame(width: middleGlowSize, height: middleGlowSize)
+                        .blur(radius: isLiveSpeaking ? (compact ? 16 : 24) : (compact ? 11 : 18))
+                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * (compact ? 0.08 : 0.12) : 0.96))
                         .offset(x: opposingX * 0.18, y: opposingY * 0.16)
 
                     if phase == .recording && !isSpeaking {
@@ -641,7 +729,7 @@ private struct RecordingOrbView: View {
                                 style: StrokeStyle(lineWidth: 8, lineCap: .round)
                             )
                             .rotationEffect(.degrees(-90))
-                            .frame(width: 170, height: 170)
+                            .frame(width: countdownRingSize, height: countdownRingSize)
                             .opacity(0.95)
                     }
 
@@ -659,45 +747,46 @@ private struct RecordingOrbView: View {
                                     endRadius: 58
                                 )
                             )
-                            .frame(width: 104, height: 104)
-                            .rotationEffect(.degrees(sin(t * 3.9) * (isLiveSpeaking ? 4 : 1.5)))
+                            .frame(width: coreCircleSize, height: coreCircleSize)
+                            .rotationEffect(.degrees(sin(t * 3.9) * (isLiveSpeaking ? 4 : 1.5) * compactFactor))
 
                         Circle()
                             .fill(orbColor[0].opacity(0.44))
-                            .frame(width: 58, height: 58)
-                            .blur(radius: 6)
-                            .offset(x: wobbleX * 0.34, y: -14 + wobbleY * 0.18)
+                            .frame(width: highlightSize, height: highlightSize)
+                            .blur(radius: compact ? 4 : 6)
+                            .offset(x: wobbleX * 0.34, y: (compact ? -8 : -14) + wobbleY * 0.18)
 
                         Circle()
                             .fill(orbColor[2].opacity(0.26))
-                            .frame(width: 64, height: 64)
-                            .blur(radius: 10)
-                            .offset(x: -18 + opposingX * 0.24, y: 16 + opposingY * 0.22)
+                            .frame(width: accentBlobSize, height: accentBlobSize)
+                            .blur(radius: compact ? 6 : 10)
+                            .offset(x: (compact ? -10 : -18) + opposingX * 0.24, y: (compact ? 10 : 16) + opposingY * 0.22)
                     }
-                    .frame(width: 116, height: 116)
-                    .scaleEffect(breathing * pulseScale)
-                    .shadow(color: orbColor[1].opacity(active ? 0.34 : 0.14), radius: 24, x: 0, y: 12)
+                    .frame(width: coreFrameSize, height: coreFrameSize)
+                    .scaleEffect(breathing * (compact ? (0.985 + max(0, pulseScale - 0.96) * 0.45) : pulseScale))
+                    .shadow(color: orbColor[1].opacity(active ? 0.34 : 0.14), radius: compact ? 14 : 24, x: 0, y: compact ? 6 : 12)
 
                     if isLiveSpeaking {
                         Circle()
                             .stroke(orbColor[0].opacity(0.24), lineWidth: 2.5)
-                            .frame(width: 124, height: 124)
-                            .scaleEffect(1.0 + normalizedLevel * 0.14 + 0.03 * sin(t * 6.2))
-                            .blur(radius: 1.5)
+                            .frame(width: speakingRingOneSize, height: speakingRingOneSize)
+                            .scaleEffect(1.0 + normalizedLevel * (compact ? 0.08 : 0.14) + 0.03 * sin(t * 6.2))
+                            .blur(radius: compact ? 1.0 : 1.5)
                             .opacity(0.95)
 
                         Circle()
                             .stroke(orbColor[1].opacity(0.18), lineWidth: 3.0)
-                            .frame(width: 146, height: 146)
-                            .scaleEffect(1.0 + normalizedLevel * 0.18 + 0.04 * cos(t * 5.4))
-                            .blur(radius: 2.2)
+                            .frame(width: speakingRingTwoSize, height: speakingRingTwoSize)
+                            .scaleEffect(1.0 + normalizedLevel * (compact ? 0.10 : 0.18) + 0.04 * cos(t * 5.4))
+                            .blur(radius: compact ? 1.4 : 2.2)
                             .opacity(0.72)
                     }
                 }
-                .frame(height: 250)
+                .frame(height: containerHeight)
             }
         }
-        .padding(.vertical, 4)
+        .frame(width: compact ? containerHeight : nil, height: containerHeight, alignment: .leading)
+        .padding(.vertical, compact ? 0 : 4)
         .onAppear {
             smoothedLevel = level
         }
