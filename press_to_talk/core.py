@@ -395,6 +395,22 @@ def preview_text(text: str, limit: int = 240) -> str:
     return clean[: limit - 3] + "..."
 
 
+def merge_reply_segments(segments: list[str]) -> str:
+    cleaned_segments = [segment.strip() for segment in segments if segment and segment.strip()]
+    if not cleaned_segments:
+        return ""
+    merged = cleaned_segments[0]
+    for segment in cleaned_segments[1:]:
+        overlap = 0
+        max_overlap = min(len(merged), len(segment), 48)
+        for size in range(max_overlap, 0, -1):
+            if merged.endswith(segment[:size]):
+                overlap = size
+                break
+        merged += segment[overlap:]
+    return re.sub(r"\n{3,}", "\n\n", merged).strip()
+
+
 def strip_think_tags(text: str) -> str:
     cleaned = re.sub(r"(?is)<think\b[^>]*>.*?</think\s*>", "", text)
     cleaned = re.sub(r"(?is)<think\b[^>]*>.*\n", "", cleaned)
@@ -1430,7 +1446,9 @@ class OpenAICompatibleAgent:
                     "search intent has no available MCP tools; check brave-search/fetch server startup"
                 )
 
-            for iteration in range(5):
+            reply_segments: list[str] = []
+            continuation_requests = 0
+            for iteration in range(7):
                 try:
                     # Construct parameters dynamically to avoid API errors with tool_choice
                     api_params: dict[str, Any] = {
@@ -1453,18 +1471,37 @@ class OpenAICompatibleAgent:
 
                 resp_message = response.choices[0].message
                 messages.append(resp_message.model_dump(exclude_none=True))
+                finish_reason = str(response.choices[0].finish_reason or "")
                 tool_call_count = len(resp_message.tool_calls or [])
                 clean_resp_content = strip_think_tags(str(resp_message.content or "").strip())
                 log(
                     f"LLM response: content={preview_text(clean_resp_content)} "
-                    f"tool_calls={tool_call_count}"
+                    f"tool_calls={tool_call_count} finish_reason={finish_reason or 'unknown'}"
                 )
 
                 if not resp_message.tool_calls:
                     raw_reply = str(resp_message.content or "").strip()
-                    reply = strip_think_tags(raw_reply)
-                    if not reply:
+                    reply_part = strip_think_tags(raw_reply)
+                    if reply_part:
+                        reply_segments.append(reply_part)
+                    reply = merge_reply_segments(reply_segments)
+                    if not reply and not reply_part:
                         log("LLM produced no tool call and no usable text reply")
+                    if finish_reason == "length" and continuation_requests < 2:
+                        continuation_requests += 1
+                        log(
+                            f"LLM reply truncated by length; requesting continuation pass {continuation_requests}"
+                        )
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "继续上一个回答，从刚才没说完的地方接着说完。"
+                                    "不要重复前文，不要输出 <think>，直接续写完整。"
+                                ),
+                            }
+                        )
+                        continue
                     return reply
 
                 for tool_call in resp_message.tool_calls:

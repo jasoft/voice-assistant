@@ -593,7 +593,6 @@ private struct RecordingOrbView: View {
                 let wobbleY = cos(t * 4.7) * (isLiveSpeaking ? 8 + normalizedLevel * 10 : 3)
                 let opposingX = cos(t * 3.8 + .pi / 3) * (isLiveSpeaking ? 8 + normalizedLevel * 12 : 3)
                 let opposingY = sin(t * 4.2 + .pi / 5) * (isLiveSpeaking ? 7 + normalizedLevel * 10 : 3)
-                let blobStretch = isLiveSpeaking ? 1.0 + normalizedLevel * 0.16 : 1.0
 
                 ZStack {
                     Circle()
@@ -657,8 +656,7 @@ private struct RecordingOrbView: View {
                                 )
                             )
                             .frame(width: 104, height: 104)
-                            .scaleEffect(x: blobStretch, y: 2.0 - blobStretch)
-                            .rotationEffect(.degrees(sin(t * 3.9) * (isLiveSpeaking ? 7 : 2)))
+                            .rotationEffect(.degrees(sin(t * 3.9) * (isLiveSpeaking ? 4 : 1.5)))
 
                         Circle()
                             .fill(orbColor[0].opacity(0.44))

@@ -106,6 +106,15 @@ class ThinkTagFilterTests(unittest.TestCase):
                 self.assertFalse(signal_path.exists())
                 self.assertFalse(core.consume_tts_stop_request())
 
+    def test_merge_reply_segments_avoids_simple_overlap(self) -> None:
+        merged = core.merge_reply_segments(
+            [
+                "根据天气预报，明天南京可能会下雨。",
+                "明天南京可能会下雨。出门建议带伞。",
+            ]
+        )
+        self.assertEqual(merged, "根据天气预报，明天南京可能会下雨。出门建议带伞。")
+
 
 class HistoryWriterTests(unittest.TestCase):
     def test_history_writer_persists_to_storage_service(self) -> None:
