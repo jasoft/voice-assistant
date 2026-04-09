@@ -2,6 +2,11 @@ import Foundation
 
 @MainActor
 public final class PTTProcessBridge {
+    struct TerminationDisposition: Equatable {
+        let errorMessage: String?
+        let emitDone: Bool
+    }
+
     private let viewModel: SessionViewModel
     private var process: Process?
     private var stdoutHandle: FileHandle?
@@ -9,12 +14,20 @@ public final class PTTProcessBridge {
     private var stdoutBuffer = Data()
     private var stderrBuffer = Data()
     private var receivedEvent = false
+    private var generation = 0
+    private var stoppedGenerations = Set<Int>()
 
     public init(viewModel: SessionViewModel) {
         self.viewModel = viewModel
     }
 
     public func start(additionalArgs: [String], workingDirectory: URL) {
+        generation += 1
+        let currentGeneration = generation
+        stdoutBuffer = Data()
+        stderrBuffer = Data()
+        receivedEvent = false
+
         let resolvedWorkingDirectory = resolveWorkingDirectory(startingAt: workingDirectory)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -39,22 +52,22 @@ public final class PTTProcessBridge {
         process.terminationHandler = { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                guard currentGeneration == self.generation else { return }
                 self.stdoutHandle?.readabilityHandler = nil
                 self.stderrHandle?.readabilityHandler = nil
                 let stderrText = String(decoding: self.stderrBuffer, as: UTF8.self)
-                if !self.receivedEvent {
-                    let firstLine = stderrText
-                        .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
-                        .first
-                        .map(String.init)
-                    let message = firstLine?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let message, !message.isEmpty {
-                        self.emitLocalEvent(["type": "error", "message": message])
-                    } else {
-                        self.emitLocalEvent(["type": "error", "message": "press-to-talk 未产生任何事件输出"])
-                    }
+                let disposition = Self.terminationDisposition(
+                    isCurrentGeneration: currentGeneration == self.generation,
+                    wasStoppedExplicitly: self.stoppedGenerations.contains(currentGeneration),
+                    receivedEvent: self.receivedEvent,
+                    stderrText: stderrText,
+                    currentPhase: self.viewModel.state.phase
+                )
+                self.stoppedGenerations.remove(currentGeneration)
+                if let errorMessage = disposition.errorMessage {
+                    self.emitLocalEvent(["type": "error", "message": errorMessage])
                 }
-                if self.viewModel.state.phase != .done && self.viewModel.state.phase != .error {
+                if disposition.emitDone {
                     self.emitLocalEvent(["type": "status", "phase": "done", "auto_close_seconds": 2])
                 }
             }
@@ -72,6 +85,7 @@ public final class PTTProcessBridge {
         stdoutHandle?.readabilityHandler = nil
         stderrHandle?.readabilityHandler = nil
         if let process, process.isRunning {
+            stoppedGenerations.insert(generation)
             process.terminate()
         }
         process = nil
@@ -141,5 +155,32 @@ public final class PTTProcessBridge {
             return
         }
         viewModel.apply(jsonLine: line)
+    }
+
+    static func terminationDisposition(
+        isCurrentGeneration: Bool,
+        wasStoppedExplicitly: Bool,
+        receivedEvent: Bool,
+        stderrText: String,
+        currentPhase: SessionPhase
+    ) -> TerminationDisposition {
+        guard isCurrentGeneration, !wasStoppedExplicitly else {
+            return TerminationDisposition(errorMessage: nil, emitDone: false)
+        }
+
+        let errorMessage: String?
+        if receivedEvent {
+            errorMessage = nil
+        } else {
+            let firstLine = stderrText
+                .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+                .first
+                .map(String.init)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            errorMessage = (firstLine?.isEmpty == false) ? firstLine : "press-to-talk 未产生任何事件输出"
+        }
+
+        let emitDone = currentPhase != .done && currentPhase != .error
+        return TerminationDisposition(errorMessage: errorMessage, emitDone: emitDone)
     }
 }
