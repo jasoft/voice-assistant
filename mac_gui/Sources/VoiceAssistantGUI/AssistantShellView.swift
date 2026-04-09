@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VoiceAssistantGUIKit
 
@@ -131,8 +132,8 @@ struct AssistantShellView: View {
                                 if !responseCardBodyText.isEmpty {
                                     MarkdownBodyText(
                                         text: responseCardBodyText,
-                                        fontSize: 16,
-                                        primaryColor: responseCardBodyColor
+                                        fontSize: 15,
+                                        textColor: responseCardBodyNSColor
                                     )
                                 }
                             }
@@ -308,6 +309,13 @@ struct AssistantShellView: View {
         return primaryBodyColor
     }
 
+    private var responseCardBodyNSColor: NSColor {
+        if model.session.state.reply.isEmpty {
+            return secondaryBodyNSColor
+        }
+        return primaryBodyNSColor
+    }
+
     private var responseStatusText: String? {
         switch model.session.state.phase {
         case .thinking:
@@ -338,11 +346,19 @@ struct AssistantShellView: View {
     }
 
     private var primaryBodyColor: Color {
-        Color(nsColor: .labelColor).opacity(0.92)
+        Color(nsColor: primaryBodyNSColor)
     }
 
     private var secondaryBodyColor: Color {
-        Color(nsColor: .secondaryLabelColor).opacity(0.95)
+        Color(nsColor: secondaryBodyNSColor)
+    }
+
+    private var primaryBodyNSColor: NSColor {
+        NSColor.labelColor.withAlphaComponent(0.92)
+    }
+
+    private var secondaryBodyNSColor: NSColor {
+        NSColor.secondaryLabelColor.withAlphaComponent(0.95)
     }
 
     private var historySearchField: some View {
@@ -566,34 +582,119 @@ private struct ThinkingDotsView: View {
 private struct MarkdownBodyText: View {
     let text: String
     let fontSize: CGFloat
-    let primaryColor: Color
+    let textColor: NSColor
 
-    private var attributedText: AttributedString? {
-        guard !text.isEmpty else {
-            return nil
+    var body: some View {
+        MarkdownTextViewRepresentable(
+            text: text,
+            fontSize: fontSize,
+            textColor: textColor
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct MarkdownTextViewRepresentable: NSViewRepresentable {
+    let text: String
+    let fontSize: CGFloat
+    let textColor: NSColor
+
+    func makeNSView(context: Context) -> MarkdownTextView {
+        let textView = MarkdownTextView()
+        textView.drawsBackground = false
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = true
+        textView.importsGraphics = false
+        textView.textContainerInset = NSSize(width: 0, height: 2)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        return textView
+    }
+
+    func updateNSView(_ nsView: MarkdownTextView, context: Context) {
+        nsView.setMarkdownText(text, fontSize: fontSize, textColor: textColor)
+    }
+}
+
+private final class MarkdownTextView: NSTextView {
+    override var intrinsicContentSize: NSSize {
+        guard let textContainer, let layoutManager else {
+            return super.intrinsicContentSize
         }
-        return try? AttributedString(
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        return NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: ceil(usedRect.height + textContainerInset.height * 2)
+        )
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        invalidateIntrinsicContentSize()
+    }
+
+    func setMarkdownText(_ text: String, fontSize: CGFloat, textColor: NSColor) {
+        let attributed = makeAttributedString(text: text, fontSize: fontSize, textColor: textColor)
+        if textStorage?.string != attributed.string || textStorage != nil && textStorage!.length != attributed.length {
+            textStorage?.setAttributedString(attributed)
+        } else {
+            textStorage?.setAttributedString(attributed)
+        }
+        invalidateIntrinsicContentSize()
+    }
+
+    private func makeAttributedString(text: String, fontSize: CGFloat, textColor: NSColor) -> NSAttributedString {
+        let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
+        let parsed: NSAttributedString
+
+        if let attributed = try? AttributedString(
             markdown: text,
             options: AttributedString.MarkdownParsingOptions(
                 interpretedSyntax: .full,
                 failurePolicy: .returnPartiallyParsedIfPossible
             )
-        )
-    }
-
-    var body: some View {
-        Group {
-            if let attributedText {
-                Text(attributedText)
-            } else {
-                Text(text)
-            }
+        ) {
+            parsed = NSAttributedString(attributed)
+        } else {
+            parsed = NSAttributedString(string: text)
         }
-        .font(.system(size: fontSize, weight: .medium, design: .rounded))
-        .foregroundStyle(primaryColor)
-        .lineSpacing(3)
-        .fixedSize(horizontal: false, vertical: true)
-        .textSelection(.enabled)
+
+        let mutable = NSMutableAttributedString(attributedString: parsed)
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 4
+        paragraph.paragraphSpacing = 8
+        paragraph.lineBreakMode = .byWordWrapping
+
+        mutable.addAttributes(
+            [
+                .foregroundColor: textColor,
+                .font: baseFont,
+                .paragraphStyle: paragraph,
+            ],
+            range: fullRange
+        )
+
+        mutable.enumerateAttribute(.font, in: fullRange) { value, range, _ in
+            guard let existingFont = value as? NSFont else {
+                return
+            }
+            let descriptor = existingFont.fontDescriptor
+            let traits = descriptor.symbolicTraits
+            let adjustedDescriptor = baseFont.fontDescriptor.withSymbolicTraits(traits)
+            let adjustedFont = NSFont(descriptor: adjustedDescriptor, size: fontSize) ?? baseFont
+            mutable.addAttribute(.font, value: adjustedFont, range: range)
+        }
+
+        return mutable
     }
 }
 
