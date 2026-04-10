@@ -23,6 +23,8 @@ uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 
 `press-to-talk` 里的 `remember` 流程会先把用户原话归纳成一条可长期保存和检索的“记忆句”，再落库。数据库主查询字段不再拆成 `name/content/type`，而是统一围绕 `Memory` 检索。
 
+`remember` 的脚本源码默认来自外部兄弟仓库 `ursoft-skills`：实际默认路径是 `/Users/weiwang/Projects/ursoft-skills/skills/remember/scripts/manage_items.py`。项目优先读取 `URSOFT_REMEMBER_SCRIPT`，同时兼容旧变量 `OPENCLAW_REMEMBER_SCRIPT`。
+
 示例：
 
 ```bash
@@ -42,6 +44,8 @@ uv run press-to-talk --text-input "记录一下，我今天安装了显示器的
 - `VOICE_ASSISTANT_DATA_BACKEND`：数据源后端，支持 `nocodb` 和 `sqlite`
 - `VOICE_ASSISTANT_SQLITE_PATH`：SQLite 数据库路径，默认写到 `data/voice_assistant.sqlite3`
 - `REMEMBER_NOCODB_URL` / `REMEMBER_NOCODB_API_TOKEN` / `REMEMBER_NOCODB_TABLE_ID`：remember 数据的 NocoDB 配置
+- `URSOFT_REMEMBER_SCRIPT`：覆盖默认 remember 脚本路径
+- `OPENCLAW_REMEMBER_SCRIPT`：旧变量名，仍兼容，但建议迁移到 `URSOFT_REMEMBER_SCRIPT`
 - `VOICE_ASSISTANT_HISTORY_NOCODB_URL` / `VOICE_ASSISTANT_HISTORY_NOCODB_API_TOKEN` / `VOICE_ASSISTANT_HISTORY_NOCODB_TABLE_ID`：历史记录数据的 NocoDB 配置
 - 其余录音阈值、TTS 参数、输出路径也都支持从 `.env` 覆盖
 

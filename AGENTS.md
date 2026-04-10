@@ -37,8 +37,13 @@
 
 ## Remember 集成
 
-- 默认 remember 脚本当前指向：
-  `/Users/weiwang/.openclaw/skills/remember/scripts/manage_items.py`
+- `remember` 的代码来源是外部兄弟仓库：
+  `/Users/weiwang/Projects/ursoft-skills/skills/remember`
+- 默认 remember 脚本路径指向：
+  `/Users/weiwang/Projects/ursoft-skills/skills/remember/scripts/manage_items.py`
+- 优先使用环境变量 `URSOFT_REMEMBER_SCRIPT` 覆盖脚本路径
+- 为兼容旧配置，也接受 `OPENCLAW_REMEMBER_SCRIPT`，但新配置统一用 `URSOFT_REMEMBER_SCRIPT`
+- 不要把 `remember` 目录拷贝进本仓库作为主方案，优先保持外部 repo 单一来源
 - Remember 数据存储在 NocoDB `Items` 表
 - 当前相关字段包括：
   `Name`、`Content`、`Type`、`Note`、`Photo`、`OriginalText`

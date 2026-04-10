@@ -145,6 +145,14 @@ def default_remember_script_path() -> Path:
     return PROJECT_ROOT.parent / "ursoft-skills/skills/remember/scripts/manage_items.py"
 
 
+def resolve_remember_script_path() -> Path:
+    for env_name in ("URSOFT_REMEMBER_SCRIPT", "OPENCLAW_REMEMBER_SCRIPT"):
+        raw = os.environ.get(env_name)
+        if raw and raw.strip():
+            return Path(raw).expanduser()
+    return default_remember_script_path()
+
+
 MINIMAL_WORKFLOW: dict[str, Any] = {
     "intents": {
         "chat": {
@@ -1765,7 +1773,12 @@ def parse_args() -> Config:
     parser.add_argument(
         "--remember-script",
         type=Path,
-        default=env_path("URSOFT_REMEMBER_SCRIPT", default_remember_script_path()),
+        default=resolve_remember_script_path(),
+        help=(
+            "remember script path; defaults to sibling repo "
+            "~/Projects/ursoft-skills/skills/remember/scripts/manage_items.py. "
+            "Supports URSOFT_REMEMBER_SCRIPT and legacy OPENCLAW_REMEMBER_SCRIPT."
+        ),
     )
 
     args = parser.parse_args()

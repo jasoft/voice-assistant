@@ -115,6 +115,34 @@ class ThinkTagFilterTests(unittest.TestCase):
             core.PROJECT_ROOT.parent / "ursoft-skills/skills/remember/scripts/manage_items.py",
         )
 
+    def test_resolve_remember_script_uses_ursoft_env_first(self) -> None:
+        with patch.dict(
+            core.os.environ,
+            {
+                "URSOFT_REMEMBER_SCRIPT": "/tmp/remember-from-ursoft.py",
+                "OPENCLAW_REMEMBER_SCRIPT": "/tmp/remember-from-openclaw.py",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                core.resolve_remember_script_path(),
+                Path("/tmp/remember-from-ursoft.py"),
+            )
+
+    def test_resolve_remember_script_accepts_openclaw_legacy_env(self) -> None:
+        with patch.dict(
+            core.os.environ,
+            {
+                "URSOFT_REMEMBER_SCRIPT": "",
+                "OPENCLAW_REMEMBER_SCRIPT": "/tmp/remember-from-openclaw.py",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                core.resolve_remember_script_path(),
+                Path("/tmp/remember-from-openclaw.py"),
+            )
+
     def test_audio_visual_level_grows_with_rms(self) -> None:
         quiet = core.audio_visual_level(0.005, 0.02)
         loud = core.audio_visual_level(0.12, 0.02)
