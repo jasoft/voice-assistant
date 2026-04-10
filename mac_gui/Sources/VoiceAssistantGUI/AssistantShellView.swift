@@ -588,10 +588,20 @@ private final class MarkdownTextView: NSTextView {
         let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
         let parsed: NSAttributedString
 
-        if let attributed = try? AttributedString(
+        if let data = text.data(using: .utf8),
+           let attributed = try? NSAttributedString(
+                markdown: data,
+                options: AttributedString.MarkdownParsingOptions(
+                    interpretedSyntax: .full,
+                    failurePolicy: .returnPartiallyParsedIfPossible
+                ),
+                baseURL: nil
+           ) {
+            parsed = attributed
+        } else if let attributed = try? AttributedString(
             markdown: text,
             options: AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .full,
+                interpretedSyntax: .inlineOnlyPreservingWhitespace,
                 failurePolicy: .returnPartiallyParsedIfPossible
             )
         ) {
@@ -602,22 +612,21 @@ private final class MarkdownTextView: NSTextView {
 
         let mutable = NSMutableAttributedString(attributedString: parsed)
         let fullRange = NSRange(location: 0, length: mutable.length)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 4
-        paragraph.paragraphSpacing = 8
-        paragraph.lineBreakMode = .byWordWrapping
+        mutable.addAttribute(.foregroundColor, value: textColor, range: fullRange)
 
-        mutable.addAttributes(
-            [
-                .foregroundColor: textColor,
-                .font: baseFont,
-                .paragraphStyle: paragraph,
-            ],
-            range: fullRange
-        )
+        mutable.enumerateAttribute(.paragraphStyle, in: fullRange) { value, range, _ in
+            let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle
+                ?? NSMutableParagraphStyle()
+            paragraph.lineSpacing = 4
+            paragraph.paragraphSpacing = max(paragraph.paragraphSpacing, 8)
+            paragraph.paragraphSpacingBefore = max(paragraph.paragraphSpacingBefore, 2)
+            paragraph.lineBreakMode = .byWordWrapping
+            mutable.addAttribute(.paragraphStyle, value: paragraph, range: range)
+        }
 
         mutable.enumerateAttribute(.font, in: fullRange) { value, range, _ in
             guard let existingFont = value as? NSFont else {
+                mutable.addAttribute(.font, value: baseFont, range: range)
                 return
             }
             let descriptor = existingFont.fontDescriptor
@@ -916,11 +925,18 @@ private struct HistoryEntryCard: View {
                 .font(.system(size: 17, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color(nsColor: .labelColor).opacity(0.9))
 
-            Text(entry.reply.isEmpty ? "无回复" : entry.reply)
-                .font(.system(size: 13, weight: .regular, design: .rounded))
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor).opacity(0.95))
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
+            if entry.reply.isEmpty {
+                Text("无回复")
+                    .font(.system(size: 13, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor).opacity(0.95))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                MarkdownBodyText(
+                    text: entry.reply,
+                    fontSize: 13,
+                    textColor: NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                )
+            }
 
             HStack {
                 Spacer()
