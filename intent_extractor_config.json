@@ -26,7 +26,9 @@
   "instructions": [
     "record 表示要记录或更新信息，task.record.memory 和 args.memory 要写成一句适合长期保存和检索的中文记忆，不要拆成 item、content、type。",
     "find 表示要查询已保存的记忆。若是找某个具体主题，task.find.mode 用 item；若是列出已有记录，mode 用 list；若是按属性查，mode 用 property。",
-    "只要用户是在查本地记事、找东西、记住、保存、更新、查询记录、在哪里、在哪、什么时间、什么日期、生日、特征、位置、属性，这些都必须判成 find 或 record，不能判成 chat。",
+    "只有当用户明确是在查询自己之前记下来的内容、个人物品信息、生日、位置、属性、备注或历史记录时，才判成 find 或 record。",
+    "像“关于小狗的信息”“今天上海天气怎么样”“某个概念是什么意思”“帮我查新闻”这类通用知识、实时信息或开放域问题，一律判成 chat，不要因为出现“查找”“查询”就误判成 find。",
+    "像“把我之前记的东西列出来”“把所有记录都列出来”“有哪些我记过的内容”这类明确要看记忆列表的请求，应判成 find，并优先使用 remember_list。",
     "find.args.query 必须尽量只保留核心对象词，不要把“位置、地点、时间、日期、生日、特征、颜色、属性、内容、在哪里、在哪、是什么、是多少”这类说明词拼进 query。比如“我的护照在哪里”应提取为“护照”，不是“护照位置”。",
     "除了本地记事相关内容，其余都判成 chat。",
     "chat 可以在后续调用 brave-search 或 fetch 工具完成联网搜索或网页抓取。",
@@ -138,6 +140,32 @@
         },
         "confidence": 0.8,
         "notes": "除本地记事外，默认都进入 chat"
+      }
+    },
+    {
+      "user": "查找关于小狗的信息。",
+      "assistant": {
+        "intent": "chat",
+        "tool": null,
+        "args": {
+          "memory": "",
+          "query": ""
+        },
+        "confidence": 0.85,
+        "notes": "通用知识查询，不是本地记忆检索"
+      }
+    },
+    {
+      "user": "把所有记录都列出来",
+      "assistant": {
+        "intent": "find",
+        "tool": "remember_list",
+        "args": {
+          "memory": "",
+          "query": ""
+        },
+        "confidence": 0.98,
+        "notes": "用户要查看全部记忆记录"
       }
     },
     {

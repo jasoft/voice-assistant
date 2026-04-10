@@ -16,6 +16,7 @@ class FakeRememberStore:
     def __init__(self) -> None:
         self.add_calls: list[dict[str, object]] = []
         self.find_calls: list[str] = []
+        self.list_calls = 0
 
     def add(self, **kwargs) -> str:
         self.add_calls.append(dict(kwargs))
@@ -26,6 +27,7 @@ class FakeRememberStore:
         return f"FIND:{query}"
 
     def list_recent(self, *, limit: int = 20) -> str:
+        self.list_calls += 1
         return "LIST"
 
 
@@ -267,10 +269,10 @@ class ThinkTagFilterTests(unittest.TestCase):
             },
         )
 
-    def test_chat_fallback_to_find_normalizes_query_to_topic(self) -> None:
+    def test_general_knowledge_query_stays_chat(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient(
-            '{"intent":"chat","tool":"remember_find","args":{"memory":"","query":"小狗"},"confidence":0.8,"notes":"拆解本地 find 参数"}'
+            '{"intent":"chat","tool":null,"args":{"memory":"","query":""},"confidence":0.8,"notes":"需要联网搜索的通用查询"}'
         )
         agent.model = "test-model"
         agent.workflow = {
@@ -280,23 +282,15 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent.storage = FakeStorageService()
 
         payload = self.async_run(agent._extract_intent_payload("查找关于小狗的信息。"))
-        result = self.async_run(
-            agent._execute_structured_tool(
-                payload.get("tool"),
-                payload.get("args", {}),
-                user_input="查找关于小狗的信息。",
-            )
-        )
 
-        self.assertEqual(payload["intent"], "find")
-        self.assertEqual(payload["args"]["query"], "小狗")
-        self.assertEqual(agent.storage.remember_store().find_calls[0], "小狗")
-        self.assertIn("query", payload["args"])
+        self.assertEqual(payload["intent"], "chat")
+        self.assertIsNone(payload["tool"])
+        self.assertEqual(agent.storage.remember_store().find_calls, [])
 
-    def test_local_record_intent_stays_record_while_llm_only_extracts_args(self) -> None:
+    def test_record_intent_follows_llm_output(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient(
-            '{"intent":"chat","tool":null,"args":{"memory":"用户安装了显示器的增高板","query":"","note":""},"confidence":0.8,"notes":"拆解本地 record 参数"}'
+            '{"intent":"record","tool":"remember_add","args":{"memory":"用户安装了显示器的增高板","query":"","note":""},"confidence":0.98,"notes":"用户在记录安装信息"}'
         )
         agent.model = "test-model"
         agent.workflow = {"intents": {"record": {}, "find": {}, "chat": {}}}
@@ -306,6 +300,32 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertEqual(payload["intent"], "record")
         self.assertEqual(payload["tool"], "remember_add")
         self.assertEqual(payload["args"]["memory"], "用户安装了显示器的增高板")
+
+    def test_list_all_records_uses_remember_list(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient(
+            '{"intent":"find","tool":"remember_list","args":{"memory":"","query":"","note":""},"confidence":0.98,"notes":"用户要查看全部记录"}'
+        )
+        agent.model = "test-model"
+        agent.workflow = {
+            "intents": {"record": {}, "find": {}, "chat": {}},
+            "remember_summary": {"system_prompt": "请整理结果。"},
+        }
+        agent.storage = FakeStorageService()
+
+        payload = self.async_run(agent._extract_intent_payload("把所有记录都列出来"))
+        result = self.async_run(
+            agent._execute_structured_tool(
+                payload.get("tool"),
+                payload.get("args", {}),
+                user_input="把所有记录都列出来",
+            )
+        )
+
+        self.assertEqual(payload["intent"], "find")
+        self.assertEqual(payload["tool"], "remember_list")
+        self.assertEqual(agent.storage.remember_store().list_calls, 1)
+        self.assertIsInstance(result, str)
 
     def async_run(self, coroutine):
         import asyncio
