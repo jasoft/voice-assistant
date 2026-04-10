@@ -81,6 +81,41 @@ public final class HistoryStore {
         return try decoder.decode([HistoryEntry].self, from: data)
     }
 
+    public func delete(sessionID: String) async throws {
+        let resolvedWorkingDirectory = resolveWorkingDirectory(startingAt: workingDirectory)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "press_to_talk.storage_cli",
+            "delete-history",
+            "--session-id",
+            sessionID
+        ]
+        process.currentDirectoryURL = resolvedWorkingDirectory
+
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let message = String(decoding: stderrData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw NSError(
+                domain: "HistoryStore",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: message.isEmpty ? "删除历史记录失败" : message]
+            )
+        }
+    }
+
     private func resolveWorkingDirectory(startingAt directory: URL) -> URL {
         var cursor = directory
         let fm = FileManager.default

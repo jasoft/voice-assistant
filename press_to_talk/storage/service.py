@@ -219,6 +219,9 @@ class BaseHistoryStore:
     def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
         raise NotImplementedError
 
+    def delete(self, *, session_id: str) -> None:
+        raise NotImplementedError
+
 
 class NocoDbRememberStore(BaseRememberStore):
     def __init__(self, url: str, token: str, table_id: str) -> None:
@@ -321,6 +324,11 @@ class NocoDbHistoryStore(BaseHistoryStore):
     def _records_url(self) -> str:
         return f"{self.url}/api/v2/tables/{self.table_id}/records"
 
+    def _fetch_rows(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        response = requests.get(self._records_url(), headers=self._headers(), params=params, timeout=30)
+        response.raise_for_status()
+        return response.json().get("list", [])
+
     def persist(self, entry: SessionHistoryRecord) -> None:
         payload = {
             "session_id": entry.session_id,
@@ -338,14 +346,7 @@ class NocoDbHistoryStore(BaseHistoryStore):
         response.raise_for_status()
 
     def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
-        response = requests.get(
-            self._records_url(),
-            headers=self._headers(),
-            params={"limit": max(limit, 200 if query.strip() else limit), "sort": "-CreatedAt"},
-            timeout=30,
-        )
-        response.raise_for_status()
-        records = response.json().get("list", [])
+        records = self._fetch_rows({"limit": max(limit, 200 if query.strip() else limit), "sort": "-CreatedAt"})
         results: list[SessionHistoryRecord] = []
         for row in records:
             session_id = str(row.get("session_id") or row.get("Session ID") or "")
@@ -370,6 +371,19 @@ class NocoDbHistoryStore(BaseHistoryStore):
         if query.strip():
             return score_history_rows(query, results)[:limit]
         return results[:limit]
+
+    def delete(self, *, session_id: str) -> None:
+        rows = self._fetch_rows({"where": f"(session_id,eq,{session_id})", "limit": 5})
+        row_ids = [str(row.get("Id") or "").strip() for row in rows if str(row.get("Id") or "").strip()]
+        if not row_ids:
+            return
+        for row_id in row_ids:
+            response = requests.delete(
+                f"{self._records_url()}/{row_id}",
+                headers=self._headers(),
+                timeout=30,
+            )
+            response.raise_for_status()
 
     def export_all(self) -> list[SessionHistoryRecord]:
         return self.list_recent(limit=500)
@@ -556,6 +570,11 @@ class SqliteHistoryStore(BaseHistoryStore):
         if query.strip():
             return score_history_rows(query, records)[:limit]
         return records[:limit]
+
+    def delete(self, *, session_id: str) -> None:
+        self.state.SessionHistoryModel.delete().where(
+            self.state.SessionHistoryModel.session_id == session_id
+        ).execute()
 
     def upsert_many(self, entries: list[SessionHistoryRecord]) -> None:
         for entry in entries:

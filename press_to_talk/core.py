@@ -591,6 +591,40 @@ def ensure_bin(name: str) -> str:
     return found
 
 
+def open_input_stream_with_retry(
+    *,
+    stream_factory: Any,
+    samplerate: int,
+    channels: int,
+    dtype: str,
+    callback: Any,
+    max_attempts: int = 2,
+    retry_delay_seconds: float = 0.12,
+) -> Any:
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return stream_factory(
+                samplerate=samplerate,
+                channels=channels,
+                dtype=dtype,
+                callback=callback,
+            )
+        except Exception as exc:
+            last_error = exc
+            message = str(exc)
+            is_retryable = "Internal PortAudio error [PaErrorCode -9986]" in message
+            if not is_retryable or attempt >= max_attempts:
+                raise
+            log(
+                f"input stream open failed attempt={attempt}/{max_attempts}: {message}; retrying"
+            )
+            time.sleep(retry_delay_seconds)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("failed to open input stream")
+
+
 def run_stt(stt_url: str, stt_token: str, audio_file: Path) -> str:
     curl_bin = shutil.which("curl")
     if not curl_bin:
@@ -922,7 +956,8 @@ class VisualRecorder:
         listener = None
 
         try:
-            with self.sd.InputStream(
+            with open_input_stream_with_retry(
+                stream_factory=self.sd.InputStream,
                 samplerate=self.cfg.sample_rate,
                 channels=self.cfg.channels,
                 dtype="float32",

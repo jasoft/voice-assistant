@@ -16,6 +16,9 @@ def main() -> int:
     parser_history.add_argument("--limit", type=int, default=10)
     parser_history.add_argument("--query", default="", help="Search history records by transcript or reply")
 
+    parser_delete_history = subparsers.add_parser("delete-history", help="Delete one history record by session id")
+    parser_delete_history.add_argument("--session-id", required=True)
+
     subparsers.add_parser("sync-nocodb-to-sqlite", help="Copy NocoDB remember/history data into local sqlite")
 
     args = parser.parse_args()
@@ -37,6 +40,11 @@ def main() -> int:
         if args.command == "sync-nocodb-to-sqlite":
             summary = service.sync_nocodb_to_sqlite()
             print(json.dumps(summary, ensure_ascii=False))
+            return 0
+
+        if args.command == "delete-history":
+            service.history_store().delete(session_id=str(args.session_id).strip())
+            print(json.dumps({"deleted": str(args.session_id).strip()}, ensure_ascii=False))
             return 0
     except Exception as exc:
         print(str(exc), file=sys.stderr)

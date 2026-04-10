@@ -15,7 +15,6 @@ public final class AppModel: ObservableObject {
     @Published public var isLoadingHistory = false
     @Published public var historyError: String?
     @Published public var historyQuery = ""
-    @Published public var selectedHistoryEntry: HistoryEntry?
 
     private let bridge: PTTProcessBridge
     private let forwardedArgs: [String]
@@ -68,8 +67,6 @@ public final class AppModel: ObservableObject {
         screenMode = screenMode == .history ? .live : .history
         if screenMode == .history {
             loadHistory()
-        } else {
-            selectedHistoryEntry = nil
         }
     }
 
@@ -82,12 +79,6 @@ public final class AppModel: ObservableObject {
                 let historyStore = HistoryStore.fromEnvironment(workingDirectory: workingDirectory)
                 let entries = try await historyStore.loadRecent(limit: 20, query: query)
                 historyEntries = entries
-                if let selected = selectedHistoryEntry {
-                    selectedHistoryEntry = entries.first(where: { $0.id == selected.id })
-                }
-                if selectedHistoryEntry == nil {
-                    selectedHistoryEntry = entries.first
-                }
             } catch {
                 historyError = error.localizedDescription
             }
@@ -99,16 +90,20 @@ public final class AppModel: ObservableObject {
         loadHistory()
     }
 
-    public func selectHistoryEntry(_ entry: HistoryEntry) {
-        selectedHistoryEntry = entry
-    }
-
-    public func previewHistoryEntry(_ entry: HistoryEntry) {
+    public func deleteHistoryEntry(_ entry: HistoryEntry) {
         keepWindowOpen()
-        session.stopCountdown()
-        session.resetForNewSession()
-        session.loadHistoryPreview(transcript: entry.transcript, reply: entry.reply)
-        screenMode = .live
+        isLoadingHistory = true
+        historyError = nil
+        Task { @MainActor in
+            do {
+                let historyStore = HistoryStore.fromEnvironment(workingDirectory: workingDirectory)
+                try await historyStore.delete(sessionID: entry.id)
+                historyEntries.removeAll { $0.id == entry.id }
+            } catch {
+                historyError = error.localizedDescription
+            }
+            isLoadingHistory = false
+        }
     }
 
     private func scheduleHistoryReload() {

@@ -145,6 +145,47 @@ class ThinkTagFilterTests(unittest.TestCase):
                 Path("/tmp/remember-from-openclaw.py"),
             )
 
+    def test_open_input_stream_retries_portaudio_internal_error(self) -> None:
+        attempts: list[tuple[int, int, str]] = []
+
+        class FakeStream:
+            pass
+
+        def factory(*, samplerate: int, channels: int, dtype: str, callback):
+            attempts.append((samplerate, channels, dtype))
+            if len(attempts) == 1:
+                raise RuntimeError("Error starting stream: Internal PortAudio error [PaErrorCode -9986]")
+            return FakeStream()
+
+        with patch("press_to_talk.core.time.sleep") as sleep_mock:
+            stream = core.open_input_stream_with_retry(
+                stream_factory=factory,
+                samplerate=16000,
+                channels=1,
+                dtype="float32",
+                callback=object(),
+            )
+
+        self.assertIsInstance(stream, FakeStream)
+        self.assertEqual(len(attempts), 2)
+        sleep_mock.assert_called_once()
+
+    def test_open_input_stream_does_not_retry_non_retryable_error(self) -> None:
+        def factory(*, samplerate: int, channels: int, dtype: str, callback):
+            raise RuntimeError("Error querying device")
+
+        with patch("press_to_talk.core.time.sleep") as sleep_mock:
+            with self.assertRaisesRegex(RuntimeError, "Error querying device"):
+                core.open_input_stream_with_retry(
+                    stream_factory=factory,
+                    samplerate=16000,
+                    channels=1,
+                    dtype="float32",
+                    callback=object(),
+                )
+
+        sleep_mock.assert_not_called()
+
     def test_audio_visual_level_grows_with_rms(self) -> None:
         quiet = core.audio_visual_level(0.005, 0.02)
         loud = core.audio_visual_level(0.12, 0.02)
@@ -445,6 +486,43 @@ class HistoryWriterTests(unittest.TestCase):
 
                 self.assertEqual([entry.session_id for entry in by_transcript], ["history-1"])
                 self.assertEqual([entry.session_id for entry in by_reply], ["history-2"])
+            finally:
+                service.close()
+
+    def test_sqlite_history_delete_removes_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = StorageService(
+                StorageConfig(
+                    backend="sqlite",
+                    sqlite_path=Path(tmpdir) / "assistant.db",
+                    remember_nocodb_url="",
+                    remember_nocodb_token="",
+                    remember_nocodb_table_id="",
+                    history_nocodb_url="",
+                    history_nocodb_token="",
+                    history_nocodb_table_id="",
+                )
+            )
+            try:
+                service.history_store().persist(
+                    SessionHistoryRecord(
+                        session_id="history-delete-me",
+                        started_at="2026-04-08T19:00:00+08:00",
+                        ended_at="2026-04-08T19:01:00+08:00",
+                        transcript="测试删除",
+                        reply="这条记录会被删掉",
+                        peak_level=0.12,
+                        mean_level=0.06,
+                        auto_closed=False,
+                        reopened_by_click=False,
+                        mode="gui",
+                    )
+                )
+
+                service.history_store().delete(session_id="history-delete-me")
+                records = service.history_store().list_recent(limit=5)
+
+                self.assertEqual(records, [])
             finally:
                 service.close()
 

@@ -174,10 +174,6 @@ struct AssistantShellView: View {
                     }
                 }
 
-                if let selectedEntry = model.selectedHistoryEntry {
-                    selectedHistoryCard(entry: selectedEntry)
-                }
-
                 if !model.isLoadingHistory && model.historyEntries.isEmpty && model.historyError == nil {
                     HistoryStyleCard(title: "NO MATCHES", icon: "magnifyingglass") {
                         Text(model.historyQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "还没有历史记录。" : "没有找到匹配的历史记录。")
@@ -189,12 +185,8 @@ struct AssistantShellView: View {
                 ForEach(model.historyEntries) { entry in
                     HistoryEntryCard(
                         entry: entry,
-                        isSelected: model.selectedHistoryEntry?.id == entry.id,
-                        onSelect: {
-                            model.selectHistoryEntry(entry)
-                        },
-                        onPreview: {
-                            model.previewHistoryEntry(entry)
+                        onDelete: {
+                            model.deleteHistoryEntry(entry)
                         }
                     )
                 }
@@ -482,65 +474,6 @@ struct AssistantShellView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color(red: 0.99, green: 0.90, blue: 0.92))
         )
-    }
-
-    @ViewBuilder
-    private func selectedHistoryCard(entry: HistoryEntry) -> some View {
-        HistoryStyleCard(title: "SELECTED SESSION", icon: "clock.badge.checkmark") {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(entry.startedAt)
-                            .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
-                        Text(entry.mode.uppercased())
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .tracking(1.4)
-                            .foregroundStyle(Color(red: 0.07, green: 0.64, blue: 0.92))
-                    }
-                    Spacer()
-                    Button(action: { model.previewHistoryEntry(entry) }) {
-                        Text("放回主界面")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(Color(red: 0.07, green: 0.64, blue: 0.92))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if !entry.transcript.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("识别文本")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .tracking(1.4)
-                            .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
-                        Text(entry.transcript)
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
-                            .foregroundStyle(primaryBodyColor)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                if !entry.reply.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("助手回复")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .tracking(1.4)
-                            .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
-                        Text(entry.reply)
-                            .font(.system(size: 14, weight: .regular, design: .rounded))
-                            .foregroundStyle(secondaryBodyColor)
-                            .lineSpacing(4)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
     }
 
 }
@@ -963,9 +896,7 @@ private struct HistoryStyleCard<Content: View>: View {
 
 private struct HistoryEntryCard: View {
     let entry: HistoryEntry
-    let isSelected: Bool
-    let onSelect: () -> Void
-    let onPreview: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -992,37 +923,16 @@ private struct HistoryEntryCard: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack {
-                Text("Peak \(String(format: "%.2f", entry.peakLevel))")
-                Text("Mean \(String(format: "%.2f", entry.meanLevel))")
                 Spacer()
-                Text(entry.autoClosed ? "Auto-close" : "Held open")
-            }
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
-
-            HStack(spacing: 10) {
-                Button(action: onSelect) {
-                    Text(isSelected ? "已选中" : "查看详情")
+                Button(action: onDelete) {
+                    Label("删除", systemImage: "trash")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(isSelected ? Color(red: 0.07, green: 0.64, blue: 0.92) : Color(red: 0.33, green: 0.39, blue: 0.51))
+                        .foregroundStyle(Color(red: 0.78, green: 0.16, blue: 0.21))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(
                             Capsule(style: .continuous)
-                                .fill(isSelected ? Color(red: 0.88, green: 0.95, blue: 1.0) : Color(red: 0.95, green: 0.96, blue: 0.99))
-                        )
-                }
-                .buttonStyle(.plain)
-
-                Button(action: onPreview) {
-                    Text("放回主界面")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Color(red: 0.07, green: 0.64, blue: 0.92))
+                                .fill(Color(red: 0.99, green: 0.92, blue: 0.93))
                         )
                 }
                 .buttonStyle(.plain)
@@ -1032,13 +942,8 @@ private struct HistoryEntryCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(isSelected ? Color(red: 0.96, green: 0.99, blue: 1.0) : Color.white)
-                .shadow(color: isSelected ? Color(red: 0.07, green: 0.64, blue: 0.92).opacity(0.12) : Color.black.opacity(0.05), radius: 18, x: 0, y: 8)
+                .fill(Color.white)
+                .shadow(color: Color.black.opacity(0.05), radius: 18, x: 0, y: 8)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(isSelected ? Color(red: 0.07, green: 0.64, blue: 0.92).opacity(0.22) : Color.clear, lineWidth: 1)
-        )
-        .onTapGesture(perform: onSelect)
     }
 }
