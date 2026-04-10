@@ -557,6 +557,26 @@ private struct MarkdownTextViewRepresentable: NSViewRepresentable {
 }
 
 private final class MarkdownTextView: NSTextView {
+    private struct BlockDescriptor: Equatable {
+        let kind: BlockKind
+        let identity: Int
+        let listIdentity: Int?
+    }
+
+    private struct MarkdownBlock {
+        let descriptor: BlockDescriptor
+        var content: NSMutableAttributedString
+    }
+
+    private enum BlockKind: Equatable {
+        case paragraph
+        case header(level: Int)
+        case orderedListItem(ordinal: Int, delimiter: String)
+        case unorderedListItem
+        case codeBlock(languageHint: String?)
+        case blockQuote
+    }
+
     override var intrinsicContentSize: NSSize {
         guard let textContainer, let layoutManager else {
             return super.intrinsicContentSize
@@ -585,58 +605,395 @@ private final class MarkdownTextView: NSTextView {
     }
 
     private func makeAttributedString(text: String, fontSize: CGFloat, textColor: NSColor) -> NSAttributedString {
-        let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
-        let parsed: NSAttributedString
+        if let attributed = try? AttributedString(
+            markdown: text,
+            options: AttributedString.MarkdownParsingOptions(
+                interpretedSyntax: .full,
+                failurePolicy: .returnPartiallyParsedIfPossible
+            )
+        ) {
+            let rebuilt = rebuildMarkdownBlocks(
+                from: attributed,
+                fontSize: fontSize,
+                textColor: textColor
+            )
+            if rebuilt.length > 0 {
+                return rebuilt
+            }
+        }
 
-        if let data = text.data(using: .utf8),
-           let attributed = try? NSAttributedString(
-                markdown: data,
-                options: AttributedString.MarkdownParsingOptions(
-                    interpretedSyntax: .full,
-                    failurePolicy: .returnPartiallyParsedIfPossible
-                ),
-                baseURL: nil
-           ) {
-            parsed = attributed
-        } else if let attributed = try? AttributedString(
+        if let attributed = try? AttributedString(
             markdown: text,
             options: AttributedString.MarkdownParsingOptions(
                 interpretedSyntax: .inlineOnlyPreservingWhitespace,
                 failurePolicy: .returnPartiallyParsedIfPossible
             )
         ) {
-            parsed = NSAttributedString(attributed)
-        } else {
-            parsed = NSAttributedString(string: text)
+            let mutable = NSMutableAttributedString(attributedString: NSAttributedString(attributed))
+            styleBlock(
+                mutable,
+                kind: .paragraph,
+                fontSize: fontSize,
+                textColor: textColor
+            )
+            return mutable
         }
 
-        let mutable = NSMutableAttributedString(attributedString: parsed)
-        let fullRange = NSRange(location: 0, length: mutable.length)
-        mutable.addAttribute(.foregroundColor, value: textColor, range: fullRange)
+        let mutable = NSMutableAttributedString(string: text)
+        styleBlock(
+            mutable,
+            kind: .paragraph,
+            fontSize: fontSize,
+            textColor: textColor
+        )
+        return mutable
+    }
 
-        mutable.enumerateAttribute(.paragraphStyle, in: fullRange) { value, range, _ in
-            let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle
-                ?? NSMutableParagraphStyle()
-            paragraph.lineSpacing = 4
-            paragraph.paragraphSpacing = max(paragraph.paragraphSpacing, 8)
-            paragraph.paragraphSpacingBefore = max(paragraph.paragraphSpacingBefore, 2)
-            paragraph.lineBreakMode = .byWordWrapping
-            mutable.addAttribute(.paragraphStyle, value: paragraph, range: range)
+    private func rebuildMarkdownBlocks(
+        from parsed: AttributedString,
+        fontSize: CGFloat,
+        textColor: NSColor
+    ) -> NSAttributedString {
+        var blocks: [MarkdownBlock] = []
+
+        for run in parsed.runs {
+            let fragment = AttributedString(parsed[run.range])
+            let fragmentText = String(fragment.characters)
+            if fragmentText.isEmpty {
+                continue
+            }
+
+            let descriptor = blockDescriptor(
+                for: run.presentationIntent,
+                listDelimiter: nil
+            ) ?? BlockDescriptor(
+                kind: .paragraph,
+                identity: blocks.count + 1,
+                listIdentity: nil
+            )
+
+            let attributedFragment = NSMutableAttributedString(
+                attributedString: NSAttributedString(fragment)
+            )
+
+            if let lastIndex = blocks.indices.last,
+               blocks[lastIndex].descriptor == descriptor {
+                blocks[lastIndex].content.append(attributedFragment)
+            } else {
+                blocks.append(
+                    MarkdownBlock(
+                        descriptor: descriptor,
+                        content: attributedFragment
+                    )
+                )
+            }
         }
 
-        mutable.enumerateAttribute(.font, in: fullRange) { value, range, _ in
+        let output = NSMutableAttributedString()
+        var previous: BlockDescriptor?
+
+        for block in blocks {
+            if output.length > 0 {
+                output.append(NSAttributedString(string: separator(between: previous, and: block.descriptor)))
+            }
+
+            let renderedBlock = NSMutableAttributedString(attributedString: block.content)
+            trimBoundaryNewlines(in: renderedBlock)
+            styleBlock(
+                renderedBlock,
+                kind: block.descriptor.kind,
+                fontSize: fontSize,
+                textColor: textColor
+            )
+            output.append(renderedBlock)
+            previous = block.descriptor
+        }
+
+        return output
+    }
+
+    private func blockDescriptor(
+        for presentationIntent: PresentationIntent?,
+        listDelimiter: String?
+    ) -> BlockDescriptor? {
+        guard let presentationIntent else {
+            return nil
+        }
+
+        var paragraphIdentity: Int?
+        var headerIdentity: Int?
+        var headerLevel: Int?
+        var codeBlockIdentity: Int?
+        var codeBlockLanguage: String?
+        var orderedListIdentity: Int?
+        var unorderedListIdentity: Int?
+        var listItemIdentity: Int?
+        var listItemOrdinal: Int?
+        var isBlockQuote = false
+
+        for component in presentationIntent.components {
+            switch component.kind {
+            case .paragraph:
+                paragraphIdentity = component.identity
+            case .header(let level):
+                headerIdentity = component.identity
+                headerLevel = level
+            case .codeBlock(let languageHint):
+                codeBlockIdentity = component.identity
+                codeBlockLanguage = languageHint
+            case .orderedList:
+                orderedListIdentity = component.identity
+            case .unorderedList:
+                unorderedListIdentity = component.identity
+            case .listItem(let ordinal):
+                listItemIdentity = component.identity
+                listItemOrdinal = ordinal
+            case .blockQuote:
+                isBlockQuote = true
+            default:
+                continue
+            }
+        }
+
+        if let codeBlockIdentity {
+            return BlockDescriptor(
+                kind: .codeBlock(languageHint: codeBlockLanguage),
+                identity: codeBlockIdentity,
+                listIdentity: nil
+            )
+        }
+
+        if let headerIdentity {
+            return BlockDescriptor(
+                kind: .header(level: headerLevel ?? 1),
+                identity: headerIdentity,
+                listIdentity: nil
+            )
+        }
+
+        if let listItemIdentity {
+            if let orderedListIdentity {
+                return BlockDescriptor(
+                    kind: .orderedListItem(
+                        ordinal: listItemOrdinal ?? 1,
+                        delimiter: listDelimiter ?? "."
+                    ),
+                    identity: listItemIdentity,
+                    listIdentity: orderedListIdentity
+                )
+            }
+
+            return BlockDescriptor(
+                kind: .unorderedListItem,
+                identity: listItemIdentity,
+                listIdentity: unorderedListIdentity
+            )
+        }
+
+        if isBlockQuote {
+            return BlockDescriptor(
+                kind: .blockQuote,
+                identity: paragraphIdentity ?? 0,
+                listIdentity: nil
+            )
+        }
+
+        return BlockDescriptor(
+            kind: .paragraph,
+            identity: paragraphIdentity ?? 0,
+            listIdentity: nil
+        )
+    }
+
+    private func separator(
+        between previous: BlockDescriptor?,
+        and current: BlockDescriptor
+    ) -> String {
+        guard let previous else {
+            return ""
+        }
+
+        if let previousListIdentity = previous.listIdentity,
+           previousListIdentity == current.listIdentity {
+            return "\n"
+        }
+
+        return "\n\n"
+    }
+
+    private func styleBlock(
+        _ block: NSMutableAttributedString,
+        kind: BlockKind,
+        fontSize: CGFloat,
+        textColor: NSColor
+    ) {
+        switch kind {
+        case .header(let level):
+            let headerFontSize = max(fontSize + CGFloat(8 - min(level, 5) * 2), fontSize + 2)
+            let baseFont = NSFont.systemFont(ofSize: headerFontSize, weight: .bold)
+            adjustFonts(in: block, baseFont: baseFont)
+            block.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: block.length))
+            applyParagraphStyle(
+                to: block,
+                lineSpacing: 4,
+                paragraphSpacing: 10,
+                paragraphSpacingBefore: 2
+            )
+
+        case .orderedListItem(let ordinal, let delimiter):
+            let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
+            adjustFonts(in: block, baseFont: baseFont)
+            prependListPrefix(
+                "\(ordinal)\(delimiter) ",
+                to: block,
+                font: baseFont,
+                textColor: textColor
+            )
+            block.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: block.length))
+            applyParagraphStyle(
+                to: block,
+                lineSpacing: 4,
+                paragraphSpacing: 4,
+                paragraphSpacingBefore: 0,
+                headIndent: listContinuationIndent(prefix: "\(ordinal)\(delimiter) ", font: baseFont)
+            )
+
+        case .unorderedListItem:
+            let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
+            adjustFonts(in: block, baseFont: baseFont)
+            prependListPrefix(
+                "• ",
+                to: block,
+                font: baseFont,
+                textColor: textColor
+            )
+            block.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: block.length))
+            applyParagraphStyle(
+                to: block,
+                lineSpacing: 4,
+                paragraphSpacing: 4,
+                paragraphSpacingBefore: 0,
+                headIndent: listContinuationIndent(prefix: "• ", font: baseFont)
+            )
+
+        case .codeBlock:
+            let codeFont = NSFont.monospacedSystemFont(ofSize: max(fontSize - 1, 12), weight: .regular)
+            block.setAttributes([
+                .font: codeFont,
+                .foregroundColor: textColor,
+                .backgroundColor: NSColor.controlBackgroundColor
+            ], range: NSRange(location: 0, length: block.length))
+            applyParagraphStyle(
+                to: block,
+                lineSpacing: 2,
+                paragraphSpacing: 6,
+                paragraphSpacingBefore: 2,
+                headIndent: 12,
+                firstLineHeadIndent: 12
+            )
+
+        case .blockQuote:
+            let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
+            adjustFonts(in: block, baseFont: baseFont)
+            block.addAttribute(
+                .foregroundColor,
+                value: textColor.withAlphaComponent(0.82),
+                range: NSRange(location: 0, length: block.length)
+            )
+            prependListPrefix(
+                "│ ",
+                to: block,
+                font: baseFont,
+                textColor: textColor.withAlphaComponent(0.55)
+            )
+            applyParagraphStyle(
+                to: block,
+                lineSpacing: 4,
+                paragraphSpacing: 8,
+                paragraphSpacingBefore: 2,
+                headIndent: listContinuationIndent(prefix: "│ ", font: baseFont)
+            )
+
+        case .paragraph:
+            let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
+            adjustFonts(in: block, baseFont: baseFont)
+            block.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: block.length))
+            applyParagraphStyle(
+                to: block,
+                lineSpacing: 4,
+                paragraphSpacing: 8,
+                paragraphSpacingBefore: 2
+            )
+        }
+    }
+
+    private func adjustFonts(in attributed: NSMutableAttributedString, baseFont: NSFont) {
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        attributed.enumerateAttribute(.font, in: fullRange) { value, range, _ in
             guard let existingFont = value as? NSFont else {
-                mutable.addAttribute(.font, value: baseFont, range: range)
+                attributed.addAttribute(.font, value: baseFont, range: range)
                 return
             }
             let descriptor = existingFont.fontDescriptor
             let traits = descriptor.symbolicTraits
             let adjustedDescriptor = baseFont.fontDescriptor.withSymbolicTraits(traits)
-            let adjustedFont = NSFont(descriptor: adjustedDescriptor, size: fontSize) ?? baseFont
-            mutable.addAttribute(.font, value: adjustedFont, range: range)
+            let adjustedFont = NSFont(descriptor: adjustedDescriptor, size: baseFont.pointSize) ?? baseFont
+            attributed.addAttribute(.font, value: adjustedFont, range: range)
+        }
+    }
+
+    private func applyParagraphStyle(
+        to attributed: NSMutableAttributedString,
+        lineSpacing: CGFloat,
+        paragraphSpacing: CGFloat,
+        paragraphSpacingBefore: CGFloat,
+        headIndent: CGFloat = 0,
+        firstLineHeadIndent: CGFloat = 0
+    ) {
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        attributed.enumerateAttribute(.paragraphStyle, in: fullRange) { value, range, _ in
+            let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle
+                ?? NSMutableParagraphStyle()
+            paragraph.lineSpacing = lineSpacing
+            paragraph.paragraphSpacing = max(paragraph.paragraphSpacing, paragraphSpacing)
+            paragraph.paragraphSpacingBefore = max(paragraph.paragraphSpacingBefore, paragraphSpacingBefore)
+            paragraph.lineBreakMode = .byWordWrapping
+            paragraph.headIndent = max(paragraph.headIndent, headIndent)
+            paragraph.firstLineHeadIndent = max(paragraph.firstLineHeadIndent, firstLineHeadIndent)
+            attributed.addAttribute(.paragraphStyle, value: paragraph, range: range)
+        }
+    }
+
+    private func prependListPrefix(
+        _ prefix: String,
+        to attributed: NSMutableAttributedString,
+        font: NSFont,
+        textColor: NSColor
+    ) {
+        let prefixAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: textColor
+        ]
+        let prefixAttributed = NSAttributedString(
+            string: prefix,
+            attributes: prefixAttributes
+        )
+        attributed.insert(prefixAttributed, at: 0)
+    }
+
+    private func listContinuationIndent(prefix: String, font: NSFont) -> CGFloat {
+        let prefixWidth = (prefix as NSString).size(withAttributes: [.font: font]).width
+        return ceil(prefixWidth + 4)
+    }
+
+    private func trimBoundaryNewlines(in attributed: NSMutableAttributedString) {
+        while attributed.length > 0, attributed.string.first?.isNewline == true {
+            attributed.deleteCharacters(in: NSRange(location: 0, length: 1))
         }
 
-        return mutable
+        while attributed.length > 0, attributed.string.last?.isNewline == true {
+            attributed.deleteCharacters(in: NSRange(location: attributed.length - 1, length: 1))
+        }
     }
 }
 
