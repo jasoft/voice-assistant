@@ -35,9 +35,10 @@ class FakeRememberStore:
 
 
 class FakeStorageService:
-    def __init__(self) -> None:
+    def __init__(self, *, backend: str = "nocodb") -> None:
         self.history_entries: list[SessionHistoryRecord] = []
         self._remember_store = FakeRememberStore()
+        self.config = SimpleNamespace(backend=backend)
 
     def remember_store(self) -> FakeRememberStore:
         return self._remember_store
@@ -470,6 +471,24 @@ class ThinkTagFilterTests(unittest.TestCase):
                 "original_text": "记录一下，今天是伊朗和美国停战两个星期。",
             },
         )
+
+    def test_execute_structured_remember_find_uses_raw_question_for_mem0(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient("护照在书房抽屉里。")
+        agent.model = "test-model"
+        agent.workflow = {"remember_summary": {"system_prompt": "请整理结果。"}}
+        agent.storage = FakeStorageService(backend="mem0")
+
+        result = self.async_run(
+            agent._execute_structured_tool(
+                "remember_find",
+                {"query": "护照"},
+                user_input="我的护照在哪里",
+            )
+        )
+
+        self.assertEqual(result, "护照在书房抽屉里。")
+        self.assertEqual(agent.storage.remember_store().find_calls, ["我的护照在哪里"])
 
     def test_general_knowledge_query_uses_remember_find(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)

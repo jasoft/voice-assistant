@@ -1609,7 +1609,9 @@ class OpenAICompatibleAgent:
             query = str(args.get("query", "")).strip()
             if not query:
                 return "Error: structured remember_find missing query"
-            raw = await self._execute_remember_tool(tool_name, {"query": query})
+            backend = str(getattr(getattr(self.storage, "config", None), "backend", "")).strip().lower()
+            search_query = user_input.strip() if backend == "mem0" and user_input.strip() else query
+            raw = await self._execute_remember_tool(tool_name, {"query": search_query})
             return self._summarize_remember_output(
                 tool_name, raw, user_question=user_input, query=query
             )
