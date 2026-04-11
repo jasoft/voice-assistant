@@ -274,6 +274,27 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertEqual(summary, "护照在书房抽屉里。")
         self.assertNotIn("max_tokens", agent.client.chat.completions.calls[0])
 
+    def test_remember_summary_injects_current_time_into_system_prompt(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient("最近三天有两条记录。")
+        agent.model = "test-model"
+        agent.workflow = {
+            "remember_summary": {
+                "system_prompt": "今天是 ${PTT_CURRENT_TIME}。请整理结果。"
+            }
+        }
+
+        with patch("press_to_talk.core.current_time_text", return_value="2026-04-11 09:30:00"):
+            agent._summarize_remember_output(
+                "remember_find",
+                "**护照**\n📌 内容: 最近3天有两条记录",
+                user_question="最近3天都记了什么",
+            )
+
+        system_prompt = str(agent.client.chat.completions.calls[0]["messages"][0]["content"])
+        self.assertIn("今天是 2026-04-11 09:30:00", system_prompt)
+        self.assertNotIn("${PTT_CURRENT_TIME}", system_prompt)
+
     def test_memory_capture_summary_does_not_send_max_tokens(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("用户安装了显示器的增高板")

@@ -1368,6 +1368,7 @@ class OpenAICompatibleAgent:
                 "如果没有结果，直接说明没有找到。"
                 "输出必须自然简洁，不要编号，不要项目符号，不要解释处理过程，不要自我介绍。"
             )
+        system_prompt = system_prompt.replace("${PTT_CURRENT_TIME}", current_time_text())
         user_prompt = (
             f"工具名：{tool_name}\n"
             f"用户原始问题：{user_question or query or '无'}\n"
