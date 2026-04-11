@@ -1610,7 +1610,8 @@ class OpenAICompatibleAgent:
             f"structured tool path selected: tool={tool_name} args={json.dumps(args, ensure_ascii=False)}"
         )
         if tool_name == "remember_add":
-            memory = self._summarize_memory_for_storage(user_input, args)
+            backend = str(getattr(getattr(self.storage, "config", None), "backend", "")).strip().lower()
+            memory = user_input.strip() if backend == "mem0" and user_input.strip() else self._summarize_memory_for_storage(user_input, args)
             if not memory:
                 return "Error: structured remember_add missing memory"
             return await self._execute_remember_tool(

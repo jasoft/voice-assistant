@@ -488,6 +488,30 @@ class ThinkTagFilterTests(unittest.TestCase):
             },
         )
 
+    def test_execute_structured_remember_add_uses_raw_input_for_mem0(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient("伊朗和美国停战两周")
+        agent.model = "test-model"
+        agent.workflow = {"remember_capture": {"system_prompt": "请归纳记忆。"}}
+        agent.storage = FakeStorageService(backend="mem0")
+
+        result = self.async_run(
+            agent._execute_structured_tool(
+                "remember_add",
+                {"item": "", "content": "今天是伊朗和美国停战两个星期。", "type": "event"},
+                user_input="记录一下，今天是伊朗和美国停战两个星期。",
+            )
+        )
+
+        self.assertEqual(result, "ADD:记录一下，今天是伊朗和美国停战两个星期。")
+        self.assertEqual(
+            agent.storage.remember_store().add_calls[0],
+            {
+                "memory": "记录一下，今天是伊朗和美国停战两个星期。",
+                "original_text": "记录一下，今天是伊朗和美国停战两个星期。",
+            },
+        )
+
     def test_execute_structured_remember_find_uses_raw_question_for_mem0(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("护照在书房抽屉里。")
