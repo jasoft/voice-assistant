@@ -839,6 +839,58 @@ class HistoryWriterTests(unittest.TestCase):
             ["http://docker.home:8020/api/v2/tables/table-id/records/12"],
         )
 
+    def test_sync_nocodb_to_mem0_imports_remember_items(self) -> None:
+        service = StorageService(
+            StorageConfig(
+                backend="mem0",
+                sqlite_path=Path("/tmp/assistant.db"),
+                remember_nocodb_url="http://docker.home:8020",
+                remember_nocodb_token="token",
+                remember_nocodb_table_id="remember-table",
+                history_nocodb_url="",
+                history_nocodb_token="",
+                history_nocodb_table_id="",
+                mem0_api_key="mem0-key",
+                mem0_user_id="soj",
+            )
+        )
+        client = FakeMem0Client()
+        exported = [
+            storage_service_module.RememberItemRecord(
+                id="row-1",
+                memory="护照在书房抽屉里",
+                original_text="帮我记住护照在书房抽屉里",
+                created_at="2026-04-11T09:30:00+08:00",
+            ),
+            storage_service_module.RememberItemRecord(
+                id="row-2",
+                memory="妈妈生日是6月3号",
+                original_text="记一下我妈生日是6月3号",
+                created_at="2026-04-10T09:30:00+08:00",
+            ),
+        ]
+
+        with patch.object(
+            storage_service_module.NocoDbRememberStore,
+            "export_all",
+            return_value=exported,
+        ), patch(
+            "press_to_talk.storage.service.create_mem0_client",
+            return_value=client,
+        ):
+            summary = service.sync_nocodb_to_mem0()
+
+        self.assertEqual(summary, {"items": 2})
+        self.assertEqual(len(client.add_calls), 2)
+        self.assertEqual(client.add_calls[0]["user_id"], "soj")
+        self.assertEqual(
+            client.add_calls[0]["messages"],
+            [{"role": "user", "content": "护照在书房抽屉里"}],
+        )
+        self.assertEqual(client.add_calls[0]["metadata"]["original_text"], "帮我记住护照在书房抽屉里")
+        self.assertEqual(client.add_calls[0]["metadata"]["source"], "nocodb-import")
+        self.assertEqual(client.add_calls[0]["metadata"]["nocodb_id"], "row-1")
+
 
 class NonReentrantLock:
     def __init__(self) -> None:

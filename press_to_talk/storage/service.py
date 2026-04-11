@@ -355,6 +355,16 @@ class Mem0RememberStore(BaseRememberStore):
         response = self.client.get_all(filters={"user_id": self.user_id}, limit=limit)
         return json.dumps(response, ensure_ascii=False)
 
+    def import_record(self, record: RememberItemRecord) -> None:
+        messages = [{"role": "user", "content": record.memory}]
+        metadata = {
+            "source": "nocodb-import",
+            "nocodb_id": record.id,
+            "original_text": record.original_text,
+            "created_at": record.created_at,
+        }
+        self.client.add(messages, user_id=self.user_id, metadata=metadata)
+
 
 class NocoDbHistoryStore(BaseHistoryStore):
     def __init__(self, url: str, token: str, table_id: str) -> None:
@@ -809,3 +819,21 @@ class StorageService:
         SqliteRememberStore(sqlite_state).upsert_many(remember_items)
         SqliteHistoryStore(sqlite_state).upsert_many(history_entries)
         return {"items": len(remember_items), "histories": len(history_entries)}
+
+    def sync_nocodb_to_mem0(self) -> dict[str, int]:
+        self._require_nocodb(scope="remember")
+        if not self.config.mem0_api_key.strip():
+            raise RuntimeError("mem0 配置缺失：MEM0_API_KEY")
+        remember_store = NocoDbRememberStore(
+            self.config.remember_nocodb_url,
+            self.config.remember_nocodb_token,
+            self.config.remember_nocodb_table_id,
+        )
+        target_store = Mem0RememberStore(
+            api_key=self.config.mem0_api_key,
+            user_id=self.config.mem0_user_id,
+        )
+        remember_items = remember_store.export_all()
+        for item in remember_items:
+            target_store.import_record(item)
+        return {"items": len(remember_items)}

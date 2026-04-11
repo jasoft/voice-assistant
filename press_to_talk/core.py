@@ -190,6 +190,7 @@ class Config:
     data_backend: str
     sqlite_path: Path
     sync_nocodb_to_sqlite: bool
+    sync_nocodb_to_mem0: bool
     debug: bool
     llm_api_key: str
     llm_base_url: str
@@ -1944,6 +1945,11 @@ def parse_args() -> Config:
         help="Copy remember/history data from NocoDB into local sqlite and exit",
     )
     parser.add_argument(
+        "--sync-nocodb-to-mem0",
+        action="store_true",
+        help="Copy remember data from NocoDB into mem0 and exit",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="输出更详细的调试日志",
@@ -1975,7 +1981,7 @@ def parse_args() -> Config:
 
     args = parser.parse_args()
     text_input = resolve_text_input(args)
-    if args.sync_nocodb_to_sqlite:
+    if args.sync_nocodb_to_sqlite or args.sync_nocodb_to_mem0:
         return Config(
             sample_rate=args.sample_rate,
             channels=args.channels,
@@ -1998,6 +2004,7 @@ def parse_args() -> Config:
             data_backend=args.data_backend.strip().lower(),
             sqlite_path=args.sqlite_path.expanduser(),
             sync_nocodb_to_sqlite=bool(args.sync_nocodb_to_sqlite),
+            sync_nocodb_to_mem0=bool(args.sync_nocodb_to_mem0),
             debug=args.debug,
             llm_api_key=args.api_key,
             llm_base_url=args.base_url,
@@ -2037,6 +2044,7 @@ def parse_args() -> Config:
         data_backend=args.data_backend.strip().lower(),
         sqlite_path=args.sqlite_path.expanduser(),
         sync_nocodb_to_sqlite=bool(args.sync_nocodb_to_sqlite),
+        sync_nocodb_to_mem0=bool(args.sync_nocodb_to_mem0),
         debug=args.debug,
         llm_api_key=args.api_key,
         llm_base_url=args.base_url,
@@ -2161,6 +2169,13 @@ def main() -> int:
         if cfg.sync_nocodb_to_sqlite:
             summary = StorageService(build_storage_config(cfg)).sync_nocodb_to_sqlite()
             log(f"sync complete: items={summary['items']} histories={summary['histories']}")
+            if not cfg.gui_events:
+                print(json.dumps(summary, ensure_ascii=False))
+            return 0
+
+        if cfg.sync_nocodb_to_mem0:
+            summary = StorageService(build_storage_config(cfg)).sync_nocodb_to_mem0()
+            log(f"sync to mem0 complete: items={summary['items']}")
             if not cfg.gui_events:
                 print(json.dumps(summary, ensure_ascii=False))
             return 0
