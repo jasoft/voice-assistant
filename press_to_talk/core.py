@@ -1930,7 +1930,7 @@ def parse_args() -> Config:
     )
     parser.add_argument(
         "--data-backend",
-        default=env_str("VOICE_ASSISTANT_DATA_BACKEND", "nocodb"),
+        default=env_str("VOICE_ASSISTANT_DATA_BACKEND", "mem0"),
         help="Data backend: nocodb, sqlite, or mem0",
     )
     parser.add_argument(

@@ -108,7 +108,7 @@ def env_path(name: str, default: Path) -> Path:
 
 
 def load_storage_config() -> StorageConfig:
-    backend = env_str("VOICE_ASSISTANT_DATA_BACKEND", "nocodb").strip().lower() or "nocodb"
+    backend = env_str("VOICE_ASSISTANT_DATA_BACKEND", "mem0").strip().lower() or "mem0"
     return StorageConfig(
         backend=backend,
         sqlite_path=env_path("VOICE_ASSISTANT_SQLITE_PATH", DEFAULT_SQLITE_PATH),

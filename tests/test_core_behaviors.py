@@ -551,6 +551,13 @@ class ThinkTagFilterTests(unittest.TestCase):
 
 
 class HistoryWriterTests(unittest.TestCase):
+    def test_load_storage_config_defaults_to_mem0_backend(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            config = storage_service_module.load_storage_config()
+
+        self.assertEqual(config.backend, "mem0")
+        self.assertEqual(config.mem0_user_id, "soj")
+
     def test_load_storage_config_accepts_mem0_backend(self) -> None:
         with patch.dict(
             "os.environ",
