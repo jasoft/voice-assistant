@@ -89,7 +89,11 @@ class StorageCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             env_path = tmp_path / ".env"
-            env_path.write_text("MEM0_API_KEY=test-mem0-key\n", encoding="utf-8")
+            env_path.write_text(
+                "MEM0_API_KEY=test-mem0-key\n"
+                f"PTT_HISTORY_DB_PATH={tmp_path / 'history-test.sqlite3'}\n",
+                encoding="utf-8",
+            )
 
             stderr = io.StringIO()
             stdout = io.StringIO()

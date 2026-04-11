@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+APP_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_HISTORY_DB_PATH = APP_ROOT / "data" / "voice_assistant.sqlite3"
 
 
 @dataclass
@@ -11,6 +17,7 @@ class StorageConfig:
     backend: str = "mem0"
     mem0_api_key: str = ""
     mem0_user_id: str = "soj"
+    history_db_path: str = str(DEFAULT_HISTORY_DB_PATH)
 
 
 @dataclass
@@ -44,6 +51,8 @@ def load_storage_config() -> StorageConfig:
         backend="mem0",
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
         mem0_user_id=env_str("MEM0_USER_ID", "soj").strip() or "soj",
+        history_db_path=env_str("PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)).strip()
+        or str(DEFAULT_HISTORY_DB_PATH),
     )
 
 
@@ -119,14 +128,143 @@ class NullHistoryStore(BaseHistoryStore):
         return None
 
 
+class SQLiteHistoryStore(BaseHistoryStore):
+    def __init__(self, db_path: str | Path) -> None:
+        self.db_path = Path(db_path).expanduser()
+
+    def _connect(self) -> sqlite3.Connection:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_histories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL UNIQUE,
+                started_at TEXT NOT NULL,
+                ended_at TEXT NOT NULL,
+                transcript TEXT NOT NULL,
+                reply TEXT NOT NULL,
+                peak_level REAL NOT NULL,
+                mean_level REAL NOT NULL,
+                auto_closed INTEGER NOT NULL,
+                reopened_by_click INTEGER NOT NULL,
+                mode TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_session_histories_started_at
+            ON session_histories(started_at DESC)
+            """
+        )
+        return conn
+
+    def persist(self, entry: SessionHistoryRecord) -> None:
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO session_histories (
+                        session_id,
+                        started_at,
+                        ended_at,
+                        transcript,
+                        reply,
+                        peak_level,
+                        mean_level,
+                        auto_closed,
+                        reopened_by_click,
+                        mode,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        started_at = excluded.started_at,
+                        ended_at = excluded.ended_at,
+                        transcript = excluded.transcript,
+                        reply = excluded.reply,
+                        peak_level = excluded.peak_level,
+                        mean_level = excluded.mean_level,
+                        auto_closed = excluded.auto_closed,
+                        reopened_by_click = excluded.reopened_by_click,
+                        mode = excluded.mode
+                    """,
+                    (
+                        entry.session_id,
+                        entry.started_at,
+                        entry.ended_at,
+                        entry.transcript,
+                        entry.reply,
+                        entry.peak_level,
+                        entry.mean_level,
+                        int(entry.auto_closed),
+                        int(entry.reopened_by_click),
+                        entry.mode,
+                        entry.started_at,
+                    ),
+                )
+
+    def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
+        sql = """
+            SELECT
+                session_id,
+                started_at,
+                ended_at,
+                transcript,
+                reply,
+                peak_level,
+                mean_level,
+                auto_closed,
+                reopened_by_click,
+                mode
+            FROM session_histories
+        """
+        params: list[Any] = []
+        trimmed_query = query.strip()
+        if trimmed_query:
+            sql += " WHERE transcript LIKE ? OR reply LIKE ?"
+            pattern = f"%{trimmed_query}%"
+            params.extend([pattern, pattern])
+        sql += " ORDER BY started_at DESC LIMIT ?"
+        params.append(max(1, limit))
+        with contextlib.closing(self._connect()) as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [
+            SessionHistoryRecord(
+                session_id=str(row["session_id"]),
+                started_at=str(row["started_at"]),
+                ended_at=str(row["ended_at"]),
+                transcript=str(row["transcript"]),
+                reply=str(row["reply"]),
+                peak_level=float(row["peak_level"]),
+                mean_level=float(row["mean_level"]),
+                auto_closed=bool(row["auto_closed"]),
+                reopened_by_click=bool(row["reopened_by_click"]),
+                mode=str(row["mode"]),
+            )
+            for row in rows
+        ]
+
+    def delete(self, *, session_id: str) -> None:
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(
+                    "DELETE FROM session_histories WHERE session_id = ?",
+                    (session_id.strip(),),
+                )
+
+
 class StorageService:
     def __init__(self, config: StorageConfig) -> None:
         self.config = StorageConfig(
             backend="mem0",
             mem0_api_key=config.mem0_api_key,
             mem0_user_id=config.mem0_user_id,
+            history_db_path=config.history_db_path,
         )
-        self._history_store = NullHistoryStore()
+        self._history_store: BaseHistoryStore = SQLiteHistoryStore(self.config.history_db_path)
 
     @classmethod
     def from_env(cls) -> "StorageService":

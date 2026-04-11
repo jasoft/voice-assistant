@@ -570,7 +570,90 @@ class ThinkTagFilterTests(unittest.TestCase):
 
 
 class HistoryWriterTests(unittest.TestCase):
-    def test_history_store_is_noop_in_mem0_only_mode(self) -> None:
+    def test_history_store_persists_records_to_sqlite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "history.db"
+            service = StorageService(
+                StorageConfig(
+                    backend="mem0",
+                    mem0_api_key="mem0-key",
+                    mem0_user_id="soj",
+                    history_db_path=str(db_path),
+                )
+            )
+
+            service.history_store().persist(
+                SessionHistoryRecord(
+                    session_id="session-1",
+                    started_at="2026-04-08T17:00:00+08:00",
+                    ended_at="2026-04-08T17:01:00+08:00",
+                    transcript="你好",
+                    reply="在这里",
+                    peak_level=0.87,
+                    mean_level=0.41,
+                    auto_closed=True,
+                    reopened_by_click=False,
+                    mode="gui",
+                )
+            )
+
+            self.assertTrue(db_path.is_file())
+            records = service.history_store().list_recent(limit=5)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].session_id, "session-1")
+            self.assertEqual(records[0].transcript, "你好")
+            self.assertEqual(records[0].reply, "在这里")
+
+    def test_history_store_supports_query_and_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "history.db"
+            service = StorageService(
+                StorageConfig(
+                    backend="mem0",
+                    mem0_api_key="mem0-key",
+                    mem0_user_id="soj",
+                    history_db_path=str(db_path),
+                )
+            )
+
+            service.history_store().persist(
+                SessionHistoryRecord(
+                    session_id="session-1",
+                    started_at="2026-04-08T17:00:00+08:00",
+                    ended_at="2026-04-08T17:01:00+08:00",
+                    transcript="今天南京天气怎么样",
+                    reply="今天有雨",
+                    peak_level=0.87,
+                    mean_level=0.41,
+                    auto_closed=True,
+                    reopened_by_click=False,
+                    mode="gui",
+                )
+            )
+            service.history_store().persist(
+                SessionHistoryRecord(
+                    session_id="session-2",
+                    started_at="2026-04-08T18:00:00+08:00",
+                    ended_at="2026-04-08T18:01:00+08:00",
+                    transcript="护照在哪",
+                    reply="在书房抽屉",
+                    peak_level=0.52,
+                    mean_level=0.22,
+                    auto_closed=False,
+                    reopened_by_click=False,
+                    mode="cli",
+                )
+            )
+
+            records = service.history_store().list_recent(limit=5, query="护照")
+            self.assertEqual([item.session_id for item in records], ["session-2"])
+
+            service.history_store().delete(session_id="session-2")
+
+            remaining = service.history_store().list_recent(limit=5)
+            self.assertEqual([item.session_id for item in remaining], ["session-1"])
+
+    def test_history_store_uses_default_sqlite_path_when_env_missing(self) -> None:
         service = StorageService(
             StorageConfig(
                 backend="mem0",
@@ -579,22 +662,7 @@ class HistoryWriterTests(unittest.TestCase):
             )
         )
 
-        service.history_store().persist(
-            SessionHistoryRecord(
-                session_id="session-1",
-                started_at="2026-04-08T17:00:00+08:00",
-                ended_at="2026-04-08T17:01:00+08:00",
-                transcript="你好",
-                reply="在这里",
-                peak_level=0.87,
-                mean_level=0.41,
-                auto_closed=True,
-                reopened_by_click=False,
-                mode="gui",
-            )
-        )
-
-        self.assertEqual(service.history_store().list_recent(limit=5), [])
+        self.assertTrue(str(service.config.history_db_path).endswith("data/voice_assistant.sqlite3"))
 
     def test_load_storage_config_defaults_to_mem0_backend(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
@@ -602,6 +670,7 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertEqual(config.backend, "mem0")
         self.assertEqual(config.mem0_user_id, "soj")
+        self.assertTrue(config.history_db_path.endswith("data/voice_assistant.sqlite3"))
 
     def test_load_storage_config_reads_mem0_credentials(self) -> None:
         with patch.dict(
@@ -617,6 +686,18 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(config.backend, "mem0")
         self.assertEqual(config.mem0_api_key, "test-mem0-key")
         self.assertEqual(config.mem0_user_id, "soj")
+
+    def test_load_storage_config_reads_history_db_path(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "PTT_HISTORY_DB_PATH": "/tmp/custom-history.db",
+            },
+            clear=True,
+        ):
+            config = storage_service_module.load_storage_config()
+
+        self.assertEqual(config.history_db_path, "/tmp/custom-history.db")
 
     def test_mem0_store_requires_api_key(self) -> None:
         service = StorageService(

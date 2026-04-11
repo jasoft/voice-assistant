@@ -132,6 +132,11 @@ def build_storage_config(cfg: Config) -> StorageConfig:
         backend="mem0",
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
         mem0_user_id=env_str("MEM0_USER_ID", "soj").strip() or "soj",
+        history_db_path=env_str(
+            "PTT_HISTORY_DB_PATH",
+            str(APP_ROOT / "data" / "voice_assistant.sqlite3"),
+        ).strip()
+        or str(APP_ROOT / "data" / "voice_assistant.sqlite3"),
     )
 
 

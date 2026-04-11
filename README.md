@@ -45,6 +45,7 @@ uv run press-to-talk --text-input "记录一下，我今天安装了显示器的
 - `PTT_LOG_DIR`：运行日志目录，默认写到项目根目录下的 `logs/`
 - `MEM0_API_KEY`：托管版 mem0 API Key
 - `MEM0_USER_ID`：mem0 用户 ID，默认 `soj`
+- `PTT_HISTORY_DB_PATH`：历史记录 SQLite 路径，默认 `data/voice_assistant.sqlite3`
 - `URSOFT_REMEMBER_SCRIPT`：覆盖默认 remember 脚本路径
 - `OPENCLAW_REMEMBER_SCRIPT`：旧变量名，仍兼容，但建议迁移到 `URSOFT_REMEMBER_SCRIPT`
 - 其余录音阈值、TTS 参数、输出路径也都支持从 `.env` 覆盖
@@ -88,7 +89,7 @@ uv run press-to-talk --text-input "把我记过的内容列出来" --no-tts
 
 ## 历史记录
 
-当前不再使用 `nocoDB` 或 `SQLite` 作为历史存储后端。GUI 的 History 面板会保留兼容入口，但默认返回空列表。
+历史记录会写入本地 SQLite，默认路径是 `data/voice_assistant.sqlite3`。GUI 的 History 面板和 `press_to_talk.storage_cli list-history` 都会读取这份库；如需自定义路径，可设置 `PTT_HISTORY_DB_PATH`。
 
 ## 回归测试
 
