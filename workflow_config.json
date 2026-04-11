@@ -7,7 +7,7 @@
             "tools": ["remember_add"]
         },
         "find": {
-            "description": "查询个人物品的相关信息。当用户询问某个东西‘在哪里’、‘什么时候买的’、‘生日是什么时候’、或者询问‘有哪些记录’时使用。默认优先本地记事查询。",
+            "description": "查询数据库中可能已保存的信息。范围覆盖个人生活的方方面面，包括人物、宠物、物品、事件、地点、日期、偏好、状态、关系、安排、备注与历史记录。凡是个人场景下的 What、When、Which、Who、Where 等提问，默认优先本地查询。",
             "keywords": [
                 "记住",
                 "帮我记一下",
@@ -22,13 +22,13 @@
                 "哪些",
                 "查找"
             ],
-            "system_prompt": "你是一个信息查询助手。请务必使用 remember_find 或 remember_list 工具来查找用户询问的物品信息。即便用户问的是时间、生日、属性或特征，也请尝试通过 find 工具搜索关键词。回复必须控制在30字以内。",
+            "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询本地数据库。请根据用户意图使用 remember_find 或 remember_list；查询范围不限于物品，也包括人物、宠物、事件、地点、日期、偏好、状态、关系和其它个人生活信息。find 的 query 只保留核心主题词。回复必须控制在30字以内。",
             "tools": ["remember_find", "remember_list"]
         },
         "chat": {
-            "description": "除记忆查询外的所有对话都使用 chat；chat 也负责联网搜索、网页抓取与一般问答。",
+            "description": "兼容保留分支。当前分类器默认不应进入 chat。",
             "keywords": [],
-            "system_prompt": "你是一个中文助手。除非要做本地记事查询，否则都走 chat。你可以根据需要使用 brave-search 或 fetch 工具来联网查资料、抓网页或回答实时问题。回答要自然、完整、口语化，不要故意压缩长度。当前位置：南京。",
+            "system_prompt": "你是一个兼容保留分支。若误入此分支，也应优先引导回本地数据库查询，不主动做开放域聊天。",
             "tools": ["brave-search___brave-search", "brave-search___search", "fetch___fetch"]
         }
     },

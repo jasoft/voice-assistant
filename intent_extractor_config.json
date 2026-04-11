@@ -1,6 +1,6 @@
 {
   "schema": {
-    "intent": "record|find|chat",
+    "intent": "record|find",
     "task": {
       "record": {
         "memory": "",
@@ -9,12 +9,9 @@
       "find": {
         "query": "",
         "mode": "item|list|property"
-      },
-      "search": {
-        "query": ""
       }
     },
-    "tool": "remember_add|remember_find|remember_list|null",
+    "tool": "remember_add|remember_find|remember_list",
     "args": {
       "memory": "",
       "query": "",
@@ -25,14 +22,15 @@
   },
   "instructions": [
     "record 表示要记录或更新信息，task.record.memory 和 args.memory 要写成一句适合长期保存和检索的中文记忆，不要拆成 item、content、type。",
-    "find 表示要查询已保存的记忆。若是找某个具体主题，task.find.mode 用 item；若是列出已有记录，mode 用 list；若是按属性查，mode 用 property。",
-    "只有当用户明确是在查询自己之前记下来的内容、个人物品信息、生日、位置、属性、备注或历史记录时，才判成 find 或 record。",
-    "像“关于小狗的信息”“今天上海天气怎么样”“某个概念是什么意思”“帮我查新闻”这类通用知识、实时信息或开放域问题，一律判成 chat，不要因为出现“查找”“查询”就误判成 find。",
+    "find 表示要查询数据库里可能已经存在的信息。若是找某个具体主题，task.find.mode 用 item；若是列出已有记录，mode 用 list；若是按属性或维度追问，mode 用 property。",
+    "这是一个通用的个人生活数据库，不限于物品。人物、宠物、事件、地点、日期、偏好、状态、经历、提醒、安排、关系、健康、消费、账号、内容都可以属于记忆查询范围。",
+    "凡是用户在个人场景中问 What、When、Which、Who、Where、Why、How many、How much 这类问题，本质上都是在问数据库里是否记过相关事实，通常判成 find，不要缩窄成‘必须明确说之前记过’才算。",
+    "像“关于小狗的信息”“上海天气”“某个概念是什么意思”“帮我查新闻”这类问法，在本系统里也统一先判成 find，去数据库里查；如果数据库没有结果，后续自然返回没找到。",
     "像“把我之前记的东西列出来”“把所有记录都列出来”“有哪些我记过的内容”这类明确要看记忆列表的请求，应判成 find，并优先使用 remember_list。",
     "find.args.query 必须尽量只保留核心对象词，不要把“位置、地点、时间、日期、生日、特征、颜色、属性、内容、在哪里、在哪、是什么、是多少”这类说明词拼进 query。比如“我的护照在哪里”应提取为“护照”，不是“护照位置”。",
-    "除了本地记事相关内容，其余都判成 chat。",
-    "chat 可以在后续调用 brave-search 或 fetch 工具完成联网搜索或网页抓取。",
-    "tool 仍要给出后续应执行的工具名；无法确定时用 null。",
+    "不要输出 chat、search 或 null；如果不是 record，就优先按 find 处理，并给出 remember_find 或 remember_list。",
+    "不要过度解释，不要自行补充复杂推理；只做最小必要判断与抽取。",
+    "tool 必须给出后续应执行的工具名。",
     "args 要与 tool 对齐，尽量填全；record 时至少填 memory，如有备注要填 args.note；find 时至少填 query。",
     "输出必须是单个 JSON 对象，不能加 markdown，不能加解释，不能加额外文本。"
   ],
@@ -132,27 +130,27 @@
     {
       "user": "今天上海天气怎么样",
       "assistant": {
-        "intent": "chat",
-        "tool": null,
+        "intent": "find",
+        "tool": "remember_find",
         "args": {
           "memory": "",
-          "query": ""
+          "query": "上海天气"
         },
         "confidence": 0.8,
-        "notes": "除本地记事外，默认都进入 chat"
+        "notes": "在本系统中统一按数据库查询处理"
       }
     },
     {
       "user": "查找关于小狗的信息。",
       "assistant": {
-        "intent": "chat",
-        "tool": null,
+        "intent": "find",
+        "tool": "remember_find",
         "args": {
           "memory": "",
-          "query": ""
+          "query": "小狗"
         },
         "confidence": 0.85,
-        "notes": "通用知识查询，不是本地记忆检索"
+        "notes": "用户在查询与小狗相关的信息"
       }
     },
     {
@@ -171,14 +169,14 @@
     {
       "user": "早上好",
       "assistant": {
-        "intent": "chat",
-        "tool": null,
+        "intent": "find",
+        "tool": "remember_find",
         "args": {
           "memory": "",
-          "query": ""
+          "query": "早上好"
         },
         "confidence": 0.99,
-        "notes": "普通闲聊"
+        "notes": "没有记录动作时默认按数据库查询处理"
       }
     }
   ]

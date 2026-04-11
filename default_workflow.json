@@ -6,8 +6,8 @@
             "tools": ["remember_add"]
         },
         "find": {
-            "description": "查询个人物品、日期、特征、事件等相关信息。",
-            "system_prompt": "你是一个信息查询助手。请使用 remember_find 或 remember_list 工具查找物品信息。回复必须控制在30字以内。",
+            "description": "查询数据库中可能已保存的各类个人生活信息，包括人物、宠物、物品、事件、地点、日期、偏好、状态与历史记录。",
+            "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询本地数据库。请使用 remember_find 或 remember_list 工具，query 只保留核心主题词。回复必须控制在30字以内。",
             "tools": ["remember_find", "remember_list"]
         },
         "search": {
@@ -16,8 +16,8 @@
             "tools": ["brave-search___search", "fetch___fetch"]
         },
         "chat": {
-            "description": "通用闲聊或简单问答。",
-            "system_prompt": "你是一个中文闲聊助手。直接回答问题，不要使用外部工具。默认输出两句到四句，先给结论，再补一句解释或补充。只有像打招呼、确认、选择题这类极短问题，才可以一句话回复。回答要自然、口语化.",
+            "description": "兼容保留分支，当前默认不应进入。",
+            "system_prompt": "你是一个兼容保留分支。若误入此分支，也应优先回到本地数据库查询，不主动做开放域聊天。",
             "tools": []
         }
     },

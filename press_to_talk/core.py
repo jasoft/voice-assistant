@@ -256,6 +256,63 @@ def wants_explicit_search(text: str) -> bool:
     return "联网搜索" in normalized or "上网搜索" in normalized
 
 
+def is_list_request(text: str) -> bool:
+    normalized = re.sub(r"[ \t]+", "", text or "")
+    list_markers = [
+        "列出来",
+        "列一下",
+        "列出",
+        "全部记录",
+        "所有记录",
+        "都有哪些",
+        "有哪些",
+        "清单",
+        "列表",
+    ]
+    return any(marker in normalized for marker in list_markers)
+
+
+def derive_find_query(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    patterns = [
+        r"^(?:帮我)?(?:联网搜索|上网搜索|搜索|查找|查询|查一下|找一下|帮我查一下|帮我找一下)(?:关于)?",
+        r"^(?:我想)?(?:知道|看看|了解)(?:一下)?(?:关于)?",
+        r"(?:的信息|的事情|的情况|有哪些|是什么|是什么时候|什么时候|在哪里|在哪|多少)$",
+    ]
+    query = normalized
+    for pattern in patterns:
+        query = re.sub(pattern, "", query)
+    query = re.sub(r"[，。！？、,.!?]+", "", query).strip()
+    return query or normalized
+
+
+def coerce_to_local_find_payload(
+    user_input: str, payload: dict[str, Any] | None = None, *, note: str = ""
+) -> dict[str, Any]:
+    original = payload if isinstance(payload, dict) else {}
+    original_args = original.get("args", {})
+    args = original_args if isinstance(original_args, dict) else {}
+    query = str(args.get("query", "") or "").strip()
+    tool_name = "remember_list" if is_list_request(user_input) and not query else "remember_find"
+    if tool_name == "remember_list":
+        query = ""
+    else:
+        query = query or derive_find_query(user_input)
+    return {
+        "intent": "find",
+        "tool": tool_name,
+        "args": {
+            "memory": "",
+            "query": query,
+            "note": "",
+        },
+        "confidence": max(float(original.get("confidence", 0.0) or 0.0), 0.6),
+        "notes": note or "默认归入本地查询",
+    }
+
+
 def prefers_local_record(text: str) -> bool:
     normalized = re.sub(r"[ \t]+", "", text or "")
     if wants_explicit_search(normalized):
@@ -1147,26 +1204,17 @@ class OpenAICompatibleAgent:
                 + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
             )
             if wants_explicit_search(user_input):
-                payload["intent"] = "chat"
-                payload["tool"] = None
-                payload["args"] = {
-                    "memory": "",
-                    "query": "",
-                    "note": "",
-                }
-                payload["confidence"] = max(float(payload.get("confidence", 0.0) or 0.0), 0.8)
-                payload["notes"] = "联网搜索已合并到 chat"
-                return payload
+                return coerce_to_local_find_payload(
+                    user_input, payload, note="联网搜索请求已并入本地查询"
+                )
             if payload.get("intent") == "search":
-                payload["intent"] = "chat"
-                payload["tool"] = None
-                payload["args"] = {
-                    "memory": "",
-                    "query": "",
-                    "note": "",
-                }
-                payload["confidence"] = max(float(payload.get("confidence", 0.0) or 0.0), 0.8)
-                payload["notes"] = "search 已合并到 chat"
+                payload = coerce_to_local_find_payload(
+                    user_input, payload, note="search 已并入本地查询"
+                )
+            if payload.get("intent") == "chat":
+                payload = coerce_to_local_find_payload(
+                    user_input, payload, note="chat 已并入本地查询"
+                )
             payload.setdefault("args", {})
             args = payload["args"] if isinstance(payload["args"], dict) else {}
             args.setdefault("memory", "")
@@ -1198,24 +1246,20 @@ class OpenAICompatibleAgent:
             return payload
         except Exception as e:
             log(f"Intent extraction failed: {e}")
-        return {
-            "intent": "chat",
-            "tool": None,
-            "args": {
-                "memory": "",
-                "query": "",
-                "note": "",
+        return coerce_to_local_find_payload(
+            user_input,
+            {
+                "confidence": 0.0,
             },
-            "confidence": 0.0,
-            "notes": "结构化提取失败，回退 chat",
-        }
+            note="结构化提取失败，回退本地查询",
+        )
 
     async def classify_intent(self, user_input: str) -> str:
         payload = await self._extract_intent_payload(user_input)
         intent = str(payload.get("intent", "")).strip()
         if intent in self.workflow["intents"]:
             return intent
-        return "chat"
+        return "find"
 
     def _get_remember_tools(self) -> dict[str, dict[str, Any]]:
         return {
@@ -1453,11 +1497,11 @@ class OpenAICompatibleAgent:
         intent_payload = await self._extract_intent_payload(user_input)
         intent_key = str(intent_payload.get("intent", "")).strip()
         if intent_key not in self.workflow.get("intents", {}):
-            intent_key = "chat"
+            intent_key = "find"
         log(f"Detected intent branch: [bold cyan]{intent_key}[/bold cyan]")
 
         intents = self.workflow.get("intents", {})
-        intent_cfg = intents.get(intent_key) or intents.get("chat")
+        intent_cfg = intents.get(intent_key) or intents.get("find") or intents.get("chat")
         if not intent_cfg:
             raise RuntimeError("workflow config does not contain a usable chat intent")
         intent_cfg = copy.deepcopy(intent_cfg)

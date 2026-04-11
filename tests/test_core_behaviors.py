@@ -348,10 +348,10 @@ class ThinkTagFilterTests(unittest.TestCase):
             },
         )
 
-    def test_general_knowledge_query_stays_chat(self) -> None:
+    def test_general_knowledge_query_uses_remember_find(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient(
-            '{"intent":"chat","tool":null,"args":{"memory":"","query":""},"confidence":0.8,"notes":"需要联网搜索的通用查询"}'
+            '{"intent":"find","tool":"remember_find","args":{"memory":"","query":"小狗","note":""},"confidence":0.8,"notes":"用户在查询与小狗相关的信息"}'
         )
         agent.model = "test-model"
         agent.workflow = {
@@ -362,9 +362,24 @@ class ThinkTagFilterTests(unittest.TestCase):
 
         payload = self.async_run(agent._extract_intent_payload("查找关于小狗的信息。"))
 
-        self.assertEqual(payload["intent"], "chat")
-        self.assertIsNone(payload["tool"])
+        self.assertEqual(payload["intent"], "find")
+        self.assertEqual(payload["tool"], "remember_find")
+        self.assertEqual(payload["args"]["query"], "小狗")
         self.assertEqual(agent.storage.remember_store().find_calls, [])
+
+    def test_explicit_search_request_is_routed_to_find(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient(
+            '{"intent":"find","tool":"remember_find","args":{"memory":"","query":"上海天气","note":""},"confidence":0.76,"notes":"用户在查询上海天气"}'
+        )
+        agent.model = "test-model"
+        agent.workflow = {"intents": {"record": {}, "find": {}, "chat": {}}}
+
+        payload = self.async_run(agent._extract_intent_payload("帮我联网搜索上海天气"))
+
+        self.assertEqual(payload["intent"], "find")
+        self.assertEqual(payload["tool"], "remember_find")
+        self.assertEqual(payload["args"]["query"], "上海天气")
 
     def test_record_intent_follows_llm_output(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
