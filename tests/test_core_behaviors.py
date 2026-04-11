@@ -7,9 +7,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
+from requests import HTTPError
 
 from press_to_talk import core
 from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageService
+from press_to_talk.storage.service import NocoDbHistoryStore
 
 
 class FakeRememberStore:
@@ -551,6 +553,48 @@ class HistoryWriterTests(unittest.TestCase):
                 self.assertIn("用户安装了显示器的增高板", find_result)
             finally:
                 service.close()
+
+    def test_nocodb_history_delete_falls_back_when_where_query_is_rejected(self) -> None:
+        store = NocoDbHistoryStore("http://docker.home:8020", "token", "table-id")
+        rejected_response = SimpleNamespace(
+            raise_for_status=lambda: (_ for _ in ()).throw(HTTPError("422 Client Error: Unprocessable Entity"))
+        )
+        listing_response = SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {
+                "list": [
+                    {"Id": 11, "session_id": "keep-me"},
+                    {"Id": 12, "session_id": "delete-me"},
+                ]
+            },
+        )
+        deleted_urls: list[str] = []
+
+        def fake_get(url: str, headers: dict[str, str], params: dict[str, object], timeout: int):
+            self.assertEqual(url, "http://docker.home:8020/api/v2/tables/table-id/records")
+            self.assertEqual(headers["xc-token"], "token")
+            self.assertEqual(timeout, 30)
+            if "where" in params:
+                return rejected_response
+            self.assertEqual(params, {"limit": 200, "sort": "-CreatedAt"})
+            return listing_response
+
+        def fake_delete(url: str, headers: dict[str, str], timeout: int):
+            deleted_urls.append(url)
+            self.assertEqual(headers["xc-token"], "token")
+            self.assertEqual(timeout, 30)
+            return SimpleNamespace(raise_for_status=lambda: None)
+
+        with patch("press_to_talk.storage.service.requests.get", side_effect=fake_get), patch(
+            "press_to_talk.storage.service.requests.delete",
+            side_effect=fake_delete,
+        ):
+            store.delete(session_id="delete-me")
+
+        self.assertEqual(
+            deleted_urls,
+            ["http://docker.home:8020/api/v2/tables/table-id/records/12"],
+        )
 
 
 class NonReentrantLock:

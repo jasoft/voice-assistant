@@ -329,6 +329,9 @@ class NocoDbHistoryStore(BaseHistoryStore):
         response.raise_for_status()
         return response.json().get("list", [])
 
+    def _row_session_id(self, row: dict[str, Any]) -> str:
+        return str(row.get("session_id") or row.get("Session ID") or "").strip()
+
     def persist(self, entry: SessionHistoryRecord) -> None:
         payload = {
             "session_id": entry.session_id,
@@ -373,7 +376,14 @@ class NocoDbHistoryStore(BaseHistoryStore):
         return results[:limit]
 
     def delete(self, *, session_id: str) -> None:
-        rows = self._fetch_rows({"where": f"(session_id,eq,{session_id})", "limit": 5})
+        try:
+            rows = self._fetch_rows({"where": f"(session_id,eq,{session_id})", "limit": 5})
+        except requests.HTTPError:
+            rows = [
+                row
+                for row in self._fetch_rows({"limit": 200, "sort": "-CreatedAt"})
+                if self._row_session_id(row) == session_id
+            ]
         row_ids = [str(row.get("Id") or "").strip() for row in rows if str(row.get("Id") or "").strip()]
         if not row_ids:
             return
