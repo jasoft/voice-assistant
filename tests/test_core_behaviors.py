@@ -366,6 +366,22 @@ class ThinkTagFilterTests(unittest.TestCase):
             "帮我记住护照在书房抽屉里",
         )
 
+    def test_extract_mem0_summary_payload_keeps_top3_scores_above_point8(self) -> None:
+        payload = {
+            "results": [
+                {"id": "m1", "memory": "A", "score": 0.95},
+                {"id": "m2", "memory": "B", "score": 0.91},
+                {"id": "m3", "memory": "C", "score": 0.81},
+                {"id": "m4", "memory": "D", "score": 0.8},
+                {"id": "m5", "memory": "E", "score": 0.79},
+                {"id": "m6", "memory": "F", "score": 0.99},
+            ]
+        }
+
+        extracted = core.extract_mem0_summary_payload(payload)
+
+        self.assertEqual([item["id"] for item in extracted["items"]], ["m6", "m1", "m2"])
+
     def test_remember_summary_includes_structured_mem0_fields(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("护照在书房抽屉里。")

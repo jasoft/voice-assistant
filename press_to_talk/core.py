@@ -561,6 +561,8 @@ def strip_think_tags(text: str) -> str:
 
 
 def extract_mem0_summary_payload(raw_payload: str | dict[str, Any] | list[Any]) -> dict[str, Any]:
+    min_score = 0.8
+    max_items = 3
     payload: Any = raw_payload
     if isinstance(raw_payload, str):
         text = raw_payload.strip()
@@ -611,6 +613,19 @@ def extract_mem0_summary_payload(raw_payload: str | dict[str, Any] | list[Any]) 
             "categories": item.get("categories") or data_dict.get("categories") or [],
         }
         items.append(extracted)
+    scored_items: list[dict[str, Any]] = []
+    for item in items:
+        score = item.get("score")
+        try:
+            numeric_score = float(score)
+        except (TypeError, ValueError):
+            continue
+        if numeric_score <= min_score:
+            continue
+        item["score"] = numeric_score
+        scored_items.append(item)
+    scored_items.sort(key=lambda item: float(item["score"]), reverse=True)
+    items = scored_items[:max_items]
     return {"items": items, "raw": payload}
 
 
