@@ -345,7 +345,13 @@ def expand_env_placeholders(value: Any) -> Any:
     if isinstance(value, list):
         return [expand_env_placeholders(item) for item in value]
     if isinstance(value, str):
-        return ENV_VAR_PATTERN.sub(lambda match: os.environ.get(match.group(1), ""), value)
+        def replace(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name in {"PTT_CURRENT_TIME", "PTT_LOCATION"} and name not in os.environ:
+                return match.group(0)
+            return os.environ.get(name, "")
+
+        return ENV_VAR_PATTERN.sub(replace, value)
     return value
 
 

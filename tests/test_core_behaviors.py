@@ -295,6 +295,21 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertIn("今天是 2026-04-11 09:30:00", system_prompt)
         self.assertNotIn("${PTT_CURRENT_TIME}", system_prompt)
 
+    def test_expand_env_placeholders_keeps_runtime_tokens_when_env_missing(self) -> None:
+        original = {
+            "remember_summary": {
+                "system_prompt": "今天是 ${PTT_CURRENT_TIME}，位置是 ${PTT_LOCATION}，密钥是 ${BRAVE_API_KEY}。"
+            }
+        }
+
+        with patch.dict("os.environ", {}, clear=True):
+            expanded = core.expand_env_placeholders(original)
+
+        prompt = expanded["remember_summary"]["system_prompt"]
+        self.assertIn("${PTT_CURRENT_TIME}", prompt)
+        self.assertIn("${PTT_LOCATION}", prompt)
+        self.assertNotIn("${BRAVE_API_KEY}", prompt)
+
     def test_memory_capture_summary_does_not_send_max_tokens(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("用户安装了显示器的增高板")
