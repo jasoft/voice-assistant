@@ -88,17 +88,8 @@ class StorageCliTests(unittest.TestCase):
     def test_list_history_loads_backend_from_env_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            db_path = tmp_path / "assistant.db"
             env_path = tmp_path / ".env"
-            env_path.write_text(
-                "\n".join(
-                    [
-                        "VOICE_ASSISTANT_DATA_BACKEND=sqlite",
-                        f"VOICE_ASSISTANT_SQLITE_PATH={db_path}",
-                    ]
-                ),
-                encoding="utf-8",
-            )
+            env_path.write_text("MEM0_API_KEY=test-mem0-key\n", encoding="utf-8")
 
             stderr = io.StringIO()
             stdout = io.StringIO()

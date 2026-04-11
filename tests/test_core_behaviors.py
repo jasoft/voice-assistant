@@ -7,12 +7,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-from requests import HTTPError
 
 from press_to_talk import core
 from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageService
 from press_to_talk.storage import service as storage_service_module
-from press_to_talk.storage.service import NocoDbHistoryStore
 
 
 class FakeRememberStore:
@@ -35,7 +33,7 @@ class FakeRememberStore:
 
 
 class FakeStorageService:
-    def __init__(self, *, backend: str = "nocodb") -> None:
+    def __init__(self, *, backend: str = "mem0") -> None:
         self.history_entries: list[SessionHistoryRecord] = []
         self._remember_store = FakeRememberStore()
         self.config = SimpleNamespace(backend=backend)
@@ -450,49 +448,11 @@ class ThinkTagFilterTests(unittest.TestCase):
                 self.assertEqual(core.os.environ["GROQ_API_KEY"], "test-groq-key")
                 self.assertEqual(core.os.environ["MEM0_API_KEY"], "test-mem0-key")
 
-    def test_memory_capture_summary_does_not_send_max_tokens(self) -> None:
-        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
-        agent.client = FakeClient("用户安装了显示器的增高板")
-        agent.model = "test-model"
-        agent.workflow = {"remember_capture": {"system_prompt": "请归纳记忆。"}}
-
-        memory = agent._summarize_memory_for_storage(
-            user_input="记录一下，我今天安装了显示器的增高板",
-            structured_args={"content": "今天安装了显示器的增高板"},
-        )
-
-        self.assertEqual(memory, "用户安装了显示器的增高板")
-        self.assertNotIn("max_tokens", agent.client.chat.completions.calls[0])
-
-    def test_execute_structured_remember_add_saves_single_memory_text(self) -> None:
-        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
-        agent.client = FakeClient("伊朗和美国停战两周")
-        agent.model = "test-model"
-        agent.workflow = {"remember_capture": {"system_prompt": "请归纳记忆。"}}
-        agent.storage = FakeStorageService()
-
-        result = self.async_run(
-            agent._execute_structured_tool(
-                "remember_add",
-                {"item": "", "content": "今天是伊朗和美国停战两个星期。", "type": "event"},
-                user_input="记录一下，今天是伊朗和美国停战两个星期。",
-            )
-        )
-
-        self.assertEqual(result, "ADD:伊朗和美国停战两周")
-        self.assertEqual(
-            agent.storage.remember_store().add_calls[0],
-            {
-                "memory": "伊朗和美国停战两周",
-                "original_text": "记录一下，今天是伊朗和美国停战两个星期。",
-            },
-        )
-
     def test_execute_structured_remember_add_uses_raw_input_for_mem0(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("伊朗和美国停战两周")
         agent.model = "test-model"
-        agent.workflow = {"remember_capture": {"system_prompt": "请归纳记忆。"}}
+        agent.workflow = {}
         agent.storage = FakeStorageService(backend="mem0")
 
         result = self.async_run(
@@ -610,6 +570,32 @@ class ThinkTagFilterTests(unittest.TestCase):
 
 
 class HistoryWriterTests(unittest.TestCase):
+    def test_history_store_is_noop_in_mem0_only_mode(self) -> None:
+        service = StorageService(
+            StorageConfig(
+                backend="mem0",
+                mem0_api_key="mem0-key",
+                mem0_user_id="soj",
+            )
+        )
+
+        service.history_store().persist(
+            SessionHistoryRecord(
+                session_id="session-1",
+                started_at="2026-04-08T17:00:00+08:00",
+                ended_at="2026-04-08T17:01:00+08:00",
+                transcript="你好",
+                reply="在这里",
+                peak_level=0.87,
+                mean_level=0.41,
+                auto_closed=True,
+                reopened_by_click=False,
+                mode="gui",
+            )
+        )
+
+        self.assertEqual(service.history_store().list_recent(limit=5), [])
+
     def test_load_storage_config_defaults_to_mem0_backend(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
             config = storage_service_module.load_storage_config()
@@ -617,11 +603,10 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(config.backend, "mem0")
         self.assertEqual(config.mem0_user_id, "soj")
 
-    def test_load_storage_config_accepts_mem0_backend(self) -> None:
+    def test_load_storage_config_reads_mem0_credentials(self) -> None:
         with patch.dict(
             "os.environ",
             {
-                "VOICE_ASSISTANT_DATA_BACKEND": "mem0",
                 "MEM0_API_KEY": "test-mem0-key",
                 "MEM0_USER_ID": "soj",
             },
@@ -637,13 +622,6 @@ class HistoryWriterTests(unittest.TestCase):
         service = StorageService(
             StorageConfig(
                 backend="mem0",
-                sqlite_path=Path("/tmp/assistant.db"),
-                remember_nocodb_url="",
-                remember_nocodb_token="",
-                remember_nocodb_table_id="",
-                history_nocodb_url="",
-                history_nocodb_token="",
-                history_nocodb_table_id="",
             )
         )
 
@@ -710,252 +688,6 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(stored.transcript, "你好")
         self.assertEqual(stored.reply, "在这里")
         self.assertTrue(stored.auto_closed)
-
-    def test_sqlite_storage_persists_and_lists_history(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            service = StorageService(
-                StorageConfig(
-                    backend="sqlite",
-                    sqlite_path=Path(tmpdir) / "assistant.db",
-                    remember_nocodb_url="",
-                    remember_nocodb_token="",
-                    remember_nocodb_table_id="",
-                    history_nocodb_url="",
-                    history_nocodb_token="",
-                    history_nocodb_table_id="",
-                )
-            )
-            try:
-                entry = SessionHistoryRecord(
-                    session_id="session-sqlite-1",
-                    started_at="2026-04-08T17:00:00+08:00",
-                    ended_at="2026-04-08T17:01:00+08:00",
-                    transcript="你好",
-                    reply="在这里",
-                    peak_level=0.87,
-                    mean_level=0.41,
-                    auto_closed=True,
-                    reopened_by_click=False,
-                    mode="gui",
-                )
-
-                service.history_store().persist(entry)
-                records = service.history_store().list_recent(limit=5)
-
-                self.assertEqual(len(records), 1)
-                self.assertEqual(records[0].session_id, "session-sqlite-1")
-                self.assertEqual(records[0].reply, "在这里")
-            finally:
-                service.close()
-
-    def test_sqlite_history_search_filters_by_transcript_or_reply(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            service = StorageService(
-                StorageConfig(
-                    backend="sqlite",
-                    sqlite_path=Path(tmpdir) / "assistant.db",
-                    remember_nocodb_url="",
-                    remember_nocodb_token="",
-                    remember_nocodb_table_id="",
-                    history_nocodb_url="",
-                    history_nocodb_token="",
-                    history_nocodb_table_id="",
-                )
-            )
-            try:
-                service.history_store().persist(
-                    SessionHistoryRecord(
-                        session_id="history-1",
-                        started_at="2026-04-08T17:00:00+08:00",
-                        ended_at="2026-04-08T17:01:00+08:00",
-                        transcript="帮我找护照",
-                        reply="护照在书房抽屉",
-                        peak_level=0.87,
-                        mean_level=0.41,
-                        auto_closed=True,
-                        reopened_by_click=False,
-                        mode="gui",
-                    )
-                )
-                service.history_store().persist(
-                    SessionHistoryRecord(
-                        session_id="history-2",
-                        started_at="2026-04-08T18:00:00+08:00",
-                        ended_at="2026-04-08T18:01:00+08:00",
-                        transcript="今天几点开会",
-                        reply="上午十点开会",
-                        peak_level=0.42,
-                        mean_level=0.18,
-                        auto_closed=False,
-                        reopened_by_click=False,
-                        mode="gui",
-                    )
-                )
-
-                by_transcript = service.history_store().list_recent(limit=5, query="护照")
-                by_reply = service.history_store().list_recent(limit=5, query="十点")
-
-                self.assertEqual([entry.session_id for entry in by_transcript], ["history-1"])
-                self.assertEqual([entry.session_id for entry in by_reply], ["history-2"])
-            finally:
-                service.close()
-
-    def test_sqlite_history_delete_removes_entry(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            service = StorageService(
-                StorageConfig(
-                    backend="sqlite",
-                    sqlite_path=Path(tmpdir) / "assistant.db",
-                    remember_nocodb_url="",
-                    remember_nocodb_token="",
-                    remember_nocodb_table_id="",
-                    history_nocodb_url="",
-                    history_nocodb_token="",
-                    history_nocodb_table_id="",
-                )
-            )
-            try:
-                service.history_store().persist(
-                    SessionHistoryRecord(
-                        session_id="history-delete-me",
-                        started_at="2026-04-08T19:00:00+08:00",
-                        ended_at="2026-04-08T19:01:00+08:00",
-                        transcript="测试删除",
-                        reply="这条记录会被删掉",
-                        peak_level=0.12,
-                        mean_level=0.06,
-                        auto_closed=False,
-                        reopened_by_click=False,
-                        mode="gui",
-                    )
-                )
-
-                service.history_store().delete(session_id="history-delete-me")
-                records = service.history_store().list_recent(limit=5)
-
-                self.assertEqual(records, [])
-            finally:
-                service.close()
-
-    def test_sqlite_remember_store_can_add_and_find(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            service = StorageService(
-                StorageConfig(
-                    backend="sqlite",
-                    sqlite_path=Path(tmpdir) / "assistant.db",
-                    remember_nocodb_url="",
-                    remember_nocodb_token="",
-                    remember_nocodb_table_id="",
-                    history_nocodb_url="",
-                    history_nocodb_token="",
-                    history_nocodb_table_id="",
-                )
-            )
-            try:
-                add_result = service.remember_store().add(
-                    memory="用户安装了显示器的增高板",
-                    original_text="帮我记住护照在书房抽屉里",
-                )
-                find_result = service.remember_store().find(query="显示器增高板")
-
-                self.assertIn("✅ 已记录", add_result)
-                self.assertIn("用户安装了显示器的增高板", find_result)
-            finally:
-                service.close()
-
-    def test_nocodb_history_delete_falls_back_when_where_query_is_rejected(self) -> None:
-        store = NocoDbHistoryStore("http://docker.home:8020", "token", "table-id")
-        rejected_response = SimpleNamespace(
-            raise_for_status=lambda: (_ for _ in ()).throw(HTTPError("422 Client Error: Unprocessable Entity"))
-        )
-        listing_response = SimpleNamespace(
-            raise_for_status=lambda: None,
-            json=lambda: {
-                "list": [
-                    {"Id": 11, "session_id": "keep-me"},
-                    {"Id": 12, "session_id": "delete-me"},
-                ]
-            },
-        )
-        deleted_urls: list[str] = []
-
-        def fake_get(url: str, headers: dict[str, str], params: dict[str, object], timeout: int):
-            self.assertEqual(url, "http://docker.home:8020/api/v2/tables/table-id/records")
-            self.assertEqual(headers["xc-token"], "token")
-            self.assertEqual(timeout, 30)
-            if "where" in params:
-                return rejected_response
-            self.assertEqual(params, {"limit": 200, "sort": "-CreatedAt"})
-            return listing_response
-
-        def fake_delete(url: str, headers: dict[str, str], timeout: int):
-            deleted_urls.append(url)
-            self.assertEqual(headers["xc-token"], "token")
-            self.assertEqual(timeout, 30)
-            return SimpleNamespace(raise_for_status=lambda: None)
-
-        with patch("press_to_talk.storage.service.requests.get", side_effect=fake_get), patch(
-            "press_to_talk.storage.service.requests.delete",
-            side_effect=fake_delete,
-        ):
-            store.delete(session_id="delete-me")
-
-        self.assertEqual(
-            deleted_urls,
-            ["http://docker.home:8020/api/v2/tables/table-id/records/12"],
-        )
-
-    def test_sync_nocodb_to_mem0_imports_remember_items(self) -> None:
-        service = StorageService(
-            StorageConfig(
-                backend="mem0",
-                sqlite_path=Path("/tmp/assistant.db"),
-                remember_nocodb_url="http://docker.home:8020",
-                remember_nocodb_token="token",
-                remember_nocodb_table_id="remember-table",
-                history_nocodb_url="",
-                history_nocodb_token="",
-                history_nocodb_table_id="",
-                mem0_api_key="mem0-key",
-                mem0_user_id="soj",
-            )
-        )
-        client = FakeMem0Client()
-        exported = [
-            storage_service_module.RememberItemRecord(
-                id="row-1",
-                memory="护照在书房抽屉里",
-                original_text="帮我记住护照在书房抽屉里",
-                created_at="2026-04-11T09:30:00+08:00",
-            ),
-            storage_service_module.RememberItemRecord(
-                id="row-2",
-                memory="妈妈生日是6月3号",
-                original_text="记一下我妈生日是6月3号",
-                created_at="2026-04-10T09:30:00+08:00",
-            ),
-        ]
-
-        with patch.object(
-            storage_service_module.NocoDbRememberStore,
-            "export_all",
-            return_value=exported,
-        ), patch(
-            "press_to_talk.storage.service.create_mem0_client",
-            return_value=client,
-        ):
-            summary = service.sync_nocodb_to_mem0()
-
-        self.assertEqual(summary, {"items": 2})
-        self.assertEqual(len(client.add_calls), 2)
-        self.assertEqual(client.add_calls[0]["user_id"], "soj")
-        self.assertEqual(
-            client.add_calls[0]["messages"],
-            [{"role": "user", "content": "护照在书房抽屉里"}],
-        )
-        self.assertEqual(client.add_calls[0]["metadata"]["original_text"], "帮我记住护照在书房抽屉里")
-        self.assertEqual(client.add_calls[0]["metadata"]["source"], "nocodb-import")
-        self.assertEqual(client.add_calls[0]["metadata"]["nocodb_id"], "row-1")
 
 
 class NonReentrantLock:

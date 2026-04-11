@@ -35,7 +35,6 @@ PROCESS_START_TS = time.perf_counter()
 DEFAULT_WORKFLOW_PATH = APP_ROOT / "default_workflow.json"
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 INTENT_EXTRACTOR_CONFIG_PATH = APP_ROOT / "intent_extractor_config.json"
-DEFAULT_HISTORY_TABLE_ID = "mnyqkvfvqub1pnb"
 DEFAULT_LOG_DIR = APP_ROOT / "logs"
 
 _LOG_WRITE_LOCK = Lock()
@@ -130,14 +129,7 @@ def load_workflow_defaults() -> dict[str, Any]:
 
 def build_storage_config(cfg: Config) -> StorageConfig:
     return StorageConfig(
-        backend=cfg.data_backend,
-        sqlite_path=cfg.sqlite_path,
-        remember_nocodb_url=env_str("REMEMBER_NOCODB_URL", "").strip(),
-        remember_nocodb_token=env_str("REMEMBER_NOCODB_API_TOKEN", "").strip(),
-        remember_nocodb_table_id=env_str("REMEMBER_NOCODB_TABLE_ID", "").strip(),
-        history_nocodb_url=cfg.history_nocodb_url,
-        history_nocodb_token=cfg.history_nocodb_token,
-        history_nocodb_table_id=cfg.history_nocodb_table_id,
+        backend="mem0",
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
         mem0_user_id=env_str("MEM0_USER_ID", "soj").strip() or "soj",
     )
@@ -184,13 +176,6 @@ class Config:
     no_tts: bool
     gui_events: bool
     gui_auto_close_seconds: int
-    history_nocodb_url: str
-    history_nocodb_token: str
-    history_nocodb_table_id: str
-    data_backend: str
-    sqlite_path: Path
-    sync_nocodb_to_sqlite: bool
-    sync_nocodb_to_mem0: bool
     debug: bool
     llm_api_key: str
     llm_base_url: str
@@ -1459,55 +1444,6 @@ class OpenAICompatibleAgent:
         except Exception as e:
             return f"Error executing {name}: {e}"
 
-    def _summarize_memory_for_storage(
-        self, user_input: str, structured_args: dict[str, Any] | None = None
-    ) -> str:
-        hints = structured_args or {}
-        remember_capture_cfg = self.workflow.get("remember_capture", {})
-        system_prompt = str(remember_capture_cfg.get("system_prompt", "")).strip()
-        if not system_prompt:
-            system_prompt = (
-                "你是一个中文记忆归纳器。"
-                "请把用户想保存的内容，改写成一条适合长期存档和检索的简短记忆句。"
-                "保留核心事实，删掉寒暄、命令词和多余主语。"
-                "如果用户使用今天、昨天、两个星期这种相对表达，可以改写成更稳定、自然的表述。"
-                "不要输出解释，不要输出 JSON，只输出一句中文记忆。"
-            )
-        user_prompt = (
-            f"用户原话：{user_input.strip() or '无'}\n"
-            f"结构化线索：{json.dumps(structured_args or {}, ensure_ascii=False)}\n"
-            "请输出一条要写入记忆库的中文句子。"
-        )
-        try:
-            log_llm_prompt(
-                "remember capture",
-                [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0,
-            )
-            raw_memory = str(response.choices[0].message.content or "").strip()
-            clean_memory = strip_think_tags(raw_memory)
-            clean_memory = re.sub(r"[ \t]+", " ", clean_memory).strip(" \n\t。")
-            log_multiline("remember capture raw", raw_memory)
-            log_multiline("remember capture cleaned", clean_memory)
-            if clean_memory:
-                return clean_memory
-        except Exception as e:
-            log(f"remember capture failed: {e}")
-
-        fallback = str(hints.get("memory", "") or hints.get("content", "") or user_input).strip()
-        fallback = re.sub(r"^(帮我)?(记一下|记录一下|记住|记下|保存一下)[，,：:]?", "", fallback).strip()
-        return fallback.strip("。")
-
     def _summarize_remember_output(
         self,
         tool_name: str,
@@ -1610,8 +1546,7 @@ class OpenAICompatibleAgent:
             f"structured tool path selected: tool={tool_name} args={json.dumps(args, ensure_ascii=False)}"
         )
         if tool_name == "remember_add":
-            backend = str(getattr(getattr(self.storage, "config", None), "backend", "")).strip().lower()
-            memory = user_input.strip() if backend == "mem0" and user_input.strip() else self._summarize_memory_for_storage(user_input, args)
+            memory = user_input.strip() or str(args.get("memory", "")).strip()
             if not memory:
                 return "Error: structured remember_add missing memory"
             return await self._execute_remember_tool(
@@ -1625,8 +1560,7 @@ class OpenAICompatibleAgent:
             query = str(args.get("query", "")).strip()
             if not query:
                 return "Error: structured remember_find missing query"
-            backend = str(getattr(getattr(self.storage, "config", None), "backend", "")).strip().lower()
-            search_query = user_input.strip() if backend == "mem0" and user_input.strip() else query
+            search_query = user_input.strip() or query
             raw = await self._execute_remember_tool(tool_name, {"query": search_query})
             return self._summarize_remember_output(
                 tool_name, raw, user_question=user_input, query=query
@@ -1923,51 +1857,6 @@ def parse_args() -> Config:
         help="GUI 模式完成后自动关闭前的倒计时秒数",
     )
     parser.add_argument(
-        "--history-url",
-        default=env_str(
-            "VOICE_ASSISTANT_HISTORY_NOCODB_URL",
-            env_str("REMEMBER_NOCODB_URL", ""),
-        ),
-        help="NocoDB URL for session history",
-    )
-    parser.add_argument(
-        "--history-token",
-        default=env_str(
-            "VOICE_ASSISTANT_HISTORY_NOCODB_API_TOKEN",
-            env_str("REMEMBER_NOCODB_API_TOKEN", ""),
-        ),
-        help="NocoDB API token for session history",
-    )
-    parser.add_argument(
-        "--history-table-id",
-        default=env_str(
-            "VOICE_ASSISTANT_HISTORY_NOCODB_TABLE_ID",
-            DEFAULT_HISTORY_TABLE_ID,
-        ),
-        help="NocoDB table id for session history",
-    )
-    parser.add_argument(
-        "--data-backend",
-        default=env_str("VOICE_ASSISTANT_DATA_BACKEND", "mem0"),
-        help="Data backend: nocodb, sqlite, or mem0",
-    )
-    parser.add_argument(
-        "--sqlite-path",
-        type=Path,
-        default=env_path("VOICE_ASSISTANT_SQLITE_PATH", APP_ROOT / "data" / "voice_assistant.sqlite3"),
-        help="SQLite database path for local desktop mode",
-    )
-    parser.add_argument(
-        "--sync-nocodb-to-sqlite",
-        action="store_true",
-        help="Copy remember/history data from NocoDB into local sqlite and exit",
-    )
-    parser.add_argument(
-        "--sync-nocodb-to-mem0",
-        action="store_true",
-        help="Copy remember data from NocoDB into mem0 and exit",
-    )
-    parser.add_argument(
         "--debug",
         action="store_true",
         help="输出更详细的调试日志",
@@ -1999,38 +1888,6 @@ def parse_args() -> Config:
 
     args = parser.parse_args()
     text_input = resolve_text_input(args)
-    if args.sync_nocodb_to_sqlite or args.sync_nocodb_to_mem0:
-        return Config(
-            sample_rate=args.sample_rate,
-            channels=args.channels,
-            threshold=args.threshold,
-            silence_seconds=args.silence_seconds,
-            no_speech_timeout_seconds=args.no_speech_timeout_seconds,
-            calibration_seconds=args.calibration_seconds,
-            stt_url=args.stt_url,
-            stt_token=args.stt_token,
-            audio_file=args.audio_file,
-            text_input=text_input,
-            classify_only=args.classify_only,
-            intent_samples_file=args.intent_samples_file,
-            no_tts=args.no_tts,
-            gui_events=args.gui_events,
-            gui_auto_close_seconds=max(0, args.gui_auto_close_seconds),
-            history_nocodb_url=args.history_url,
-            history_nocodb_token=args.history_token,
-            history_nocodb_table_id=args.history_table_id,
-            data_backend=args.data_backend.strip().lower(),
-            sqlite_path=args.sqlite_path.expanduser(),
-            sync_nocodb_to_sqlite=bool(args.sync_nocodb_to_sqlite),
-            sync_nocodb_to_mem0=bool(args.sync_nocodb_to_mem0),
-            debug=args.debug,
-            llm_api_key=args.api_key,
-            llm_base_url=args.base_url,
-            llm_model=args.model,
-            workspace_root=args.workspace_root,
-            remember_script=args.remember_script,
-        )
-
     if not text_input and not args.intent_samples_file and not args.stt_url:
         parser.error("missing STT url; set PTT_STT_URL in .env or pass --stt-url")
     if not text_input and not args.intent_samples_file and not args.stt_token:
@@ -2056,13 +1913,6 @@ def parse_args() -> Config:
         no_tts=args.no_tts,
         gui_events=args.gui_events,
         gui_auto_close_seconds=max(0, args.gui_auto_close_seconds),
-        history_nocodb_url=args.history_url,
-        history_nocodb_token=args.history_token,
-        history_nocodb_table_id=args.history_table_id,
-        data_backend=args.data_backend.strip().lower(),
-        sqlite_path=args.sqlite_path.expanduser(),
-        sync_nocodb_to_sqlite=bool(args.sync_nocodb_to_sqlite),
-        sync_nocodb_to_mem0=bool(args.sync_nocodb_to_mem0),
         debug=args.debug,
         llm_api_key=args.api_key,
         llm_base_url=args.base_url,
@@ -2184,20 +2034,6 @@ def main() -> int:
     log("ptt openai-compatible flow started")
     events.emit("session_started", auto_close_seconds=cfg.gui_auto_close_seconds)
     try:
-        if cfg.sync_nocodb_to_sqlite:
-            summary = StorageService(build_storage_config(cfg)).sync_nocodb_to_sqlite()
-            log(f"sync complete: items={summary['items']} histories={summary['histories']}")
-            if not cfg.gui_events:
-                print(json.dumps(summary, ensure_ascii=False))
-            return 0
-
-        if cfg.sync_nocodb_to_mem0:
-            summary = StorageService(build_storage_config(cfg)).sync_nocodb_to_mem0()
-            log(f"sync to mem0 complete: items={summary['items']}")
-            if not cfg.gui_events:
-                print(json.dumps(summary, ensure_ascii=False))
-            return 0
-
         if cfg.intent_samples_file:
             log(f"llm model: {cfg.llm_model}")
             if cfg.llm_base_url:

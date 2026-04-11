@@ -19,9 +19,6 @@ def main() -> int:
     parser_delete_history = subparsers.add_parser("delete-history", help="Delete one history record by session id")
     parser_delete_history.add_argument("--session-id", required=True)
 
-    subparsers.add_parser("sync-nocodb-to-sqlite", help="Copy NocoDB remember/history data into local sqlite")
-    subparsers.add_parser("sync-nocodb-to-mem0", help="Copy NocoDB remember data into mem0")
-
     args = parser.parse_args()
     from .core import load_env_files
 
@@ -36,16 +33,6 @@ def main() -> int:
                 query=str(args.query or "").strip(),
             )
             print(json.dumps([asdict(item) for item in records], ensure_ascii=False))
-            return 0
-
-        if args.command == "sync-nocodb-to-sqlite":
-            summary = service.sync_nocodb_to_sqlite()
-            print(json.dumps(summary, ensure_ascii=False))
-            return 0
-
-        if args.command == "sync-nocodb-to-mem0":
-            summary = service.sync_nocodb_to_mem0()
-            print(json.dumps(summary, ensure_ascii=False))
             return 0
 
         if args.command == "delete-history":

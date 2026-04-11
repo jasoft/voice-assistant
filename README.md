@@ -23,7 +23,7 @@ uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 
 `press-to-talk` 里的 `remember` 流程会先把用户原话归纳成一条可长期保存和检索的“记忆句”，再落库。数据库主查询字段不再拆成 `name/content/type`，而是统一围绕 `Memory` 检索。
 
-默认情况下，remember 会直接走托管版 `mem0` API，不需要额外加 `VOICE_ASSISTANT_DATA_BACKEND=mem0`。项目会固定使用 `user_id=soj`（可通过 `MEM0_USER_ID` 覆盖），保存记忆时调用 `mem0`，召回时会先解析 `mem0` 返回的 JSON 重点字段，再交给当前 Groq/OpenAI-compatible LLM 总结成中文回复。
+默认情况下，remember 会直接走托管版 `mem0` API。项目会固定使用 `user_id=soj`（可通过 `MEM0_USER_ID` 覆盖），保存记忆时直接把用户原始对话写入 `mem0`，查询时直接用用户原始问句检索，再把 `mem0` 返回里分数大于 `0.8` 的前三条结果交给当前 Groq/OpenAI-compatible LLM 总结成中文回复。
 
 `remember` 的脚本源码默认来自外部兄弟仓库 `ursoft-skills`：实际默认路径是 `/Users/weiwang/Projects/ursoft-skills/skills/remember/scripts/manage_items.py`。项目优先读取 `URSOFT_REMEMBER_SCRIPT`，同时兼容旧变量 `OPENCLAW_REMEMBER_SCRIPT`。
 
@@ -43,14 +43,10 @@ uv run press-to-talk --text-input "记录一下，我今天安装了显示器的
 - `PTT_STT_URL` / `PTT_STT_TOKEN`：STT 服务地址和鉴权
 - `PTT_MODEL`：意图抽取与对话使用的模型名
 - `PTT_LOG_DIR`：运行日志目录，默认写到项目根目录下的 `logs/`
-- `VOICE_ASSISTANT_DATA_BACKEND`：数据源后端，支持 `mem0`、`nocodb` 和 `sqlite`；默认 `mem0`
-- `VOICE_ASSISTANT_SQLITE_PATH`：SQLite 数据库路径，默认写到 `data/voice_assistant.sqlite3`
 - `MEM0_API_KEY`：托管版 mem0 API Key
 - `MEM0_USER_ID`：mem0 用户 ID，默认 `soj`
-- `REMEMBER_NOCODB_URL` / `REMEMBER_NOCODB_API_TOKEN` / `REMEMBER_NOCODB_TABLE_ID`：remember 数据的 NocoDB 配置
 - `URSOFT_REMEMBER_SCRIPT`：覆盖默认 remember 脚本路径
 - `OPENCLAW_REMEMBER_SCRIPT`：旧变量名，仍兼容，但建议迁移到 `URSOFT_REMEMBER_SCRIPT`
-- `VOICE_ASSISTANT_HISTORY_NOCODB_URL` / `VOICE_ASSISTANT_HISTORY_NOCODB_API_TOKEN` / `VOICE_ASSISTANT_HISTORY_NOCODB_TABLE_ID`：历史记录数据的 NocoDB 配置
 - 其余录音阈值、TTS 参数、输出路径也都支持从 `.env` 覆盖
 
 ## 开发说明
@@ -65,7 +61,7 @@ uv run press-to-talk --text-input "记录一下，我今天安装了显示器的
 - 回归样本：`--intent-samples-file testdata/intent_samples.jsonl`
 - 记忆语义：`record` 覆盖位置、日期、特征、事件、备注，不再局限于 location
 - 运行日志：每次启动都会自动写一份会话日志到 `logs/`
-- 数据后端：remember 和历史记录都统一走 `StorageService`；默认 `mem0`，也可通过环境变量切换到 `NocoDB` 或 `SQLite`
+- 数据后端：当前只保留 `mem0`
 
 ## Mem0 云记忆
 
@@ -90,24 +86,9 @@ uv run press-to-talk --text-input "把我记过的内容列出来" --no-tts
 
 `remember_find` 和 `remember_list` 拿到的原始响应会保留 `mem0` JSON，再提取记忆正文、时间、score、metadata 等重点字段，随后交给当前模型整理成适合播报的中文回答。
 
-## 数据同步
+## 历史记录
 
-首次切到桌面本地模式时，可以先把 NocoDB 的 remember 和历史记录导入到 SQLite：
-
-```bash
-uv run press-to-talk --sync-nocodb-to-sqlite --data-backend sqlite
-uv run python -m press_to_talk.storage_cli sync-nocodb-to-sqlite
-```
-
-导入完成后，把 `VOICE_ASSISTANT_DATA_BACKEND=sqlite` 写进 `.env`，GUI 历史页和 remember 工具都会统一读写本地 SQLite。
-
-历史记录也支持统一接口搜索：
-
-```bash
-uv run python -m press_to_talk.storage_cli list-history --limit 20 --query "护照"
-```
-
-GUI 的 History 面板会走同一条接口，支持按识别文本或回复内容搜索，并可把某条历史重新放回主界面查看。
+当前不再使用 `nocoDB` 或 `SQLite` 作为历史存储后端。GUI 的 History 面板会保留兼容入口，但默认返回空列表。
 
 ## 回归测试
 
