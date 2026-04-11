@@ -11,6 +11,7 @@ from requests import HTTPError
 
 from press_to_talk import core
 from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageService
+from press_to_talk.storage import service as storage_service_module
 from press_to_talk.storage.service import NocoDbHistoryStore
 
 
@@ -46,6 +47,52 @@ class FakeStorageService:
 
     def persist(self, entry: SessionHistoryRecord) -> None:
         self.history_entries.append(entry)
+
+
+class FakeMem0Client:
+    def __init__(self) -> None:
+        self.add_calls: list[dict[str, object]] = []
+        self.search_calls: list[dict[str, object]] = []
+        self.get_all_calls: list[dict[str, object]] = []
+        self.add_response: object = [
+            {
+                "id": "mem-add-1",
+                "event": "ADD",
+                "data": {"memory": "护照在书房抽屉里"},
+            }
+        ]
+        self.search_response: object = {
+            "results": [
+                {
+                    "id": "mem-search-1",
+                    "memory": "护照在书房抽屉里",
+                    "score": 0.91,
+                    "created_at": "2026-04-11T09:30:00+08:00",
+                    "metadata": {"original_text": "帮我记住护照在书房抽屉里"},
+                }
+            ]
+        }
+        self.get_all_response: object = {
+            "results": [
+                {
+                    "id": "mem-list-1",
+                    "memory": "妈妈生日是6月3号",
+                    "created_at": "2026-04-10T09:30:00+08:00",
+                }
+            ]
+        }
+
+    def add(self, messages: list[dict[str, object]], **kwargs: object) -> object:
+        self.add_calls.append({"messages": messages, **kwargs})
+        return self.add_response
+
+    def search(self, query: str, **kwargs: object) -> object:
+        self.search_calls.append({"query": query, **kwargs})
+        return self.search_response
+
+    def get_all(self, **kwargs: object) -> object:
+        self.get_all_calls.append(dict(kwargs))
+        return self.get_all_response
 
 
 class FakeChatCompletions:
@@ -295,6 +342,52 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertIn("今天是 2026-04-11 09:30:00", system_prompt)
         self.assertNotIn("${PTT_CURRENT_TIME}", system_prompt)
 
+    def test_extract_mem0_summary_payload_keeps_key_fields(self) -> None:
+        payload = {
+            "results": [
+                {
+                    "id": "m1",
+                    "memory": "护照在书房抽屉里",
+                    "score": 0.91,
+                    "metadata": {"original_text": "帮我记住护照在书房抽屉里"},
+                    "created_at": "2026-04-11T09:30:00+08:00",
+                }
+            ]
+        }
+
+        extracted = core.extract_mem0_summary_payload(payload)
+
+        self.assertEqual(extracted["items"][0]["memory"], "护照在书房抽屉里")
+        self.assertEqual(extracted["items"][0]["id"], "m1")
+        self.assertEqual(extracted["items"][0]["score"], 0.91)
+        self.assertEqual(
+            extracted["items"][0]["metadata"]["original_text"],
+            "帮我记住护照在书房抽屉里",
+        )
+
+    def test_remember_summary_includes_structured_mem0_fields(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient("护照在书房抽屉里。")
+        agent.model = "test-model"
+        agent.workflow = {"remember_summary": {"system_prompt": "请整理结果。"}}
+
+        raw_output = (
+            '{"results":[{"id":"m1","memory":"护照在书房抽屉里","score":0.91,'
+            '"created_at":"2026-04-11T09:30:00+08:00","metadata":{"source":"mem0"}}]}'
+        )
+
+        summary = agent._summarize_remember_output(
+            "remember_find",
+            raw_output,
+            user_question="护照在哪",
+        )
+
+        self.assertEqual(summary, "护照在书房抽屉里。")
+        prompt = str(agent.client.chat.completions.calls[0]["messages"][1]["content"])
+        self.assertIn("结构化结果", prompt)
+        self.assertIn("护照在书房抽屉里", prompt)
+        self.assertIn("score", prompt)
+
     def test_expand_env_placeholders_keeps_runtime_tokens_when_env_missing(self) -> None:
         original = {
             "remember_summary": {
@@ -309,6 +402,36 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertIn("${PTT_CURRENT_TIME}", prompt)
         self.assertIn("${PTT_LOCATION}", prompt)
         self.assertNotIn("${BRAVE_API_KEY}", prompt)
+
+    def test_load_env_files_falls_back_to_main_worktree_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            main_root = Path(tmpdir) / "main-worktree"
+            main_root.mkdir(parents=True, exist_ok=True)
+            (main_root / ".env").write_text(
+                "GROQ_API_KEY=test-groq-key\nMEM0_API_KEY=test-mem0-key\n",
+                encoding="utf-8",
+            )
+
+            git_output = (
+                f"worktree {main_root}\n"
+                "HEAD 1234567890abcdef\n"
+                "branch refs/heads/main\n"
+                "\n"
+                "worktree /tmp/detached\n"
+                "HEAD abcdef1234567890\n"
+                "detached\n"
+            )
+
+            with patch.dict("os.environ", {}, clear=True), patch(
+                "press_to_talk.core._candidate_env_files",
+                return_value=[Path(tmpdir) / ".env.missing"],
+            ), patch(
+                "press_to_talk.core.subprocess.run",
+                return_value=SimpleNamespace(returncode=0, stdout=git_output, stderr=""),
+            ):
+                core.load_env_files()
+                self.assertEqual(core.os.environ["GROQ_API_KEY"], "test-groq-key")
+                self.assertEqual(core.os.environ["MEM0_API_KEY"], "test-mem0-key")
 
     def test_memory_capture_summary_does_not_send_max_tokens(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
@@ -428,6 +551,75 @@ class ThinkTagFilterTests(unittest.TestCase):
 
 
 class HistoryWriterTests(unittest.TestCase):
+    def test_load_storage_config_accepts_mem0_backend(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "VOICE_ASSISTANT_DATA_BACKEND": "mem0",
+                "MEM0_API_KEY": "test-mem0-key",
+                "MEM0_USER_ID": "soj",
+            },
+            clear=True,
+        ):
+            config = storage_service_module.load_storage_config()
+
+        self.assertEqual(config.backend, "mem0")
+        self.assertEqual(config.mem0_api_key, "test-mem0-key")
+        self.assertEqual(config.mem0_user_id, "soj")
+
+    def test_mem0_store_requires_api_key(self) -> None:
+        service = StorageService(
+            StorageConfig(
+                backend="mem0",
+                sqlite_path=Path("/tmp/assistant.db"),
+                remember_nocodb_url="",
+                remember_nocodb_token="",
+                remember_nocodb_table_id="",
+                history_nocodb_url="",
+                history_nocodb_token="",
+                history_nocodb_table_id="",
+            )
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "MEM0_API_KEY"):
+            service.remember_store()
+
+    def test_mem0_store_add_uses_fixed_user_id(self) -> None:
+        client = FakeMem0Client()
+        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+
+        result = store.add(
+            memory="护照在书房抽屉里",
+            original_text="帮我记住护照在书房抽屉里",
+        )
+
+        self.assertIn("✅ 已记录", result)
+        self.assertEqual(client.add_calls[0]["user_id"], "soj")
+        self.assertEqual(
+            client.add_calls[0]["messages"],
+            [{"role": "user", "content": "护照在书房抽屉里"}],
+        )
+
+    def test_mem0_store_find_returns_json(self) -> None:
+        client = FakeMem0Client()
+        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+
+        result = store.find(query="护照在哪")
+
+        self.assertEqual(client.search_calls[0]["filters"], {"user_id": "soj"})
+        self.assertIn('"memory": "护照在书房抽屉里"', result)
+        self.assertIn('"score": 0.91', result)
+
+    def test_mem0_store_list_recent_returns_json(self) -> None:
+        client = FakeMem0Client()
+        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+
+        result = store.list_recent(limit=5)
+
+        self.assertEqual(client.get_all_calls[0]["filters"], {"user_id": "soj"})
+        self.assertEqual(client.get_all_calls[0]["limit"], 5)
+        self.assertIn('"memory": "妈妈生日是6月3号"', result)
+
     def test_history_writer_persists_to_storage_service(self) -> None:
         service = FakeStorageService()
         writer = core.HistoryWriter(service)

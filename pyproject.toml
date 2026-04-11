@@ -12,6 +12,7 @@ dependencies = [
   "numpy>=2.2.0",
   "sounddevice>=0.5.2",
   "openai>=1.40.0",
+  "mem0ai>=1.0.11",
   "pynput>=1.7.7",
   "rich>=13.7.0",
   "mcp>=1.2.1",

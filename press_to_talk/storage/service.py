@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import unicodedata
@@ -69,6 +70,8 @@ class StorageConfig:
     history_nocodb_url: str
     history_nocodb_token: str
     history_nocodb_table_id: str
+    mem0_api_key: str = ""
+    mem0_user_id: str = "soj"
 
 
 @dataclass
@@ -115,6 +118,8 @@ def load_storage_config() -> StorageConfig:
         history_nocodb_url=env_str("VOICE_ASSISTANT_HISTORY_NOCODB_URL", env_str("REMEMBER_NOCODB_URL", "")).strip(),
         history_nocodb_token=env_str("VOICE_ASSISTANT_HISTORY_NOCODB_API_TOKEN", env_str("REMEMBER_NOCODB_API_TOKEN", "")).strip(),
         history_nocodb_table_id=env_str("VOICE_ASSISTANT_HISTORY_NOCODB_TABLE_ID", DEFAULT_HISTORY_TABLE_ID).strip(),
+        mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
+        mem0_user_id=env_str("MEM0_USER_ID", "soj").strip() or "soj",
     )
 
 
@@ -223,6 +228,12 @@ class BaseHistoryStore:
         raise NotImplementedError
 
 
+def create_mem0_client(api_key: str) -> Any:
+    from mem0 import MemoryClient
+
+    return MemoryClient(api_key=api_key)
+
+
 class NocoDbRememberStore(BaseRememberStore):
     def __init__(self, url: str, token: str, table_id: str) -> None:
         self.url = url.rstrip("/")
@@ -310,6 +321,39 @@ class NocoDbRememberStore(BaseRememberStore):
     def export_all(self) -> list[RememberItemRecord]:
         rows = self._fetch_rows({"limit": 500, "sort": "-CreatedAt"})
         return [self._record_from_row(row) for row in rows]
+
+
+class Mem0RememberStore(BaseRememberStore):
+    def __init__(self, *, api_key: str = "", user_id: str = "soj", client: Any | None = None) -> None:
+        if client is None and not api_key.strip():
+            raise RuntimeError("mem0 配置缺失：MEM0_API_KEY")
+        self.client = client if client is not None else create_mem0_client(api_key)
+        self.user_id = user_id.strip() or "soj"
+
+    def add(self, *, memory: str, original_text: str = "") -> str:
+        messages = [{"role": "user", "content": memory}]
+        kwargs: dict[str, Any] = {"user_id": self.user_id}
+        if original_text.strip():
+            kwargs["metadata"] = {"original_text": original_text.strip()}
+        try:
+            response = self.client.add(messages, **kwargs)
+        except TypeError:
+            kwargs.pop("metadata", None)
+            response = self.client.add(messages, **kwargs)
+        stored_memory = memory
+        if isinstance(response, list) and response:
+            first = response[0]
+            if isinstance(first, dict):
+                stored_memory = str(first.get("memory") or first.get("data", {}).get("memory") or memory)
+        return f"✅ 已记录：{stored_memory}"
+
+    def find(self, *, query: str) -> str:
+        response = self.client.search(query, filters={"user_id": self.user_id})
+        return json.dumps(response, ensure_ascii=False)
+
+    def list_recent(self, *, limit: int = 20) -> str:
+        response = self.client.get_all(filters={"user_id": self.user_id}, limit=limit)
+        return json.dumps(response, ensure_ascii=False)
 
 
 class NocoDbHistoryStore(BaseHistoryStore):
@@ -722,6 +766,13 @@ class StorageService:
     def remember_store(self) -> BaseRememberStore:
         if self.config.backend == "sqlite":
             return SqliteRememberStore(self._sqlite_state_or_raise())
+        if self.config.backend == "mem0":
+            if not self.config.mem0_api_key.strip():
+                raise RuntimeError("mem0 配置缺失：MEM0_API_KEY")
+            return Mem0RememberStore(
+                api_key=self.config.mem0_api_key,
+                user_id=self.config.mem0_user_id,
+            )
         self._require_nocodb(scope="remember")
         return NocoDbRememberStore(
             self.config.remember_nocodb_url,

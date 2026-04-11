@@ -138,6 +138,8 @@ def build_storage_config(cfg: Config) -> StorageConfig:
         history_nocodb_url=cfg.history_nocodb_url,
         history_nocodb_token=cfg.history_nocodb_token,
         history_nocodb_table_id=cfg.history_nocodb_table_id,
+        mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
+        mem0_user_id=env_str("MEM0_USER_ID", "soj").strip() or "soj",
     )
 
 
@@ -376,24 +378,81 @@ def _candidate_env_files() -> list[Path]:
     return unique
 
 
-def load_env_files() -> None:
-    for env_file in _candidate_env_files():
-        if not env_file.is_file():
+def _main_worktree_env_file() -> Path | None:
+    try:
+        proc = subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            capture_output=True,
+            text=True,
+            cwd=Path.cwd(),
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+
+    entries: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for raw_line in proc.stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
             continue
-        for raw_line in env_file.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            if line.startswith("export "):
-                line = line[7:].strip()
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip()
-            if not key:
-                continue
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-                value = value[1:-1]
-            os.environ.setdefault(key, value)
+        if line.startswith("worktree "):
+            if current:
+                entries.append(current)
+            current = {"path": line.removeprefix("worktree ").strip(), "detached": False}
+            continue
+        if current is None:
+            continue
+        if line == "detached":
+            current["detached"] = True
+    if current:
+        entries.append(current)
+
+    cwd_resolved = Path.cwd().resolve()
+    for entry in entries:
+        candidate_root = Path(str(entry.get("path") or "")).expanduser()
+        if entry.get("detached"):
+            continue
+        if candidate_root.resolve() == cwd_resolved:
+            continue
+        env_path = candidate_root / ".env"
+        if env_path.is_file():
+            return env_path
+    return None
+
+
+def _load_env_file(env_file: Path) -> bool:
+    if not env_file.is_file():
+        return False
+    loaded = False
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+        loaded = True
+    return loaded
+
+
+def load_env_files() -> None:
+    loaded_any = False
+    for env_file in _candidate_env_files():
+        loaded_any = _load_env_file(env_file) or loaded_any
+    if loaded_any:
+        return
+    fallback_env = _main_worktree_env_file()
+    if fallback_env is not None:
+        _load_env_file(fallback_env)
 
 
 def expand_env_placeholders(value: Any) -> Any:
@@ -498,6 +557,60 @@ def strip_think_tags(text: str) -> str:
     cleaned = re.sub(r"(?is)<think\b[^>]*>.*$", "", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+def extract_mem0_summary_payload(raw_payload: str | dict[str, Any] | list[Any]) -> dict[str, Any]:
+    payload: Any = raw_payload
+    if isinstance(raw_payload, str):
+        text = raw_payload.strip()
+        if not text:
+            return {"items": [], "raw": raw_payload}
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return {"items": [], "raw": raw_payload}
+
+    if isinstance(payload, dict):
+        raw_items = payload.get("results")
+        if raw_items is None and {"id", "memory"} & payload.keys():
+            raw_items = [payload]
+    elif isinstance(payload, list):
+        raw_items = payload
+    else:
+        raw_items = []
+
+    items: list[dict[str, Any]] = []
+    for item in raw_items or []:
+        if not isinstance(item, dict):
+            continue
+        data = item.get("data")
+        data_dict = data if isinstance(data, dict) else {}
+        metadata = item.get("metadata")
+        metadata_dict = metadata if isinstance(metadata, dict) else {}
+        memory = str(item.get("memory") or data_dict.get("memory") or "").strip()
+        if not memory:
+            continue
+        extracted: dict[str, Any] = {
+            "id": str(item.get("id") or data_dict.get("id") or "").strip(),
+            "memory": memory,
+            "score": item.get("score"),
+            "created_at": str(
+                item.get("created_at")
+                or item.get("createdAt")
+                or data_dict.get("created_at")
+                or ""
+            ).strip(),
+            "updated_at": str(
+                item.get("updated_at")
+                or item.get("updatedAt")
+                or data_dict.get("updated_at")
+                or ""
+            ).strip(),
+            "metadata": metadata_dict,
+            "categories": item.get("categories") or data_dict.get("categories") or [],
+        }
+        items.append(extracted)
+    return {"items": items, "raw": payload}
 
 
 def salvage_truncated_intent_payload(text: str) -> dict[str, Any] | None:
@@ -1394,14 +1507,26 @@ class OpenAICompatibleAgent:
 
         memory_value = ""
         created_at = ""
-        memory_match = re.search(r"📝 记忆:\s*(.+)", cleaned)
-        if memory_match:
-            memory_value = memory_match.group(1).strip()
-        time_match = re.search(r"🕒 时间:\s*([^\n]+)", cleaned)
-        if time_match:
-            created_at = time_match.group(1).strip()
+        structured_items: list[dict[str, Any]] = []
+        extracted_mem0 = extract_mem0_summary_payload(cleaned)
+        if extracted_mem0["items"]:
+            structured_items = extracted_mem0["items"]
+            memory_value = str(structured_items[0].get("memory") or "").strip()
+            created_at = str(structured_items[0].get("created_at") or "").strip()
+        else:
+            memory_match = re.search(r"📝 记忆:\s*(.+)", cleaned)
+            if memory_match:
+                memory_value = memory_match.group(1).strip()
+            time_match = re.search(r"🕒 时间:\s*([^\n]+)", cleaned)
+            if time_match:
+                created_at = time_match.group(1).strip()
 
         created_date = format_cn_date(created_at)
+        structured_text = (
+            json.dumps(structured_items, ensure_ascii=False, indent=2)
+            if structured_items
+            else "无"
+        )
 
         remember_summary_cfg = self.workflow.get("remember_summary", {})
         system_prompt = str(remember_summary_cfg.get("system_prompt", "")).strip()
@@ -1425,6 +1550,7 @@ class OpenAICompatibleAgent:
             f"记忆内容：{memory_value or '无'}\n"
             f"记录时间：{created_at or '无'}\n"
             f"记录时间日期：{created_date or '无'}\n"
+            f"结构化结果：\n{structured_text}\n"
             f"原始输出：\n{cleaned}"
         )
         try:
@@ -1804,7 +1930,7 @@ def parse_args() -> Config:
     parser.add_argument(
         "--data-backend",
         default=env_str("VOICE_ASSISTANT_DATA_BACKEND", "nocodb"),
-        help="Data backend: nocodb or sqlite",
+        help="Data backend: nocodb, sqlite, or mem0",
     )
     parser.add_argument(
         "--sqlite-path",
@@ -1885,7 +2011,9 @@ def parse_args() -> Config:
     if not text_input and not args.intent_samples_file and not args.stt_token:
         parser.error("missing STT token; set PTT_STT_TOKEN in .env or pass --stt-token")
     if not args.api_key:
-        parser.error("missing API key; set OPENAI_API_KEY in .env or pass --api-key")
+        parser.error(
+            "missing API key; set OPENAI_API_KEY or GROQ_API_KEY in .env, or pass --api-key"
+        )
 
     return Config(
         sample_rate=args.sample_rate,
