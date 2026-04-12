@@ -75,6 +75,8 @@
   `uv run press-to-talk --text-input "测试内容" --no-tts`
 - 只测意图：
   `uv run press-to-talk --text-input "测试内容" --classify-only`
+- 真实 mem0 e2e 只允许手动运行，不要在日常测试、默认回归或自动化检查里触发：
+  `PTT_RUN_E2E=1 uv run python tests/mem0_e2e.py`
 
 ## 外部入口
 
