@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 def current_time_text() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
@@ -21,7 +21,9 @@ def format_cn_date(iso_text: str) -> str:
 def format_local_datetime(iso_text: str) -> str:
     try:
         dt = datetime.fromisoformat(str(iso_text).replace("Z", "+00:00"))
-        # Convert to local time if needed (currently assuming input is local or handled by fromisoformat)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone()
         weekday_map = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
         weekday = weekday_map[dt.weekday()]
         return f"{dt.year}年{dt.month}月{dt.day}号 {weekday} {dt.hour:02d}:{dt.minute:02d}"

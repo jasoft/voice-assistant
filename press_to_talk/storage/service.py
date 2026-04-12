@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from press_to_talk.utils.text import format_local_datetime
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HISTORY_DB_PATH = APP_ROOT / "data" / "voice_assistant.sqlite3"
@@ -125,6 +126,20 @@ def create_mem0_client(api_key: str) -> Any:
     return MemoryClient(api_key=api_key)
 
 
+def _localize_timestamp_fields(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        localized: dict[str, Any] = {}
+        for key, value in payload.items():
+            if key in {"created_at", "updated_at"} and isinstance(value, str) and value.strip():
+                localized[key] = format_local_datetime(value)
+            else:
+                localized[key] = _localize_timestamp_fields(value)
+        return localized
+    if isinstance(payload, list):
+        return [_localize_timestamp_fields(item) for item in payload]
+    return payload
+
+
 class Mem0RememberStore(BaseRememberStore):
     def __init__(
         self,
@@ -172,11 +187,11 @@ class Mem0RememberStore(BaseRememberStore):
 
     def find(self, *, query: str) -> str:
         response = self.client.search(query, **self._read_scope_kwargs())
-        return json.dumps(response, ensure_ascii=False)
+        return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
 
     def list_recent(self, *, limit: int = 20) -> str:
         response = self.client.get_all(limit=limit, **self._read_scope_kwargs())
-        return json.dumps(response, ensure_ascii=False)
+        return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
 
 
 class NullHistoryStore(BaseHistoryStore):

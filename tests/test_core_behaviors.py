@@ -820,6 +820,7 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertIn('"memory": "护照在书房抽屉里"', result)
         self.assertIn('"app_id": "voice-assistant"', result)
         self.assertIn('"score": 0.91', result)
+        self.assertIn('"created_at": "2026年4月11号 周六 09:30"', result)
 
     def test_mem0_store_list_recent_returns_json(self) -> None:
         client = FakeMem0Client()
@@ -834,6 +835,26 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(client.get_all_calls[0]["limit"], 5)
         self.assertIn('"memory": "妈妈生日是6月3号"', result)
         self.assertIn('"app_id": "voice-assistant"', result)
+        self.assertIn('"created_at": "2026年4月10号 周五 09:30"', result)
+
+    def test_mem0_store_converts_utc_timestamp_to_local_time(self) -> None:
+        client = FakeMem0Client()
+        client.search_response = {
+            "results": [
+                {
+                    "id": "mem-search-utc",
+                    "memory": "护照在书房抽屉里",
+                    "app_id": "voice-assistant",
+                    "score": 0.91,
+                    "created_at": "2026-04-11T01:30:00Z",
+                }
+            ]
+        }
+        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+
+        result = store.find(query="护照在哪")
+
+        self.assertIn('"created_at": "2026年4月11号 周六 09:30"', result)
 
     def test_extract_mem0_summary_payload_uses_config_thresholds(self) -> None:
         payload = {
