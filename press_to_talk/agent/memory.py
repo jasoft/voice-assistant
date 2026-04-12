@@ -13,12 +13,12 @@ def _load_mem0_tuning_config() -> dict[str, Any]:
         mem0_cfg = workflow.get("mem0", {}) if isinstance(workflow, dict) else {}
         if not isinstance(mem0_cfg, dict):
             return defaults
-        max_items = mem0_cfg.get("max_items")
-        if max_items == 20:
-            max_items = defaults["max_items"]
         return {
             "min_score": float(mem0_cfg.get("min_score", defaults["min_score"])),
-            "max_items": max(1, int(max_items if max_items is not None else defaults["max_items"])),
+            "max_items": max(
+                1,
+                int(mem0_cfg.get("max_items", defaults["max_items"])),
+            ),
         }
     except Exception:
         return defaults

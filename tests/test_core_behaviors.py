@@ -418,7 +418,7 @@ class ThinkTagFilterTests(unittest.TestCase):
             "帮我记住护照在书房抽屉里",
         )
 
-    def test_extract_mem0_summary_payload_keeps_top3_scores_above_point8(self) -> None:
+    def test_extract_mem0_summary_payload_uses_configured_limit(self) -> None:
         payload = {
             "results": [
                 {"id": "m1", "memory": "A", "score": 0.95},
@@ -430,9 +430,13 @@ class ThinkTagFilterTests(unittest.TestCase):
             ]
         }
 
-        extracted = core.extract_mem0_summary_payload(payload)
+        with patch("press_to_talk.core.WORKFLOW_CONFIG_PATH", Path("/tmp/workflow_config.json")), patch(
+            "press_to_talk.core.load_json_file",
+            return_value={"mem0": {"min_score": 0.8, "max_items": 4}},
+        ):
+            extracted = core.extract_mem0_summary_payload(payload)
 
-        self.assertEqual([item["id"] for item in extracted["items"]], ["m6", "m1", "m2"])
+        self.assertEqual([item["id"] for item in extracted["items"]], ["m6", "m1", "m2", "m3"])
 
     def test_remember_summary_includes_structured_mem0_fields(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
