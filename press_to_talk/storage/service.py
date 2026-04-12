@@ -10,7 +10,7 @@ from typing import Any
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HISTORY_DB_PATH = APP_ROOT / "data" / "voice_assistant.sqlite3"
-MEM0_AGENT_ID = "voice-assistant"
+MEM0_APP_ID = "voice-assistant"
 
 
 @dataclass
@@ -93,7 +93,7 @@ class Mem0RememberStore(BaseRememberStore):
         self.user_id = user_id.strip() or "soj"
 
     def _scope_kwargs(self) -> dict[str, Any]:
-        return {"user_id": self.user_id, "agent_id": MEM0_AGENT_ID}
+        return {"user_id": self.user_id, "app_id": MEM0_APP_ID, "async_mode": False}
 
     def add(self, *, memory: str, original_text: str = "") -> str:
         messages = [{"role": "user", "content": memory}]

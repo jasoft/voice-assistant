@@ -66,7 +66,7 @@ class FakeMem0Client:
                 {
                     "id": "mem-search-1",
                     "memory": "护照在书房抽屉里",
-                    "agent_id": "voice-assistant",
+                    "app_id": "voice-assistant",
                     "score": 0.91,
                     "created_at": "2026-04-11T09:30:00+08:00",
                     "metadata": {"original_text": "帮我记住护照在书房抽屉里"},
@@ -78,7 +78,7 @@ class FakeMem0Client:
                 {
                     "id": "mem-list-1",
                     "memory": "妈妈生日是6月3号",
-                    "agent_id": "voice-assistant",
+                    "app_id": "voice-assistant",
                     "created_at": "2026-04-10T09:30:00+08:00",
                 }
             ]
@@ -90,7 +90,7 @@ class FakeMem0Client:
         stored_item = {
             "id": f"mem-added-{len(self.memories) + 1}",
             "memory": memory_text,
-            "agent_id": kwargs.get("agent_id"),
+            "app_id": kwargs.get("app_id"),
             "user_id": kwargs.get("user_id"),
             "metadata": kwargs.get("metadata", {}),
             "created_at": "2026-04-12T10:00:00+08:00",
@@ -106,7 +106,7 @@ class FakeMem0Client:
                 item
                 for item in self.memories
                 if item.get("user_id") == kwargs.get("user_id")
-                and item.get("agent_id") == kwargs.get("agent_id")
+                and item.get("app_id") == kwargs.get("app_id")
                 and query in str(item.get("memory", ""))
             ]
             if filtered:
@@ -120,7 +120,7 @@ class FakeMem0Client:
                 item
                 for item in self.memories
                 if item.get("user_id") == kwargs.get("user_id")
-                and item.get("agent_id") == kwargs.get("agent_id")
+                and item.get("app_id") == kwargs.get("app_id")
             ]
             if filtered:
                 limit = int(kwargs.get("limit", len(filtered)))
@@ -482,7 +482,7 @@ class ThinkTagFilterTests(unittest.TestCase):
                 self.assertEqual(core.os.environ["GROQ_API_KEY"], "test-groq-key")
                 self.assertEqual(core.os.environ["MEM0_API_KEY"], "test-mem0-key")
 
-    def test_execute_structured_remember_add_uses_raw_input_for_mem0(self) -> None:
+    def test_execute_structured_remember_add_uses_distilled_memory_for_mem0(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("伊朗和美国停战两周")
         agent.model = "test-model"
@@ -497,11 +497,11 @@ class ThinkTagFilterTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(result, "ADD:记录一下，今天是伊朗和美国停战两个星期。")
+        self.assertEqual(result, "ADD:今天是伊朗和美国停战两个星期。")
         self.assertEqual(
             agent.storage.remember_store().add_calls[0],
             {
-                "memory": "记录一下，今天是伊朗和美国停战两个星期。",
+                "memory": "今天是伊朗和美国停战两个星期。",
                 "original_text": "记录一下，今天是伊朗和美国停战两个星期。",
             },
         )
@@ -754,13 +754,14 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertIn("✅ 已记录", result)
         self.assertEqual(client.add_calls[0]["user_id"], "soj")
-        self.assertEqual(client.add_calls[0]["agent_id"], "voice-assistant")
+        self.assertEqual(client.add_calls[0]["app_id"], "voice-assistant")
+        self.assertEqual(client.add_calls[0]["async_mode"], False)
         self.assertEqual(
             client.add_calls[0]["messages"],
             [{"role": "user", "content": "护照在书房抽屉里"}],
         )
 
-    def test_mem0_store_round_trip_returns_agent_id(self) -> None:
+    def test_mem0_store_round_trip_returns_app_id(self) -> None:
         client = FakeMem0Client()
         store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
 
@@ -771,7 +772,7 @@ class HistoryWriterTests(unittest.TestCase):
         result = store.find(query="新护照")
 
         self.assertIn('"memory": "新护照在书房第二层抽屉里"', result)
-        self.assertIn('"agent_id": "voice-assistant"', result)
+        self.assertIn('"app_id": "voice-assistant"', result)
         self.assertIn('"user_id": "soj"', result)
 
     def test_mem0_store_find_returns_json(self) -> None:
@@ -781,9 +782,9 @@ class HistoryWriterTests(unittest.TestCase):
         result = store.find(query="护照在哪")
 
         self.assertEqual(client.search_calls[0]["user_id"], "soj")
-        self.assertEqual(client.search_calls[0]["agent_id"], "voice-assistant")
+        self.assertEqual(client.search_calls[0]["app_id"], "voice-assistant")
         self.assertIn('"memory": "护照在书房抽屉里"', result)
-        self.assertIn('"agent_id": "voice-assistant"', result)
+        self.assertIn('"app_id": "voice-assistant"', result)
         self.assertIn('"score": 0.91', result)
 
     def test_mem0_store_list_recent_returns_json(self) -> None:
@@ -793,10 +794,10 @@ class HistoryWriterTests(unittest.TestCase):
         result = store.list_recent(limit=5)
 
         self.assertEqual(client.get_all_calls[0]["user_id"], "soj")
-        self.assertEqual(client.get_all_calls[0]["agent_id"], "voice-assistant")
+        self.assertEqual(client.get_all_calls[0]["app_id"], "voice-assistant")
         self.assertEqual(client.get_all_calls[0]["limit"], 5)
         self.assertIn('"memory": "妈妈生日是6月3号"', result)
-        self.assertIn('"agent_id": "voice-assistant"', result)
+        self.assertIn('"app_id": "voice-assistant"', result)
 
     def test_history_writer_persists_to_storage_service(self) -> None:
         service = FakeStorageService()

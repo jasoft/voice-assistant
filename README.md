@@ -23,7 +23,7 @@ uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 
 `press-to-talk` 里的 `remember` 流程会先把用户原话归纳成一条可长期保存和检索的“记忆句”，再落库。数据库主查询字段不再拆成 `name/content/type`，而是统一围绕 `Memory` 检索。
 
-默认情况下，remember 会直接走托管版 `mem0` API。项目会固定使用 `user_id=soj`（可通过 `MEM0_USER_ID` 覆盖），保存记忆时直接把用户原始对话写入 `mem0`，查询时直接用用户原始问句检索，再把 `mem0` 返回里分数大于 `0.8` 的前三条结果交给当前 Groq/OpenAI-compatible LLM 总结成中文回复。
+默认情况下，remember 会直接走托管版 `mem0` API。项目会固定使用 `user_id=soj`（可通过 `MEM0_USER_ID` 覆盖）和 `app_id=voice-assistant`，保存记忆时写入抽取后的记忆句并附带用户原话，查询时直接用用户原始问句检索，再把 `mem0` 返回里分数大于 `0.8` 的前三条结果交给当前 Groq/OpenAI-compatible LLM 总结成中文回复。
 
 `remember` 的脚本源码默认来自外部兄弟仓库 `ursoft-skills`：实际默认路径是 `/Users/weiwang/Projects/ursoft-skills/skills/remember/scripts/manage_items.py`。项目优先读取 `URSOFT_REMEMBER_SCRIPT`，同时兼容旧变量 `OPENCLAW_REMEMBER_SCRIPT`。
 
@@ -86,6 +86,13 @@ uv run press-to-talk --text-input "把我记过的内容列出来" --no-tts
 ```
 
 `remember_find` 和 `remember_list` 拿到的原始响应会保留 `mem0` JSON，再提取记忆正文、时间、score、metadata 等重点字段，随后交给当前模型整理成适合播报的中文回答。
+
+如需把旧的无 `app_id` 记录迁移到 `app_id=voice-assistant`，可先 dry-run 再执行：
+
+```bash
+uv run python scripts/migrate_mem0_app_id.py
+uv run python scripts/migrate_mem0_app_id.py --apply
+```
 
 ## 历史记录
 
