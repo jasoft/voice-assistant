@@ -92,9 +92,12 @@ class Mem0RememberStore(BaseRememberStore):
         self.client = client if client is not None else create_mem0_client(api_key)
         self.user_id = user_id.strip() or "soj"
 
+    def _scope_kwargs(self) -> dict[str, Any]:
+        return {"user_id": self.user_id, "agent_id": MEM0_AGENT_ID}
+
     def add(self, *, memory: str, original_text: str = "") -> str:
         messages = [{"role": "user", "content": memory}]
-        kwargs: dict[str, Any] = {"user_id": self.user_id, "agent_id": MEM0_AGENT_ID}
+        kwargs = self._scope_kwargs()
         if original_text.strip():
             kwargs["metadata"] = {"original_text": original_text.strip()}
         try:
@@ -110,11 +113,11 @@ class Mem0RememberStore(BaseRememberStore):
         return f"✅ 已记录：{stored_memory}"
 
     def find(self, *, query: str) -> str:
-        response = self.client.search(query, filters={"user_id": self.user_id})
+        response = self.client.search(query, **self._scope_kwargs())
         return json.dumps(response, ensure_ascii=False)
 
     def list_recent(self, *, limit: int = 20) -> str:
-        response = self.client.get_all(filters={"user_id": self.user_id}, limit=limit)
+        response = self.client.get_all(limit=limit, **self._scope_kwargs())
         return json.dumps(response, ensure_ascii=False)
 
 

@@ -53,6 +53,7 @@ class FakeMem0Client:
         self.add_calls: list[dict[str, object]] = []
         self.search_calls: list[dict[str, object]] = []
         self.get_all_calls: list[dict[str, object]] = []
+        self.memories: list[dict[str, object]] = []
         self.add_response: object = [
             {
                 "id": "mem-add-1",
@@ -65,6 +66,7 @@ class FakeMem0Client:
                 {
                     "id": "mem-search-1",
                     "memory": "护照在书房抽屉里",
+                    "agent_id": "voice-assistant",
                     "score": 0.91,
                     "created_at": "2026-04-11T09:30:00+08:00",
                     "metadata": {"original_text": "帮我记住护照在书房抽屉里"},
@@ -76,6 +78,7 @@ class FakeMem0Client:
                 {
                     "id": "mem-list-1",
                     "memory": "妈妈生日是6月3号",
+                    "agent_id": "voice-assistant",
                     "created_at": "2026-04-10T09:30:00+08:00",
                 }
             ]
@@ -83,14 +86,45 @@ class FakeMem0Client:
 
     def add(self, messages: list[dict[str, object]], **kwargs: object) -> object:
         self.add_calls.append({"messages": messages, **kwargs})
+        memory_text = str(messages[0]["content"]) if messages else ""
+        stored_item = {
+            "id": f"mem-added-{len(self.memories) + 1}",
+            "memory": memory_text,
+            "agent_id": kwargs.get("agent_id"),
+            "user_id": kwargs.get("user_id"),
+            "metadata": kwargs.get("metadata", {}),
+            "created_at": "2026-04-12T10:00:00+08:00",
+            "score": 0.91,
+        }
+        self.memories.insert(0, stored_item)
         return self.add_response
 
     def search(self, query: str, **kwargs: object) -> object:
         self.search_calls.append({"query": query, **kwargs})
+        if self.memories:
+            filtered = [
+                item
+                for item in self.memories
+                if item.get("user_id") == kwargs.get("user_id")
+                and item.get("agent_id") == kwargs.get("agent_id")
+                and query in str(item.get("memory", ""))
+            ]
+            if filtered:
+                return {"results": filtered}
         return self.search_response
 
     def get_all(self, **kwargs: object) -> object:
         self.get_all_calls.append(dict(kwargs))
+        if self.memories:
+            filtered = [
+                item
+                for item in self.memories
+                if item.get("user_id") == kwargs.get("user_id")
+                and item.get("agent_id") == kwargs.get("agent_id")
+            ]
+            if filtered:
+                limit = int(kwargs.get("limit", len(filtered)))
+                return {"results": filtered[:limit]}
         return self.get_all_response
 
 
@@ -726,14 +760,30 @@ class HistoryWriterTests(unittest.TestCase):
             [{"role": "user", "content": "护照在书房抽屉里"}],
         )
 
+    def test_mem0_store_round_trip_returns_agent_id(self) -> None:
+        client = FakeMem0Client()
+        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+
+        store.add(
+            memory="新护照在书房第二层抽屉里",
+            original_text="帮我记住新护照在书房第二层抽屉里",
+        )
+        result = store.find(query="新护照")
+
+        self.assertIn('"memory": "新护照在书房第二层抽屉里"', result)
+        self.assertIn('"agent_id": "voice-assistant"', result)
+        self.assertIn('"user_id": "soj"', result)
+
     def test_mem0_store_find_returns_json(self) -> None:
         client = FakeMem0Client()
         store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
 
         result = store.find(query="护照在哪")
 
-        self.assertEqual(client.search_calls[0]["filters"], {"user_id": "soj"})
+        self.assertEqual(client.search_calls[0]["user_id"], "soj")
+        self.assertEqual(client.search_calls[0]["agent_id"], "voice-assistant")
         self.assertIn('"memory": "护照在书房抽屉里"', result)
+        self.assertIn('"agent_id": "voice-assistant"', result)
         self.assertIn('"score": 0.91', result)
 
     def test_mem0_store_list_recent_returns_json(self) -> None:
@@ -742,9 +792,11 @@ class HistoryWriterTests(unittest.TestCase):
 
         result = store.list_recent(limit=5)
 
-        self.assertEqual(client.get_all_calls[0]["filters"], {"user_id": "soj"})
+        self.assertEqual(client.get_all_calls[0]["user_id"], "soj")
+        self.assertEqual(client.get_all_calls[0]["agent_id"], "voice-assistant")
         self.assertEqual(client.get_all_calls[0]["limit"], 5)
         self.assertIn('"memory": "妈妈生日是6月3号"', result)
+        self.assertIn('"agent_id": "voice-assistant"', result)
 
     def test_history_writer_persists_to_storage_service(self) -> None:
         service = FakeStorageService()
