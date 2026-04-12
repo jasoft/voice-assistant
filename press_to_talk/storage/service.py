@@ -10,7 +10,6 @@ from typing import Any
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HISTORY_DB_PATH = APP_ROOT / "data" / "voice_assistant.sqlite3"
-MEM0_APP_ID = "voice-assistant"
 
 
 @dataclass
@@ -18,6 +17,7 @@ class StorageConfig:
     backend: str = "mem0"
     mem0_api_key: str = ""
     mem0_user_id: str = "soj"
+    mem0_app_id: str = "voice-assistant"
     history_db_path: str = str(DEFAULT_HISTORY_DB_PATH)
 
 
@@ -52,6 +52,7 @@ def load_storage_config() -> StorageConfig:
         backend="mem0",
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
         mem0_user_id=env_str("MEM0_USER_ID", "soj").strip() or "soj",
+        mem0_app_id=env_str("MEM0_APP_ID", "voice-assistant").strip() or "voice-assistant",
         history_db_path=env_str("PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)).strip()
         or str(DEFAULT_HISTORY_DB_PATH),
     )
@@ -86,21 +87,29 @@ def create_mem0_client(api_key: str) -> Any:
 
 
 class Mem0RememberStore(BaseRememberStore):
-    def __init__(self, *, api_key: str = "", user_id: str = "soj", client: Any | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str = "",
+        user_id: str = "soj",
+        app_id: str = "voice-assistant",
+        client: Any | None = None,
+    ) -> None:
         if client is None and not api_key.strip():
             raise RuntimeError("mem0 配置缺失：MEM0_API_KEY")
         self.client = client if client is not None else create_mem0_client(api_key)
         self.user_id = user_id.strip() or "soj"
+        self.app_id = app_id.strip() or "voice-assistant"
 
     def _write_scope_kwargs(self) -> dict[str, Any]:
-        return {"user_id": self.user_id, "app_id": MEM0_APP_ID, "async_mode": False}
+        return {"user_id": self.user_id, "app_id": self.app_id, "async_mode": False}
 
     def _read_scope_kwargs(self) -> dict[str, Any]:
         return {
             "filters": {
                 "AND": [
                     {"user_id": self.user_id},
-                    {"app_id": MEM0_APP_ID},
+                    {"app_id": self.app_id},
                 ]
             }
         }
@@ -291,6 +300,7 @@ class StorageService:
         return Mem0RememberStore(
             api_key=self.config.mem0_api_key,
             user_id=self.config.mem0_user_id,
+            app_id=self.config.mem0_app_id,
         )
 
     def history_store(self) -> BaseHistoryStore:

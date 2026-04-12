@@ -25,6 +25,13 @@ uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 
 默认情况下，remember 会直接走托管版 `mem0` API。项目会固定使用 `user_id=soj`（可通过 `MEM0_USER_ID` 覆盖）和 `app_id=voice-assistant`，保存记忆时写入抽取后的记忆句并附带用户原话，查询时直接用用户原始问句检索，再把 `mem0` 返回里分数大于 `0.8` 的前三条结果交给当前 Groq/OpenAI-compatible LLM 总结成中文回复。
 
+可调参数：
+
+- `MEM0_USER_ID`：mem0 用户作用域，默认 `soj`
+- `MEM0_APP_ID`：mem0 app 作用域，默认 `voice-assistant`
+- `MEM0_MIN_SCORE`：mem0 结果最低分数阈值，默认 `0.8`
+- `MEM0_MAX_ITEMS`：最终喂给总结模型的最大条数，默认 `3`
+
 `remember` 的脚本源码默认来自外部兄弟仓库 `ursoft-skills`：实际默认路径是 `/Users/weiwang/Projects/ursoft-skills/skills/remember/scripts/manage_items.py`。项目优先读取 `URSOFT_REMEMBER_SCRIPT`，同时兼容旧变量 `OPENCLAW_REMEMBER_SCRIPT`。
 
 示例：

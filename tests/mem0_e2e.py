@@ -5,7 +5,7 @@ import time
 import unittest
 from pathlib import Path
 
-from press_to_talk.storage.service import MEM0_APP_ID, Mem0RememberStore, create_mem0_client
+from press_to_talk.storage.service import Mem0RememberStore, create_mem0_client
 
 
 def load_local_env() -> None:
@@ -39,6 +39,7 @@ class Mem0E2ETests(unittest.TestCase):
         self.client = create_mem0_client(api_key)
         self.user_id = f"soj-e2e-{int(time.time() * 1000)}"
         self.store = Mem0RememberStore(client=self.client, user_id=self.user_id)
+        self.app_id = self.store.app_id
         self.created_ids: list[str] = []
 
     def tearDown(self) -> None:
@@ -67,19 +68,19 @@ class Mem0E2ETests(unittest.TestCase):
             time.sleep(1)
 
         self.assertIn(memory_text, search_json)
-        self.assertIn(f'"app_id": "{MEM0_APP_ID}"', search_json)
+        self.assertIn(f'"app_id": "{self.app_id}"', search_json)
         self.assertIn(f'"user_id": "{self.user_id}"', search_json)
         self.assertIn(memory_text, list_json)
-        self.assertIn(f'"app_id": "{MEM0_APP_ID}"', list_json)
+        self.assertIn(f'"app_id": "{self.app_id}"', list_json)
 
         search_response = self.client.search(
             memory_text,
-            filters={"AND": [{"user_id": self.user_id}, {"app_id": MEM0_APP_ID}]},
+            filters={"AND": [{"user_id": self.user_id}, {"app_id": self.app_id}]},
         )
         results = search_response.get("results", search_response if isinstance(search_response, list) else [])
         self.assertTrue(results, "expected at least one mem0 search result")
         first = results[0]
-        self.assertEqual(first.get("app_id"), MEM0_APP_ID)
+        self.assertEqual(first.get("app_id"), self.app_id)
         self.assertEqual(first.get("user_id"), self.user_id)
         memory_id = str(first.get("id") or "").strip()
         self.assertTrue(memory_id)

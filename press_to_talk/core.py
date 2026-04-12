@@ -551,8 +551,8 @@ def strip_think_tags(text: str) -> str:
 
 
 def extract_mem0_summary_payload(raw_payload: str | dict[str, Any] | list[Any]) -> dict[str, Any]:
-    min_score = 0.8
-    max_items = 3
+    min_score = env_float("MEM0_MIN_SCORE", 0.8)
+    max_items = max(1, env_int("MEM0_MAX_ITEMS", 3))
     payload: Any = raw_payload
     if isinstance(raw_payload, str):
         text = raw_payload.strip()

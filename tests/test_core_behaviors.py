@@ -732,6 +732,7 @@ class HistoryWriterTests(unittest.TestCase):
             {
                 "MEM0_API_KEY": "test-mem0-key",
                 "MEM0_USER_ID": "soj",
+                "MEM0_APP_ID": "voice-assistant",
             },
             clear=True,
         ):
@@ -740,6 +741,7 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(config.backend, "mem0")
         self.assertEqual(config.mem0_api_key, "test-mem0-key")
         self.assertEqual(config.mem0_user_id, "soj")
+        self.assertEqual(config.mem0_app_id, "voice-assistant")
 
     def test_load_storage_config_reads_history_db_path(self) -> None:
         with patch.dict(
@@ -822,6 +824,25 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(client.get_all_calls[0]["limit"], 5)
         self.assertIn('"memory": "妈妈生日是6月3号"', result)
         self.assertIn('"app_id": "voice-assistant"', result)
+
+    def test_extract_mem0_summary_payload_uses_env_thresholds(self) -> None:
+        payload = {
+            "results": [
+                {"id": "m1", "memory": "A", "score": 0.79},
+                {"id": "m2", "memory": "B", "score": 0.81},
+                {"id": "m3", "memory": "C", "score": 0.92},
+                {"id": "m4", "memory": "D", "score": 0.88},
+            ]
+        }
+
+        with patch.dict(
+            "os.environ",
+            {"MEM0_MIN_SCORE": "0.8", "MEM0_MAX_ITEMS": "2"},
+            clear=False,
+        ):
+            extracted = core.extract_mem0_summary_payload(payload)
+
+        self.assertEqual([item["memory"] for item in extracted["items"]], ["C", "D"])
 
     def test_history_writer_persists_to_storage_service(self) -> None:
         service = FakeStorageService()
