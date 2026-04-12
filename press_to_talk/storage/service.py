@@ -76,33 +76,21 @@ def load_workflow_config() -> dict[str, Any]:
 
 
 def load_storage_config() -> StorageConfig:
-    workflow_mem0 = load_workflow_config().get("mem0", {})
-    workflow_mem0 = workflow_mem0 if isinstance(workflow_mem0, dict) else {}
     return StorageConfig(
         backend="mem0",
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
         mem0_user_id=str(
-            workflow_mem0.get("user_id")
-            or env_str("MEM0_USER_ID", "soj")
+            env_str("MEM0_USER_ID", "soj")
         ).strip()
         or "soj",
         mem0_app_id=str(
-            workflow_mem0.get("app_id")
-            or env_str("MEM0_APP_ID", "voice-assistant")
+            env_str("MEM0_APP_ID", "voice-assistant")
         ).strip()
         or "voice-assistant",
-        mem0_min_score=float(
-            workflow_mem0.get("min_score")
-            if workflow_mem0.get("min_score") is not None
-            else env_float("MEM0_MIN_SCORE", 0.8)
-        ),
+        mem0_min_score=env_float("MEM0_MIN_SCORE", 0.8),
         mem0_max_items=max(
             1,
-            int(
-                workflow_mem0.get("max_items")
-                if workflow_mem0.get("max_items") is not None
-                else env_int("MEM0_MAX_ITEMS", 3)
-            ),
+            env_int("MEM0_MAX_ITEMS", 3),
         ),
         history_db_path=env_str("PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)).strip()
         or str(DEFAULT_HISTORY_DB_PATH),
