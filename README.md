@@ -106,6 +106,14 @@ uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 
 这个模式会逐条跑样本，输出每条预测的意图并给出总匹配数。适合在改提示词、改工具参数、改 Skill 文案后做快速回归。
 
+如需手动运行真实 mem0 e2e 测试，可显式打开开关：
+
+```bash
+PTT_RUN_E2E=1 uv run python tests/mem0_e2e.py
+```
+
+这组测试默认不会自动运行，只有你手动带上 `PTT_RUN_E2E=1` 才会访问云端。
+
 ## 依赖
 
 - `numpy`
