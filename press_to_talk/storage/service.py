@@ -10,6 +10,7 @@ from typing import Any
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HISTORY_DB_PATH = APP_ROOT / "data" / "voice_assistant.sqlite3"
+MEM0_AGENT_ID = "voice-assistant"
 
 
 @dataclass
@@ -93,7 +94,7 @@ class Mem0RememberStore(BaseRememberStore):
 
     def add(self, *, memory: str, original_text: str = "") -> str:
         messages = [{"role": "user", "content": memory}]
-        kwargs: dict[str, Any] = {"user_id": self.user_id}
+        kwargs: dict[str, Any] = {"user_id": self.user_id, "agent_id": MEM0_AGENT_ID}
         if original_text.strip():
             kwargs["metadata"] = {"original_text": original_text.strip()}
         try:

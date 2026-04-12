@@ -720,6 +720,7 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertIn("✅ 已记录", result)
         self.assertEqual(client.add_calls[0]["user_id"], "soj")
+        self.assertEqual(client.add_calls[0]["agent_id"], "voice-assistant")
         self.assertEqual(
             client.add_calls[0]["messages"],
             [{"role": "user", "content": "护照在书房抽屉里"}],
