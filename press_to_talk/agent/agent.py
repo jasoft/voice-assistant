@@ -34,6 +34,38 @@ def _runtime_current_time_text() -> str:
     except Exception:
         return current_time_text()
 
+
+def _format_structured_mem0_summary(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return "<none>"
+
+    lines: list[str] = []
+    for index, item in enumerate(items, start=1):
+        lines.append(f"第{index}条:")
+        memory = str(item.get("memory", "")).strip()
+        if memory:
+            lines.append(f"记忆: {memory}")
+        score = item.get("score")
+        if score not in (None, ""):
+            lines.append(f"分数: {score}")
+        created_at = str(item.get("created_at") or item.get("createdAt") or "").strip()
+        if created_at:
+            lines.append(f"记录时间: {format_local_datetime(created_at)}")
+        updated_at = str(item.get("updated_at") or item.get("updatedAt") or "").strip()
+        if updated_at:
+            lines.append(f"更新时间: {format_local_datetime(updated_at)}")
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict) and metadata:
+            metadata_text = ", ".join(
+                f"{key}={value}" for key, value in metadata.items() if value not in (None, "")
+            )
+            if metadata_text:
+                lines.append(f"元数据: {metadata_text}")
+        categories = item.get("categories")
+        if isinstance(categories, list) and categories:
+            lines.append(f"分类: {', '.join(str(category) for category in categories)}")
+    return "\n".join(lines)
+
 class OpenAICompatibleAgent:
     def __init__(self, cfg: Config) -> None:
         from openai import OpenAI
@@ -312,7 +344,7 @@ class OpenAICompatibleAgent:
                 formatted_time = format_local_datetime(created_at)
                 if mem_text:
                     extracted_memories.append(f"- {mem_text} (记录于 {formatted_time})")
-            structured_text = json.dumps(extracted_data, ensure_ascii=False, indent=2)
+            structured_text = _format_structured_mem0_summary(items)
         
         # If it's a plain text response (like from remember_add) or JSON failed to provide items
         if not extracted_memories:
@@ -356,8 +388,7 @@ class OpenAICompatibleAgent:
         user_prompt = (
             f"我的问题：{user_question or query or '（无）'}\n"
             f"记忆列表：\n{memories_summary}\n"
-            f"结构化结果：\n{structured_text or '<none>'}\n"
-            f"原始输出：\n{cleaned}"
+            f"结构化结果：\n{structured_text or '<none>'}"
         )
         
         try:

@@ -459,7 +459,10 @@ class ThinkTagFilterTests(unittest.TestCase):
         prompt = str(agent.client.chat.completions.calls[0]["messages"][1]["content"])
         self.assertIn("结构化结果", prompt)
         self.assertIn("护照在书房抽屉里", prompt)
-        self.assertIn("score", prompt)
+        self.assertIn("分数: 0.91", prompt)
+        self.assertIn("记录时间: 2026年4月11号 周六 09:30", prompt)
+        self.assertIn("元数据: source=mem0", prompt)
+        self.assertNotIn('"score"', prompt)
 
     def test_expand_env_placeholders_keeps_runtime_tokens_when_env_missing(self) -> None:
         original = {
