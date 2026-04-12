@@ -101,12 +101,22 @@ class FakeMem0Client:
 
     def search(self, query: str, **kwargs: object) -> object:
         self.search_calls.append({"query": query, **kwargs})
+        filters = kwargs.get("filters", {})
+        clauses = filters.get("AND", []) if isinstance(filters, dict) else []
+        scope_user_id = next(
+            (item.get("user_id") for item in clauses if isinstance(item, dict) and "user_id" in item),
+            None,
+        )
+        scope_app_id = next(
+            (item.get("app_id") for item in clauses if isinstance(item, dict) and "app_id" in item),
+            None,
+        )
         if self.memories:
             filtered = [
                 item
                 for item in self.memories
-                if item.get("user_id") == kwargs.get("user_id")
-                and item.get("app_id") == kwargs.get("app_id")
+                if item.get("user_id") == scope_user_id
+                and item.get("app_id") == scope_app_id
                 and query in str(item.get("memory", ""))
             ]
             if filtered:
@@ -115,12 +125,22 @@ class FakeMem0Client:
 
     def get_all(self, **kwargs: object) -> object:
         self.get_all_calls.append(dict(kwargs))
+        filters = kwargs.get("filters", {})
+        clauses = filters.get("AND", []) if isinstance(filters, dict) else []
+        scope_user_id = next(
+            (item.get("user_id") for item in clauses if isinstance(item, dict) and "user_id" in item),
+            None,
+        )
+        scope_app_id = next(
+            (item.get("app_id") for item in clauses if isinstance(item, dict) and "app_id" in item),
+            None,
+        )
         if self.memories:
             filtered = [
                 item
                 for item in self.memories
-                if item.get("user_id") == kwargs.get("user_id")
-                and item.get("app_id") == kwargs.get("app_id")
+                if item.get("user_id") == scope_user_id
+                and item.get("app_id") == scope_app_id
             ]
             if filtered:
                 limit = int(kwargs.get("limit", len(filtered)))
@@ -781,8 +801,10 @@ class HistoryWriterTests(unittest.TestCase):
 
         result = store.find(query="护照在哪")
 
-        self.assertEqual(client.search_calls[0]["user_id"], "soj")
-        self.assertEqual(client.search_calls[0]["app_id"], "voice-assistant")
+        self.assertEqual(
+            client.search_calls[0]["filters"],
+            {"AND": [{"user_id": "soj"}, {"app_id": "voice-assistant"}]},
+        )
         self.assertIn('"memory": "护照在书房抽屉里"', result)
         self.assertIn('"app_id": "voice-assistant"', result)
         self.assertIn('"score": 0.91', result)
@@ -793,8 +815,10 @@ class HistoryWriterTests(unittest.TestCase):
 
         result = store.list_recent(limit=5)
 
-        self.assertEqual(client.get_all_calls[0]["user_id"], "soj")
-        self.assertEqual(client.get_all_calls[0]["app_id"], "voice-assistant")
+        self.assertEqual(
+            client.get_all_calls[0]["filters"],
+            {"AND": [{"user_id": "soj"}, {"app_id": "voice-assistant"}]},
+        )
         self.assertEqual(client.get_all_calls[0]["limit"], 5)
         self.assertIn('"memory": "妈妈生日是6月3号"', result)
         self.assertIn('"app_id": "voice-assistant"', result)
