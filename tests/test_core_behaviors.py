@@ -724,6 +724,9 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertEqual(config.backend, "mem0")
         self.assertEqual(config.mem0_user_id, "soj")
+        self.assertEqual(config.mem0_app_id, "voice-assistant")
+        self.assertEqual(config.mem0_min_score, 0.8)
+        self.assertEqual(config.mem0_max_items, 3)
         self.assertTrue(config.history_db_path.endswith("data/voice_assistant.sqlite3"))
 
     def test_load_storage_config_reads_mem0_credentials(self) -> None:
@@ -825,7 +828,7 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertIn('"memory": "妈妈生日是6月3号"', result)
         self.assertIn('"app_id": "voice-assistant"', result)
 
-    def test_extract_mem0_summary_payload_uses_env_thresholds(self) -> None:
+    def test_extract_mem0_summary_payload_uses_config_thresholds(self) -> None:
         payload = {
             "results": [
                 {"id": "m1", "memory": "A", "score": 0.79},
@@ -835,10 +838,9 @@ class HistoryWriterTests(unittest.TestCase):
             ]
         }
 
-        with patch.dict(
-            "os.environ",
-            {"MEM0_MIN_SCORE": "0.8", "MEM0_MAX_ITEMS": "2"},
-            clear=False,
+        with patch("press_to_talk.core.WORKFLOW_CONFIG_PATH", Path("/tmp/workflow_config.json")), patch(
+            "press_to_talk.core.load_json_file",
+            return_value={"mem0": {"min_score": 0.8, "max_items": 2}},
         ):
             extracted = core.extract_mem0_summary_payload(payload)
 

@@ -127,6 +127,22 @@ def load_workflow_defaults() -> dict[str, Any]:
     return json.loads(json.dumps(MINIMAL_WORKFLOW))
 
 
+def load_mem0_tuning_config() -> dict[str, Any]:
+    defaults = {"min_score": 0.8, "max_items": 3}
+    try:
+        workflow = load_json_file(WORKFLOW_CONFIG_PATH)
+        mem0_cfg = workflow.get("mem0", {}) if isinstance(workflow, dict) else {}
+        if not isinstance(mem0_cfg, dict):
+            return defaults
+        if mem0_cfg.get("min_score") is not None:
+            defaults["min_score"] = float(mem0_cfg["min_score"])
+        if mem0_cfg.get("max_items") is not None:
+            defaults["max_items"] = max(1, int(mem0_cfg["max_items"]))
+    except Exception as e:
+        log(f"Failed to load mem0 tuning config: {e}")
+    return defaults
+
+
 def build_storage_config(cfg: Config) -> StorageConfig:
     return StorageConfig(
         backend="mem0",
@@ -551,8 +567,9 @@ def strip_think_tags(text: str) -> str:
 
 
 def extract_mem0_summary_payload(raw_payload: str | dict[str, Any] | list[Any]) -> dict[str, Any]:
-    min_score = env_float("MEM0_MIN_SCORE", 0.8)
-    max_items = max(1, env_int("MEM0_MAX_ITEMS", 3))
+    tuning = load_mem0_tuning_config()
+    min_score = tuning["min_score"]
+    max_items = tuning["max_items"]
     payload: Any = raw_payload
     if isinstance(raw_payload, str):
         text = raw_payload.strip()

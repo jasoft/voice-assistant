@@ -10,6 +10,7 @@ from typing import Any
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HISTORY_DB_PATH = APP_ROOT / "data" / "voice_assistant.sqlite3"
+WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 
 
 @dataclass
@@ -18,6 +19,8 @@ class StorageConfig:
     mem0_api_key: str = ""
     mem0_user_id: str = "soj"
     mem0_app_id: str = "voice-assistant"
+    mem0_min_score: float = 0.8
+    mem0_max_items: int = 3
     history_db_path: str = str(DEFAULT_HISTORY_DB_PATH)
 
 
@@ -47,12 +50,60 @@ def env_str(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
+def env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return int(raw)
+
+
+def env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return float(raw)
+
+
+def load_workflow_config() -> dict[str, Any]:
+    try:
+        with WORKFLOW_CONFIG_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
 def load_storage_config() -> StorageConfig:
+    workflow_mem0 = load_workflow_config().get("mem0", {})
+    workflow_mem0 = workflow_mem0 if isinstance(workflow_mem0, dict) else {}
     return StorageConfig(
         backend="mem0",
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
-        mem0_user_id=env_str("MEM0_USER_ID", "soj").strip() or "soj",
-        mem0_app_id=env_str("MEM0_APP_ID", "voice-assistant").strip() or "voice-assistant",
+        mem0_user_id=str(
+            workflow_mem0.get("user_id")
+            or env_str("MEM0_USER_ID", "soj")
+        ).strip()
+        or "soj",
+        mem0_app_id=str(
+            workflow_mem0.get("app_id")
+            or env_str("MEM0_APP_ID", "voice-assistant")
+        ).strip()
+        or "voice-assistant",
+        mem0_min_score=float(
+            workflow_mem0.get("min_score")
+            if workflow_mem0.get("min_score") is not None
+            else env_float("MEM0_MIN_SCORE", 0.8)
+        ),
+        mem0_max_items=max(
+            1,
+            int(
+                workflow_mem0.get("max_items")
+                if workflow_mem0.get("max_items") is not None
+                else env_int("MEM0_MAX_ITEMS", 3)
+            ),
+        ),
         history_db_path=env_str("PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)).strip()
         or str(DEFAULT_HISTORY_DB_PATH),
     )
