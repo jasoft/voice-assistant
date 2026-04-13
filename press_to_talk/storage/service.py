@@ -167,7 +167,19 @@ class Mem0RememberStore(BaseRememberStore):
         return kwargs
 
     def _read_scope_kwargs(self) -> dict[str, Any]:
-        return {"filters": {"AND": [{"user_id": self.user_id}]}}
+        return {
+            "filters": {
+                "OR": [
+                    {"AND": [{"user_id": self.user_id}]},
+                    {
+                        "AND": [
+                            {"user_id": self.user_id},
+                            {"OR": [{"app_id": "*"}, {"agent_id": "*"}]},
+                        ]
+                    },
+                ]
+            }
+        }
 
     def add(self, *, memory: str, original_text: str = "") -> str:
         messages = [{"role": "user", "content": memory}]

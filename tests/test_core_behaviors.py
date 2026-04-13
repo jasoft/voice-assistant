@@ -99,40 +99,53 @@ class FakeMem0Client:
         self.memories.insert(0, stored_item)
         return self.add_response
 
+    def _matches_filter(self, item: dict[str, object], clause: object) -> bool:
+        if not isinstance(clause, dict):
+            return True
+        if "AND" in clause:
+            parts = clause.get("AND", [])
+            if not isinstance(parts, list):
+                parts = [parts]
+            return all(self._matches_filter(item, part) for part in parts)
+        if "OR" in clause:
+            parts = clause.get("OR", [])
+            if not isinstance(parts, list):
+                parts = [parts]
+            return any(self._matches_filter(item, part) for part in parts)
+        if "NOT" in clause:
+            return not self._matches_filter(item, clause.get("NOT"))
+
+        for field, expected in clause.items():
+            value = item.get(field)
+            if expected == "*":
+                if value in (None, ""):
+                    return False
+                continue
+            if isinstance(expected, dict):
+                if "in" in expected:
+                    options = expected.get("in", [])
+                    return str(value).strip() in {
+                        str(option).strip()
+                        for option in options
+                        if isinstance(options, list)
+                    }
+                if "contains" in expected:
+                    return str(expected.get("contains", "")) in str(value)
+                if "icontains" in expected:
+                    return str(expected.get("icontains", "")).lower() in str(
+                        value
+                    ).lower()
+            if str(value).strip() != str(expected).strip():
+                return False
+        return True
+
     def search(self, query: str, **kwargs: object) -> object:
         self.search_calls.append({"query": query, **kwargs})
-        filters = kwargs.get("filters", {})
-        clauses = filters.get("AND", []) if isinstance(filters, dict) else []
-        scope_user_id = str(
-            kwargs.get("user_id")
-            or next(
-                (
-                    item.get("user_id")
-                    for item in clauses
-                    if isinstance(item, dict) and "user_id" in item
-                ),
-                "",
-            )
-        ).strip()
-        scope_app_id = str(
-            kwargs.get("app_id")
-            or next(
-                (
-                    item.get("app_id")
-                    for item in clauses
-                    if isinstance(item, dict) and "app_id" in item
-                ),
-                "",
-            )
-        ).strip()
         if self.memories:
             filtered = [
                 item
                 for item in self.memories
-                if str(item.get("user_id")).strip() == scope_user_id
-                and (
-                    not scope_app_id or str(item.get("app_id")).strip() == scope_app_id
-                )
+                if self._matches_filter(item, kwargs.get("filters", {}))
                 and query in str(item.get("memory", ""))
             ]
             if filtered:
@@ -141,38 +154,11 @@ class FakeMem0Client:
 
     def get_all(self, **kwargs: object) -> object:
         self.get_all_calls.append(dict(kwargs))
-        filters = kwargs.get("filters", {})
-        clauses = filters.get("AND", []) if isinstance(filters, dict) else []
-        scope_user_id = str(
-            kwargs.get("user_id")
-            or next(
-                (
-                    item.get("user_id")
-                    for item in clauses
-                    if isinstance(item, dict) and "user_id" in item
-                ),
-                "",
-            )
-        ).strip()
-        scope_app_id = str(
-            kwargs.get("app_id")
-            or next(
-                (
-                    item.get("app_id")
-                    for item in clauses
-                    if isinstance(item, dict) and "app_id" in item
-                ),
-                "",
-            )
-        ).strip()
         if self.memories:
             filtered = [
                 item
                 for item in self.memories
-                if str(item.get("user_id")).strip() == scope_user_id
-                and (
-                    not scope_app_id or str(item.get("app_id")).strip() == scope_app_id
-                )
+                if self._matches_filter(item, kwargs.get("filters", {}))
             ]
             if filtered:
                 limit = int(kwargs.get("limit", len(filtered)))
@@ -899,14 +885,24 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertEqual(
             client.search_calls[0]["filters"],
-            {"AND": [{"user_id": "soj"}]},
+            {
+                "OR": [
+                    {"AND": [{"user_id": "soj"}]},
+                    {
+                        "AND": [
+                            {"user_id": "soj"},
+                            {"OR": [{"app_id": "*"}, {"agent_id": "*"}]},
+                        ]
+                    },
+                ]
+            },
         )
         self.assertIn('"memory": "护照在书房抽屉里"', result)
         self.assertIn('"app_id": "voice-assistant"', result)
         self.assertIn('"score": 0.91', result)
         self.assertIn('"created_at": "2026年4月11号 周六 09:30"', result)
 
-    def test_mem0_store_find_ignores_app_id_scope(self) -> None:
+    def test_mem0_store_find_returns_app_scoped_result(self) -> None:
         client = FakeMem0Client()
         client.memories = [
             {
@@ -932,7 +928,17 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertEqual(
             client.search_calls[0]["filters"],
-            {"AND": [{"user_id": "soj"}]},
+            {
+                "OR": [
+                    {"AND": [{"user_id": "soj"}]},
+                    {
+                        "AND": [
+                            {"user_id": "soj"},
+                            {"OR": [{"app_id": "*"}, {"agent_id": "*"}]},
+                        ]
+                    },
+                ]
+            },
         )
         self.assertIn("我的 airpods 在哪里：在办公桌左边抽屉里", result)
         self.assertIn('"app_id": "other-agent"', result)
@@ -945,7 +951,17 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertEqual(
             client.get_all_calls[0]["filters"],
-            {"AND": [{"user_id": "soj"}]},
+            {
+                "OR": [
+                    {"AND": [{"user_id": "soj"}]},
+                    {
+                        "AND": [
+                            {"user_id": "soj"},
+                            {"OR": [{"app_id": "*"}, {"agent_id": "*"}]},
+                        ]
+                    },
+                ]
+            },
         )
         self.assertEqual(client.get_all_calls[0]["limit"], 5)
         self.assertIn('"memory": "妈妈生日是6月3号"', result)
