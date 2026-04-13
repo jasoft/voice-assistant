@@ -446,7 +446,7 @@ class ThinkTagFilterTests(unittest.TestCase):
             [item["id"] for item in extracted["items"]], ["m6", "m1", "m2", "m3"]
         )
 
-    def test_remember_summary_includes_structured_mem0_fields(self) -> None:
+    def test_remember_summary_only_passes_memory_bodies(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("护照在书房抽屉里。")
         agent.model = "test-model"
@@ -465,12 +465,12 @@ class ThinkTagFilterTests(unittest.TestCase):
 
         self.assertEqual(summary, "护照在书房抽屉里。")
         prompt = str(agent.client.chat.completions.calls[0]["messages"][1]["content"])
-        self.assertIn("结构化结果", prompt)
+        self.assertIn("命中的记忆原文", prompt)
         self.assertIn("护照在书房抽屉里", prompt)
-        self.assertIn("分数: 0.91", prompt)
-        self.assertIn("记录时间: 2026年4月11号 周六 09:30", prompt)
-        self.assertIn("元数据: source=mem0", prompt)
-        self.assertNotIn('"score"', prompt)
+        self.assertNotIn("结构化结果", prompt)
+        self.assertNotIn("分数: 0.91", prompt)
+        self.assertNotIn("记录时间:", prompt)
+        self.assertNotIn("元数据:", prompt)
 
     def test_expand_env_placeholders_keeps_runtime_tokens_when_env_missing(
         self,

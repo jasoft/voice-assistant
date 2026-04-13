@@ -344,23 +344,16 @@ class OpenAICompatibleAgent:
         if cleaned.startswith("Error:") or cleaned.startswith("Error executing "):
             return cleaned
 
-        structured_text = ""
-        # Try to extract structured data for the summarizer LLM
         extracted_memories: list[str] = []
 
-        # If it's a JSON response (like from find or list)
+        # If it's a JSON response, only pass the memory body onward.
         if cleaned.startswith("[") or cleaned.startswith("{"):
             extracted_data = extract_mem0_summary_payload(cleaned)
             items = extracted_data.get("items", [])
             for item in items:
                 mem_text = str(item.get("memory", "")).strip()
-                created_at = str(
-                    item.get("created_at") or item.get("createdAt") or ""
-                ).strip()
-                formatted_time = format_local_datetime(created_at)
                 if mem_text:
-                    extracted_memories.append(f"- {mem_text} (记录于 {formatted_time})")
-            structured_text = _format_structured_mem0_summary(items)
+                    extracted_memories.append(f"- {mem_text}")
 
         # If it's a plain text response (like from remember_add) or JSON failed to provide items
         if not extracted_memories:
@@ -407,8 +400,7 @@ class OpenAICompatibleAgent:
 
         user_prompt = (
             f"我的问题：{user_question or query or '（无）'}\n"
-            f"记忆列表：\n{memories_summary}\n"
-            f"结构化结果：\n{structured_text or '<none>'}"
+            f"命中的记忆原文：\n{memories_summary}"
         )
 
         try:
