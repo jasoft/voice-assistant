@@ -1,37 +1,19 @@
 from __future__ import annotations
 
-import re
 import json
 from typing import Any
+import re
 
 def wants_explicit_search(text: str) -> bool:
     normalized = re.sub(r"[ \t]+", "", text or "")
     return "联网搜索" in normalized or "上网搜索" in normalized
 
-def derive_find_query(text: str) -> str:
-    normalized = str(text or "").strip()
-    if not normalized:
-        return ""
-    patterns = [
-        r"^(?:帮我)?(?:联网搜索|上网搜索|搜索|查找|查询|查一下|找一下|帮我查一下|帮我找一下)(?:关于)?",
-        r"^(?:我想)?(?:知道|看看|了解)(?:一下)?(?:关于)?",
-        r"(?:的信息|的事情|的情况|有哪些|是什么|是什么时候|什么时候|在哪里|在哪|多少)$",
-    ]
-    query = normalized
-    for pattern in patterns:
-        query = re.sub(pattern, "", query)
-    query = re.sub(r"[，。！？、,.!?]+", "", query).strip()
-    return query or normalized
-
 def coerce_to_local_find_payload(
     user_input: str, payload: dict[str, Any] | None = None, *, note: str = ""
 ) -> dict[str, Any]:
     original = payload if isinstance(payload, dict) else {}
-    original_args = original.get("args", {})
-    args = original_args if isinstance(original_args, dict) else {}
-    query = str(args.get("query", "") or "").strip()
+    query = str(user_input or "").strip()
     tool_name = "remember_find"
-    query = query or derive_find_query(user_input)
     return {
         "intent": "find",
         "tool": tool_name,

@@ -555,7 +555,9 @@ class ThinkTagFilterTests(unittest.TestCase):
             },
         )
 
-    def test_execute_structured_remember_find_uses_query_arg_for_mem0(self) -> None:
+    def test_execute_structured_remember_find_uses_original_user_input_for_mem0(
+        self,
+    ) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("护照在书房抽屉里。")
         agent.model = "test-model"
@@ -571,7 +573,7 @@ class ThinkTagFilterTests(unittest.TestCase):
         )
 
         self.assertEqual(result, "护照在书房抽屉里。")
-        self.assertEqual(agent.storage.remember_store().find_calls, ["护照"])
+        self.assertEqual(agent.storage.remember_store().find_calls, ["我的护照在哪里"])
 
     def test_general_knowledge_query_uses_remember_find(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
@@ -589,7 +591,7 @@ class ThinkTagFilterTests(unittest.TestCase):
 
         self.assertEqual(payload["intent"], "find")
         self.assertEqual(payload["tool"], "remember_find")
-        self.assertEqual(payload["args"]["query"], "小狗")
+        self.assertEqual(payload["args"]["query"], "查找关于小狗的信息。")
         self.assertEqual(agent.storage.remember_store().find_calls, [])
 
     def test_explicit_search_request_is_routed_to_find(self) -> None:
@@ -604,7 +606,7 @@ class ThinkTagFilterTests(unittest.TestCase):
 
         self.assertEqual(payload["intent"], "find")
         self.assertEqual(payload["tool"], "remember_find")
-        self.assertEqual(payload["args"]["query"], "上海天气")
+        self.assertEqual(payload["args"]["query"], "帮我联网搜索上海天气")
 
     def test_record_intent_follows_llm_output(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)

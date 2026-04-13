@@ -241,6 +241,8 @@ class OpenAICompatibleAgent:
             args.setdefault("memory", "")
             args.setdefault("query", "")
             args.setdefault("note", "")
+            if payload.get("intent") == "find":
+                args["query"] = user_input.strip()
             payload["args"] = args
             if payload.get("intent") == "record":
                 payload.setdefault("args", {})
@@ -482,12 +484,12 @@ class OpenAICompatibleAgent:
             )
         if tool_name == "remember_find":
             query = str(args.get("query", "")).strip()
-            if not query:
+            search_query = user_input.strip() or query
+            if not search_query:
                 return "Error: structured remember_find missing query"
-            search_query = query or user_input.strip()
             raw = await self._execute_remember_tool(tool_name, {"query": search_query})
             return self._summarize_remember_output(
-                tool_name, raw, user_question=user_input, query=query
+                tool_name, raw, user_question=user_input, query=search_query
             )
         return None
 
