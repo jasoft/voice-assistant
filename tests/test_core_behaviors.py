@@ -17,7 +17,6 @@ class FakeRememberStore:
     def __init__(self) -> None:
         self.add_calls: list[dict[str, object]] = []
         self.find_calls: list[str] = []
-        self.list_calls = 0
 
     def add(self, **kwargs) -> str:
         self.add_calls.append(dict(kwargs))
@@ -26,10 +25,6 @@ class FakeRememberStore:
     def find(self, *, query: str) -> str:
         self.find_calls.append(query)
         return f"FIND:{query}"
-
-    def list_recent(self, *, limit: int = 20) -> str:
-        self.list_calls += 1
-        return "LIST"
 
 
 class FakeStorageService:
@@ -52,7 +47,6 @@ class FakeMem0Client:
     def __init__(self) -> None:
         self.add_calls: list[dict[str, object]] = []
         self.search_calls: list[dict[str, object]] = []
-        self.get_all_calls: list[dict[str, object]] = []
         self.memories: list[dict[str, object]] = []
         self.add_response: object = [
             {
@@ -70,16 +64,6 @@ class FakeMem0Client:
                     "score": 0.91,
                     "created_at": "2026-04-11T09:30:00+08:00",
                     "metadata": {"original_text": "帮我记住护照在书房抽屉里"},
-                }
-            ]
-        }
-        self.get_all_response: object = {
-            "results": [
-                {
-                    "id": "mem-list-1",
-                    "memory": "妈妈生日是6月3号",
-                    "app_id": "voice-assistant",
-                    "created_at": "2026-04-10T09:30:00+08:00",
                 }
             ]
         }
@@ -151,19 +135,6 @@ class FakeMem0Client:
             if filtered:
                 return {"results": filtered}
         return self.search_response
-
-    def get_all(self, **kwargs: object) -> object:
-        self.get_all_calls.append(dict(kwargs))
-        if self.memories:
-            filtered = [
-                item
-                for item in self.memories
-                if self._matches_filter(item, kwargs.get("filters", {}))
-            ]
-            if filtered:
-                limit = int(kwargs.get("limit", len(filtered)))
-                return {"results": filtered[:limit]}
-        return self.get_all_response
 
 
 class FakeChatCompletions:
@@ -651,32 +622,6 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertEqual(payload["tool"], "remember_add")
         self.assertEqual(payload["args"]["memory"], "用户安装了显示器的增高板")
 
-    def test_list_all_records_uses_remember_list(self) -> None:
-        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
-        agent.client = FakeClient(
-            '{"intent":"find","tool":"remember_list","args":{"memory":"","query":"","note":""},"confidence":0.98,"notes":"用户要查看全部记录"}'
-        )
-        agent.model = "test-model"
-        agent.workflow = {
-            "intents": {"record": {}, "find": {}, "chat": {}},
-            "remember_summary": {"system_prompt": "请整理结果。"},
-        }
-        agent.storage = FakeStorageService()
-
-        payload = self.async_run(agent._extract_intent_payload("把所有记录都列出来"))
-        result = self.async_run(
-            agent._execute_structured_tool(
-                payload.get("tool"),
-                payload.get("args", {}),
-                user_input="把所有记录都列出来",
-            )
-        )
-
-        self.assertEqual(payload["intent"], "find")
-        self.assertEqual(payload["tool"], "remember_list")
-        self.assertEqual(agent.storage.remember_store().list_calls, 1)
-        self.assertIsInstance(result, str)
-
     def async_run(self, coroutine):
         import asyncio
 
@@ -942,31 +887,6 @@ class HistoryWriterTests(unittest.TestCase):
         )
         self.assertIn("我的 airpods 在哪里：在办公桌左边抽屉里", result)
         self.assertIn('"app_id": "other-agent"', result)
-
-    def test_mem0_store_list_recent_returns_json(self) -> None:
-        client = FakeMem0Client()
-        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
-
-        result = store.list_recent(limit=5)
-
-        self.assertEqual(
-            client.get_all_calls[0]["filters"],
-            {
-                "OR": [
-                    {"AND": [{"user_id": "soj"}]},
-                    {
-                        "AND": [
-                            {"user_id": "soj"},
-                            {"OR": [{"app_id": "*"}, {"agent_id": "*"}]},
-                        ]
-                    },
-                ]
-            },
-        )
-        self.assertEqual(client.get_all_calls[0]["limit"], 5)
-        self.assertIn('"memory": "妈妈生日是6月3号"', result)
-        self.assertIn('"app_id": "voice-assistant"', result)
-        self.assertIn('"created_at": "2026年4月10号 周五 09:30"', result)
 
     def test_mem0_store_converts_utc_timestamp_to_local_time(self) -> None:
         client = FakeMem0Client()

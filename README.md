@@ -89,10 +89,9 @@ PTT_GROQ_MODEL=qwen/qwen3-32b
 ```bash
 uv run press-to-talk --text-input "帮我记住护照在书房抽屉里" --no-tts
 uv run press-to-talk --text-input "护照在哪" --no-tts
-uv run press-to-talk --text-input "把我记过的内容列出来" --no-tts
 ```
 
-`remember_find` 和 `remember_list` 拿到的原始响应会保留 `mem0` JSON，再提取记忆正文、时间、score、metadata 等重点字段，随后交给当前模型整理成适合播报的中文回答。
+`remember_find` 拿到的原始响应会保留 `mem0` JSON，再提取记忆正文、时间、score、metadata 等重点字段，随后交给当前模型整理成适合播报的中文回答。
 
 如需把旧的无 `app_id` 记录迁移到 `app_id=voice-assistant`，可先 dry-run 再执行：
 

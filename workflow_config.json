@@ -22,8 +22,8 @@
                 "哪些",
                 "查找"
             ],
-            "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询本地数据库。请根据我的意图使用 remember_find 或 remember_list；查询范围不限于物品，也包括人物、宠物、事件、地点、日期、偏好、状态、关系和其它个人生活信息。不要把问题改写成长解释，remember_find 会直接使用我的原始问句查询。回复必须控制在30字以内。",
-            "tools": ["remember_find", "remember_list"]
+            "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询mem0数据库。只使用 remember_find；remember_find 会直接使用我的原始问句查询。回复必须控制在30字以内。",
+            "tools": ["remember_find"]
         },
         "chat": {
             "description": "兼容保留分支。当前分类器默认不应进入 chat。",
@@ -51,7 +51,7 @@
     "mem0": {
         "user_id": "soj",
         "app_id": "voice-assistant",
-        "min_score": 0.8,
-        "max_items": 20
+        "min_score": 0.85,
+        "max_items": 3
     }
 }

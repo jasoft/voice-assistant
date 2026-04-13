@@ -104,9 +104,6 @@ class BaseRememberStore:
     def find(self, *, query: str) -> str:
         raise NotImplementedError
 
-    def list_recent(self, *, limit: int = 20) -> str:
-        raise NotImplementedError
-
 
 class BaseHistoryStore:
     def persist(self, entry: SessionHistoryRecord) -> None:
@@ -203,10 +200,6 @@ class Mem0RememberStore(BaseRememberStore):
     def find(self, *, query: str) -> str:
         response = self.client.search(query, **self._read_scope_kwargs())
 
-        return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
-
-    def list_recent(self, *, limit: int = 20) -> str:
-        response = self.client.get_all(limit=limit, **self._read_scope_kwargs())
         return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
 
 

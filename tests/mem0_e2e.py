@@ -49,7 +49,7 @@ class Mem0E2ETests(unittest.TestCase):
             except Exception:
                 pass
 
-    def test_add_find_and_list_round_trip(self) -> None:
+    def test_add_and_find_round_trip(self) -> None:
         unique_suffix = str(int(time.time() * 1000))
         memory_text = f"e2e测试护照在书房抽屉里-{unique_suffix}"
         original_text = f"帮我记住{memory_text}"
@@ -59,19 +59,15 @@ class Mem0E2ETests(unittest.TestCase):
 
         # mem0 托管端搜索存在轻微最终一致性，给它一个很短的重试窗口。
         search_json = ""
-        list_json = ""
         for _ in range(6):
             search_json = self.store.find(query=memory_text)
-            list_json = self.store.list_recent(limit=10)
-            if memory_text in search_json and memory_text in list_json:
+            if memory_text in search_json:
                 break
             time.sleep(1)
 
         self.assertIn(memory_text, search_json)
         self.assertIn(f'"app_id": "{self.app_id}"', search_json)
         self.assertIn(f'"user_id": "{self.user_id}"', search_json)
-        self.assertIn(memory_text, list_json)
-        self.assertIn(f'"app_id": "{self.app_id}"', list_json)
 
         search_response = self.client.search(
             memory_text,

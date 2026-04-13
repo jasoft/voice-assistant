@@ -8,21 +8,6 @@ def wants_explicit_search(text: str) -> bool:
     normalized = re.sub(r"[ \t]+", "", text or "")
     return "联网搜索" in normalized or "上网搜索" in normalized
 
-def is_list_request(text: str) -> bool:
-    normalized = re.sub(r"[ \t]+", "", text or "")
-    list_markers = [
-        "列出来",
-        "列一下",
-        "列出",
-        "全部记录",
-        "所有记录",
-        "都有哪些",
-        "有哪些",
-        "清单",
-        "列表",
-    ]
-    return any(marker in normalized for marker in list_markers)
-
 def derive_find_query(text: str) -> str:
     normalized = str(text or "").strip()
     if not normalized:
@@ -45,11 +30,8 @@ def coerce_to_local_find_payload(
     original_args = original.get("args", {})
     args = original_args if isinstance(original_args, dict) else {}
     query = str(args.get("query", "") or "").strip()
-    tool_name = "remember_list" if is_list_request(user_input) and not query else "remember_find"
-    if tool_name == "remember_list":
-        query = ""
-    else:
-        query = query or derive_find_query(user_input)
+    tool_name = "remember_find"
+    query = query or derive_find_query(user_input)
     return {
         "intent": "find",
         "tool": tool_name,
