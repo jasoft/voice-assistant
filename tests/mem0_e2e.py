@@ -75,7 +75,7 @@ class Mem0E2ETests(unittest.TestCase):
 
         search_response = self.client.search(
             memory_text,
-            filters={"AND": [{"user_id": self.user_id}, {"app_id": self.app_id}]},
+            filters={"AND": [{"user_id": self.user_id}]},
         )
         results = search_response.get("results", search_response if isinstance(search_response, list) else [])
         self.assertTrue(results, "expected at least one mem0 search result")

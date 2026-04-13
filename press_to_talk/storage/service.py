@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
 from press_to_talk.utils.text import format_local_datetime
 
 APP_ROOT = Path(__file__).resolve().parents[2]
@@ -77,23 +78,21 @@ def load_workflow_config() -> dict[str, Any]:
 
 
 def load_storage_config() -> StorageConfig:
+    raw_app_id = os.environ.get("MEM0_APP_ID")
+    app_id = "voice-assistant" if raw_app_id is None else str(raw_app_id).strip()
     return StorageConfig(
         backend="mem0",
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
-        mem0_user_id=str(
-            env_str("MEM0_USER_ID", "soj")
-        ).strip()
-        or "soj",
-        mem0_app_id=str(
-            env_str("MEM0_APP_ID", "voice-assistant")
-        ).strip()
-        or "voice-assistant",
+        mem0_user_id=str(env_str("MEM0_USER_ID", "soj")).strip() or "soj",
+        mem0_app_id=app_id,
         mem0_min_score=env_float("MEM0_MIN_SCORE", 0.8),
         mem0_max_items=max(
             1,
             env_int("MEM0_MAX_ITEMS", 3),
         ),
-        history_db_path=env_str("PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)).strip()
+        history_db_path=env_str(
+            "PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)
+        ).strip()
         or str(DEFAULT_HISTORY_DB_PATH),
     )
 
@@ -113,7 +112,9 @@ class BaseHistoryStore:
     def persist(self, entry: SessionHistoryRecord) -> None:
         raise NotImplementedError
 
-    def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
+    def list_recent(
+        self, *, limit: int = 10, query: str = ""
+    ) -> list[SessionHistoryRecord]:
         raise NotImplementedError
 
     def delete(self, *, session_id: str) -> None:
@@ -130,7 +131,11 @@ def _localize_timestamp_fields(payload: Any) -> Any:
     if isinstance(payload, dict):
         localized: dict[str, Any] = {}
         for key, value in payload.items():
-            if key in {"created_at", "updated_at"} and isinstance(value, str) and value.strip():
+            if (
+                key in {"created_at", "updated_at"}
+                and isinstance(value, str)
+                and value.strip()
+            ):
                 localized[key] = format_local_datetime(value)
             else:
                 localized[key] = _localize_timestamp_fields(value)
@@ -153,20 +158,16 @@ class Mem0RememberStore(BaseRememberStore):
             raise RuntimeError("mem0 配置缺失：MEM0_API_KEY")
         self.client = client if client is not None else create_mem0_client(api_key)
         self.user_id = user_id.strip() or "soj"
-        self.app_id = app_id.strip() or "voice-assistant"
+        self.app_id = app_id.strip()
 
     def _write_scope_kwargs(self) -> dict[str, Any]:
-        return {"user_id": self.user_id, "app_id": self.app_id, "async_mode": False}
+        kwargs = {"user_id": self.user_id, "async_mode": False}
+        if self.app_id:
+            kwargs["app_id"] = self.app_id
+        return kwargs
 
     def _read_scope_kwargs(self) -> dict[str, Any]:
-        return {
-            "filters": {
-                "AND": [
-                    {"user_id": self.user_id},
-                    {"app_id": self.app_id},
-                ]
-            }
-        }
+        return {"filters": {"AND": [{"user_id": self.user_id}]}}
 
     def add(self, *, memory: str, original_text: str = "") -> str:
         messages = [{"role": "user", "content": memory}]
@@ -182,11 +183,14 @@ class Mem0RememberStore(BaseRememberStore):
         if isinstance(response, list) and response:
             first = response[0]
             if isinstance(first, dict):
-                stored_memory = str(first.get("memory") or first.get("data", {}).get("memory") or memory)
+                stored_memory = str(
+                    first.get("memory") or first.get("data", {}).get("memory") or memory
+                )
         return f"✅ 已记录：{stored_memory}"
 
     def find(self, *, query: str) -> str:
         response = self.client.search(query, **self._read_scope_kwargs())
+
         return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
 
     def list_recent(self, *, limit: int = 20) -> str:
@@ -198,7 +202,9 @@ class NullHistoryStore(BaseHistoryStore):
     def persist(self, entry: SessionHistoryRecord) -> None:
         return None
 
-    def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
+    def list_recent(
+        self, *, limit: int = 10, query: str = ""
+    ) -> list[SessionHistoryRecord]:
         return []
 
     def delete(self, *, session_id: str) -> None:
@@ -283,7 +289,9 @@ class SQLiteHistoryStore(BaseHistoryStore):
                     ),
                 )
 
-    def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
+    def list_recent(
+        self, *, limit: int = 10, query: str = ""
+    ) -> list[SessionHistoryRecord]:
         sql = """
             SELECT
                 session_id,
@@ -341,7 +349,9 @@ class StorageService:
             mem0_user_id=config.mem0_user_id,
             history_db_path=config.history_db_path,
         )
-        self._history_store: BaseHistoryStore = SQLiteHistoryStore(self.config.history_db_path)
+        self._history_store: BaseHistoryStore = SQLiteHistoryStore(
+            self.config.history_db_path
+        )
 
     @classmethod
     def from_env(cls) -> "StorageService":

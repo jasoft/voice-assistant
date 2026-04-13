@@ -103,20 +103,36 @@ class FakeMem0Client:
         self.search_calls.append({"query": query, **kwargs})
         filters = kwargs.get("filters", {})
         clauses = filters.get("AND", []) if isinstance(filters, dict) else []
-        scope_user_id = next(
-            (item.get("user_id") for item in clauses if isinstance(item, dict) and "user_id" in item),
-            None,
-        )
-        scope_app_id = next(
-            (item.get("app_id") for item in clauses if isinstance(item, dict) and "app_id" in item),
-            None,
-        )
+        scope_user_id = str(
+            kwargs.get("user_id")
+            or next(
+                (
+                    item.get("user_id")
+                    for item in clauses
+                    if isinstance(item, dict) and "user_id" in item
+                ),
+                "",
+            )
+        ).strip()
+        scope_app_id = str(
+            kwargs.get("app_id")
+            or next(
+                (
+                    item.get("app_id")
+                    for item in clauses
+                    if isinstance(item, dict) and "app_id" in item
+                ),
+                "",
+            )
+        ).strip()
         if self.memories:
             filtered = [
                 item
                 for item in self.memories
-                if item.get("user_id") == scope_user_id
-                and item.get("app_id") == scope_app_id
+                if str(item.get("user_id")).strip() == scope_user_id
+                and (
+                    not scope_app_id or str(item.get("app_id")).strip() == scope_app_id
+                )
                 and query in str(item.get("memory", ""))
             ]
             if filtered:
@@ -127,20 +143,36 @@ class FakeMem0Client:
         self.get_all_calls.append(dict(kwargs))
         filters = kwargs.get("filters", {})
         clauses = filters.get("AND", []) if isinstance(filters, dict) else []
-        scope_user_id = next(
-            (item.get("user_id") for item in clauses if isinstance(item, dict) and "user_id" in item),
-            None,
-        )
-        scope_app_id = next(
-            (item.get("app_id") for item in clauses if isinstance(item, dict) and "app_id" in item),
-            None,
-        )
+        scope_user_id = str(
+            kwargs.get("user_id")
+            or next(
+                (
+                    item.get("user_id")
+                    for item in clauses
+                    if isinstance(item, dict) and "user_id" in item
+                ),
+                "",
+            )
+        ).strip()
+        scope_app_id = str(
+            kwargs.get("app_id")
+            or next(
+                (
+                    item.get("app_id")
+                    for item in clauses
+                    if isinstance(item, dict) and "app_id" in item
+                ),
+                "",
+            )
+        ).strip()
         if self.memories:
             filtered = [
                 item
                 for item in self.memories
-                if item.get("user_id") == scope_user_id
-                and item.get("app_id") == scope_app_id
+                if str(item.get("user_id")).strip() == scope_user_id
+                and (
+                    not scope_app_id or str(item.get("app_id")).strip() == scope_app_id
+                )
             ]
             if filtered:
                 limit = int(kwargs.get("limit", len(filtered)))
@@ -216,7 +248,8 @@ class ThinkTagFilterTests(unittest.TestCase):
     def test_default_remember_script_stays_in_ursoft_skills(self) -> None:
         self.assertEqual(
             core.default_remember_script_path(),
-            core.PROJECT_ROOT.parent / "ursoft-skills/skills/remember/scripts/manage_items.py",
+            core.PROJECT_ROOT.parent
+            / "ursoft-skills/skills/remember/scripts/manage_items.py",
         )
 
     def test_resolve_remember_script_uses_ursoft_env_first(self) -> None:
@@ -256,7 +289,9 @@ class ThinkTagFilterTests(unittest.TestCase):
         def factory(*, samplerate: int, channels: int, dtype: str, callback):
             attempts.append((samplerate, channels, dtype))
             if len(attempts) == 1:
-                raise RuntimeError("Error starting stream: Internal PortAudio error [PaErrorCode -9986]")
+                raise RuntimeError(
+                    "Error starting stream: Internal PortAudio error [PaErrorCode -9986]"
+                )
             return FakeStream()
 
         with patch("press_to_talk.core.time.sleep") as sleep_mock:
@@ -303,7 +338,9 @@ class ThinkTagFilterTests(unittest.TestCase):
             signal_path = control_dir / core.TTS_STOP_SIGNAL_FILENAME
             signal_path.write_text("stop", encoding="utf-8")
 
-            with patch.dict(core.os.environ, {"PTT_GUI_CONTROL_DIR": str(control_dir)}, clear=False):
+            with patch.dict(
+                core.os.environ, {"PTT_GUI_CONTROL_DIR": str(control_dir)}, clear=False
+            ):
                 self.assertTrue(core.consume_tts_stop_request())
                 self.assertFalse(signal_path.exists())
                 self.assertFalse(core.consume_tts_stop_request())
@@ -321,7 +358,9 @@ class ThinkTagFilterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = core.init_session_log(Path(tmpdir), session_id="test-log")
             try:
-                core.log_multiline("LLM response raw", "<think>第一行\n第二行</think>\n最终答案")
+                core.log_multiline(
+                    "LLM response raw", "<think>第一行\n第二行</think>\n最终答案"
+                )
             finally:
                 core.close_session_log()
 
@@ -384,14 +423,18 @@ class ThinkTagFilterTests(unittest.TestCase):
             }
         }
 
-        with patch("press_to_talk.core.current_time_text", return_value="2026-04-11 09:30:00"):
+        with patch(
+            "press_to_talk.core.current_time_text", return_value="2026-04-11 09:30:00"
+        ):
             agent._summarize_remember_output(
                 "remember_find",
                 "**护照**\n📌 内容: 最近3天有两条记录",
                 user_question="最近3天都记了什么",
             )
 
-        system_prompt = str(agent.client.chat.completions.calls[0]["messages"][0]["content"])
+        system_prompt = str(
+            agent.client.chat.completions.calls[0]["messages"][0]["content"]
+        )
         self.assertIn("今天是 2026-04-11 09:30:00", system_prompt)
         self.assertNotIn("${PTT_CURRENT_TIME}", system_prompt)
 
@@ -430,13 +473,21 @@ class ThinkTagFilterTests(unittest.TestCase):
             ]
         }
 
-        with patch("press_to_talk.core.WORKFLOW_CONFIG_PATH", Path("/tmp/workflow_config.json")), patch(
-            "press_to_talk.core.load_json_file",
-            return_value={"mem0": {"min_score": 0.8, "max_items": 4}},
+        with (
+            patch(
+                "press_to_talk.core.WORKFLOW_CONFIG_PATH",
+                Path("/tmp/workflow_config.json"),
+            ),
+            patch(
+                "press_to_talk.core.load_json_file",
+                return_value={"mem0": {"min_score": 0.8, "max_items": 4}},
+            ),
         ):
             extracted = core.extract_mem0_summary_payload(payload)
 
-        self.assertEqual([item["id"] for item in extracted["items"]], ["m6", "m1", "m2", "m3"])
+        self.assertEqual(
+            [item["id"] for item in extracted["items"]], ["m6", "m1", "m2", "m3"]
+        )
 
     def test_remember_summary_includes_structured_mem0_fields(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
@@ -464,7 +515,9 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertIn("元数据: source=mem0", prompt)
         self.assertNotIn('"score"', prompt)
 
-    def test_expand_env_placeholders_keeps_runtime_tokens_when_env_missing(self) -> None:
+    def test_expand_env_placeholders_keeps_runtime_tokens_when_env_missing(
+        self,
+    ) -> None:
         original = {
             "remember_summary": {
                 "system_prompt": "今天是 ${PTT_CURRENT_TIME}，位置是 ${PTT_LOCATION}，密钥是 ${BRAVE_API_KEY}。"
@@ -498,18 +551,26 @@ class ThinkTagFilterTests(unittest.TestCase):
                 "detached\n"
             )
 
-            with patch.dict("os.environ", {}, clear=True), patch(
-                "press_to_talk.core._candidate_env_files",
-                return_value=[Path(tmpdir) / ".env.missing"],
-            ), patch(
-                "press_to_talk.core.subprocess.run",
-                return_value=SimpleNamespace(returncode=0, stdout=git_output, stderr=""),
+            with (
+                patch.dict("os.environ", {}, clear=True),
+                patch(
+                    "press_to_talk.core._candidate_env_files",
+                    return_value=[Path(tmpdir) / ".env.missing"],
+                ),
+                patch(
+                    "press_to_talk.core.subprocess.run",
+                    return_value=SimpleNamespace(
+                        returncode=0, stdout=git_output, stderr=""
+                    ),
+                ),
             ):
                 core.load_env_files()
                 self.assertEqual(core.os.environ["GROQ_API_KEY"], "test-groq-key")
                 self.assertEqual(core.os.environ["MEM0_API_KEY"], "test-mem0-key")
 
-    def test_execute_structured_remember_add_uses_distilled_memory_for_mem0(self) -> None:
+    def test_execute_structured_remember_add_uses_distilled_memory_for_mem0(
+        self,
+    ) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("伊朗和美国停战两周")
         agent.model = "test-model"
@@ -519,7 +580,11 @@ class ThinkTagFilterTests(unittest.TestCase):
         result = self.async_run(
             agent._execute_structured_tool(
                 "remember_add",
-                {"item": "", "content": "今天是伊朗和美国停战两个星期。", "type": "event"},
+                {
+                    "item": "",
+                    "content": "今天是伊朗和美国停战两个星期。",
+                    "type": "event",
+                },
                 user_input="记录一下，今天是伊朗和美国停战两个星期。",
             )
         )
@@ -533,7 +598,7 @@ class ThinkTagFilterTests(unittest.TestCase):
             },
         )
 
-    def test_execute_structured_remember_find_uses_raw_question_for_mem0(self) -> None:
+    def test_execute_structured_remember_find_uses_query_arg_for_mem0(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("护照在书房抽屉里。")
         agent.model = "test-model"
@@ -549,7 +614,7 @@ class ThinkTagFilterTests(unittest.TestCase):
         )
 
         self.assertEqual(result, "护照在书房抽屉里。")
-        self.assertEqual(agent.storage.remember_store().find_calls, ["我的护照在哪里"])
+        self.assertEqual(agent.storage.remember_store().find_calls, ["护照"])
 
     def test_general_knowledge_query_uses_remember_find(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
@@ -592,7 +657,9 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent.model = "test-model"
         agent.workflow = {"intents": {"record": {}, "find": {}, "chat": {}}}
 
-        payload = self.async_run(agent._extract_intent_payload("记录一下，我今天安装了显示器的增高板"))
+        payload = self.async_run(
+            agent._extract_intent_payload("记录一下，我今天安装了显示器的增高板")
+        )
 
         self.assertEqual(payload["intent"], "record")
         self.assertEqual(payload["tool"], "remember_add")
@@ -723,7 +790,9 @@ class HistoryWriterTests(unittest.TestCase):
             )
         )
 
-        self.assertTrue(str(service.config.history_db_path).endswith("data/voice_assistant.sqlite3"))
+        self.assertTrue(
+            str(service.config.history_db_path).endswith("data/voice_assistant.sqlite3")
+        )
 
     def test_load_storage_config_defaults_to_mem0_backend(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
@@ -752,6 +821,21 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(config.mem0_api_key, "test-mem0-key")
         self.assertEqual(config.mem0_user_id, "soj")
         self.assertEqual(config.mem0_app_id, "voice-assistant")
+
+    def test_load_storage_config_allows_empty_mem0_app_id(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "MEM0_API_KEY": "test-mem0-key",
+                "MEM0_USER_ID": "SRG",
+                "MEM0_APP_ID": "",
+            },
+            clear=True,
+        ):
+            config = storage_service_module.load_storage_config()
+
+        self.assertEqual(config.mem0_user_id, "SRG")
+        self.assertEqual(config.mem0_app_id, "")
 
     def test_load_storage_config_reads_history_db_path(self) -> None:
         with patch.dict(
@@ -815,12 +899,43 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertEqual(
             client.search_calls[0]["filters"],
-            {"AND": [{"user_id": "soj"}, {"app_id": "voice-assistant"}]},
+            {"AND": [{"user_id": "soj"}]},
         )
         self.assertIn('"memory": "护照在书房抽屉里"', result)
         self.assertIn('"app_id": "voice-assistant"', result)
         self.assertIn('"score": 0.91', result)
         self.assertIn('"created_at": "2026年4月11号 周六 09:30"', result)
+
+    def test_mem0_store_find_ignores_app_id_scope(self) -> None:
+        client = FakeMem0Client()
+        client.memories = [
+            {
+                "id": "mem-search-1",
+                "memory": "我的 airpods 在哪里：在办公桌左边抽屉里",
+                "app_id": "other-agent",
+                "user_id": "soj",
+                "created_at": "2026-04-11T09:30:00+08:00",
+                "score": 0.97,
+            },
+            {
+                "id": "mem-search-2",
+                "memory": "我的 airpods 在公司包里",
+                "app_id": "voice-assistant",
+                "user_id": "other-user",
+                "created_at": "2026-04-11T09:30:00+08:00",
+                "score": 0.93,
+            },
+        ]
+        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+
+        result = store.find(query="我的 airpods 在哪里")
+
+        self.assertEqual(
+            client.search_calls[0]["filters"],
+            {"AND": [{"user_id": "soj"}]},
+        )
+        self.assertIn("我的 airpods 在哪里：在办公桌左边抽屉里", result)
+        self.assertIn('"app_id": "other-agent"', result)
 
     def test_mem0_store_list_recent_returns_json(self) -> None:
         client = FakeMem0Client()
@@ -830,7 +945,7 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertEqual(
             client.get_all_calls[0]["filters"],
-            {"AND": [{"user_id": "soj"}, {"app_id": "voice-assistant"}]},
+            {"AND": [{"user_id": "soj"}]},
         )
         self.assertEqual(client.get_all_calls[0]["limit"], 5)
         self.assertIn('"memory": "妈妈生日是6月3号"', result)
@@ -866,9 +981,15 @@ class HistoryWriterTests(unittest.TestCase):
             ]
         }
 
-        with patch("press_to_talk.core.WORKFLOW_CONFIG_PATH", Path("/tmp/workflow_config.json")), patch(
-            "press_to_talk.core.load_json_file",
-            return_value={"mem0": {"min_score": 0.8, "max_items": 2}},
+        with (
+            patch(
+                "press_to_talk.core.WORKFLOW_CONFIG_PATH",
+                Path("/tmp/workflow_config.json"),
+            ),
+            patch(
+                "press_to_talk.core.load_json_file",
+                return_value={"mem0": {"min_score": 0.8, "max_items": 2}},
+            ),
         ):
             extracted = core.extract_mem0_summary_payload(payload)
 
@@ -931,7 +1052,9 @@ class RecorderCallbackTests(unittest.TestCase):
         recorder.frames = []
         recorder.total_samples = 0
         recorder.silent_samples = 0
-        recorder.silence_target = int(recorder.cfg.silence_seconds * recorder.cfg.sample_rate)
+        recorder.silence_target = int(
+            recorder.cfg.silence_seconds * recorder.cfg.sample_rate
+        )
         recorder.speech_release_hold_target = int(
             core.VisualRecorder.SPEECH_RELEASE_HOLD_SECONDS * recorder.cfg.sample_rate
         )
@@ -983,7 +1106,9 @@ class RecorderCallbackTests(unittest.TestCase):
         recorder.frames = []
         recorder.total_samples = 0
         recorder.silent_samples = 0
-        recorder.silence_target = int(recorder.cfg.silence_seconds * recorder.cfg.sample_rate)
+        recorder.silence_target = int(
+            recorder.cfg.silence_seconds * recorder.cfg.sample_rate
+        )
         recorder.speech_release_hold_target = int(
             core.VisualRecorder.SPEECH_RELEASE_HOLD_SECONDS * recorder.cfg.sample_rate
         )
@@ -1012,7 +1137,9 @@ class RecorderCallbackTests(unittest.TestCase):
         recorder._callback(speech_chunk, 160, None, None)
         recorder._callback(quiet_chunk, 160, None, None)
 
-        audio_events = [event for event in captured_events if event["type"] == "audio_level"]
+        audio_events = [
+            event for event in captured_events if event["type"] == "audio_level"
+        ]
         self.assertGreaterEqual(len(audio_events), 2)
         self.assertTrue(audio_events[0]["speaking"])
         self.assertTrue(audio_events[1]["speaking"])
