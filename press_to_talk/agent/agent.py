@@ -80,6 +80,25 @@ def _format_structured_mem0_summary(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _memory_date_prefix(timestamp: str) -> str:
+    raw = str(timestamp or "").strip()
+    if not raw:
+        return ""
+    iso_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})", raw)
+    if iso_match:
+        return iso_match.group(0)
+    cn_match = re.match(r"^(\d{4})年(\d{1,2})月(\d{1,2})号", raw)
+    if cn_match:
+        year, month, day = cn_match.groups()
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    localized = format_local_datetime(raw)
+    localized_match = re.match(r"^(\d{4})年(\d{1,2})月(\d{1,2})号", localized)
+    if localized_match:
+        year, month, day = localized_match.groups()
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    return ""
+
+
 class OpenAICompatibleAgent:
     def __init__(self, cfg: Config) -> None:
         from openai import OpenAI
@@ -353,7 +372,13 @@ class OpenAICompatibleAgent:
             for item in items:
                 mem_text = str(item.get("memory", "")).strip()
                 if mem_text:
-                    extracted_memories.append(f"- {mem_text}")
+                    date_prefix = _memory_date_prefix(
+                        str(item.get("updated_at") or item.get("created_at") or "")
+                    )
+                    if date_prefix:
+                        extracted_memories.append(f"- {date_prefix}: {mem_text}")
+                    else:
+                        extracted_memories.append(f"- {mem_text}")
 
         # If it's a plain text response (like from remember_add) or JSON failed to provide items
         if not extracted_memories:

@@ -466,7 +466,7 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertEqual(summary, "护照在书房抽屉里。")
         prompt = str(agent.client.chat.completions.calls[0]["messages"][1]["content"])
         self.assertIn("命中的记忆原文", prompt)
-        self.assertIn("护照在书房抽屉里", prompt)
+        self.assertIn("2026-04-11: 护照在书房抽屉里", prompt)
         self.assertNotIn("结构化结果", prompt)
         self.assertNotIn("分数: 0.91", prompt)
         self.assertNotIn("记录时间:", prompt)
