@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -167,6 +168,14 @@ class FakeKeywordRewriter:
     def rewrite(self, query: str) -> str:
         self.calls.append(query)
         return self.rewritten_query
+
+
+class LogCapture:
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def __call__(self, message: str) -> None:
+        self.messages.append(message)
 
 
 class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
@@ -1035,6 +1044,59 @@ class SQLiteRememberStoreTests(unittest.TestCase):
 
         self.assertEqual(rewriter.calls, ["我的护照放哪了"])
         self.assertIn('"memory": "护照在书房第二层抽屉里"', found)
+
+    def test_groq_keyword_rewriter_logs_prompt_and_raw_response(self) -> None:
+        capture = LogCapture()
+        rewriter = storage_service_module.GroqKeywordRewriter(
+            api_key="test-key",
+            model="test-model",
+        )
+        rewriter._client = FakeClient('{"keywords":["护照","书房"]}')
+
+        with (
+            patch.object(storage_service_module, "log", capture),
+            patch.object(
+                storage_service_module,
+                "log_multiline",
+                lambda title, content: capture(f"{title}:{content}"),
+            ),
+            patch.object(
+                storage_service_module,
+                "log_llm_prompt",
+                lambda label, messages: capture(
+                    f"{label}:{json.dumps(messages, ensure_ascii=False)}"
+                ),
+            ),
+        ):
+            rewritten = rewriter.rewrite("我的护照放哪了")
+
+        self.assertEqual(rewritten, '"护照" OR "书房"')
+        self.assertTrue(any("keyword rewrite" in message for message in capture.messages))
+        self.assertTrue(any("我的护照放哪了" in message for message in capture.messages))
+        self.assertTrue(any('{"keywords":["护照","书房"]}' in message for message in capture.messages))
+
+    def test_sqlite_store_logs_search_keywords_and_queries(self) -> None:
+        capture = LogCapture()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            rewriter = FakeKeywordRewriter('"护照" OR "书房"')
+            store = storage_service_module.SQLiteFTS5RememberStore(
+                db_path=db_path,
+                keyword_rewriter=rewriter,
+            )
+            store.add(
+                memory="护照在书房第二层抽屉里",
+                original_text="帮我记住护照在书房第二层抽屉里",
+            )
+
+            with patch.object(storage_service_module, "log", capture):
+                found = store.find(query="我的护照放哪了")
+
+        self.assertIn('"memory": "护照在书房第二层抽屉里"', found)
+        self.assertTrue(any("remember search input:" in message for message in capture.messages))
+        self.assertTrue(any("match_query" in message for message in capture.messages))
+        self.assertTrue(any("keywords" in message for message in capture.messages))
+        self.assertTrue(any("fts5" in message for message in capture.messages))
 
     def test_sqlite_store_falls_back_to_raw_query_when_rewriter_fails(self) -> None:
         class RaisingKeywordRewriter:

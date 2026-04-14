@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from press_to_talk.utils.logging import log, log_llm_prompt, log_multiline
 from press_to_talk.utils.text import format_local_datetime
 
 APP_ROOT = Path(__file__).resolve().parents[2]
@@ -382,23 +383,26 @@ class GroqKeywordRewriter:
         cleaned_query = str(query or "").strip()
         if not cleaned_query:
             return ""
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一个 SQLite FTS5 查询改写器。"
+                    "把用户原始问题拆成 2 到 5 个最可能命中的短关键词或短语。"
+                    "只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。"
+                    "不要解释，不要补充其它字段。"
+                ),
+            },
+            {"role": "user", "content": cleaned_query},
+        ]
+        log_llm_prompt("keyword rewrite", messages)
         response = self._client_instance().chat.completions.create(
             model=self.model,
             temperature=0,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "你是一个 SQLite FTS5 查询改写器。"
-                        "把用户原始问题拆成 2 到 5 个最可能命中的短关键词或短语。"
-                        "只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。"
-                        "不要解释，不要补充其它字段。"
-                    ),
-                },
-                {"role": "user", "content": cleaned_query},
-            ],
+            messages=messages,
         )
         content = str(response.choices[0].message.content or "").strip()
+        log_multiline("keyword rewrite raw", content)
         payload = json.loads(content)
         keywords = payload.get("keywords", []) if isinstance(payload, dict) else []
         cleaned_keywords = [
@@ -406,11 +410,17 @@ class GroqKeywordRewriter:
             for item in keywords
             if str(item).strip()
         ]
+        log(
+            "keyword rewrite parsed: "
+            + json.dumps(cleaned_keywords, ensure_ascii=False)
+        )
         if not cleaned_keywords:
             return _default_match_query(cleaned_query)
-        return " OR ".join(
+        rewritten_query = " OR ".join(
             _quote_match_token(keyword) for keyword in cleaned_keywords if keyword
         )
+        log(f"keyword rewrite match_query: {rewritten_query}")
+        return rewritten_query
 
 
 class Mem0RememberStore(BaseRememberStore):
@@ -563,18 +573,59 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if not cleaned_query:
             return ""
         if self.keyword_rewriter is None:
-            return _default_match_query(cleaned_query)
+            match_query = _default_match_query(cleaned_query)
+            log(
+                "remember search input: "
+                + json.dumps(
+                    {
+                        "query": cleaned_query,
+                        "match_query": match_query,
+                        "keywords": _keywords_from_match_query(match_query, cleaned_query),
+                        "rewrite": False,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return match_query
         try:
             rewritten = str(self.keyword_rewriter.rewrite(cleaned_query)).strip()
-            return rewritten or _default_match_query(cleaned_query)
+            match_query = rewritten or _default_match_query(cleaned_query)
+            log(
+                "remember search input: "
+                + json.dumps(
+                    {
+                        "query": cleaned_query,
+                        "match_query": match_query,
+                        "keywords": _keywords_from_match_query(match_query, cleaned_query),
+                        "rewrite": True,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return match_query
         except Exception:
-            return _default_match_query(cleaned_query)
+            match_query = _default_match_query(cleaned_query)
+            log(
+                "remember search input: "
+                + json.dumps(
+                    {
+                        "query": cleaned_query,
+                        "match_query": match_query,
+                        "keywords": _keywords_from_match_query(match_query, cleaned_query),
+                        "rewrite": False,
+                        "fallback": "raw_query",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return match_query
 
     def find(self, *, query: str) -> str:
         match_query = self._match_query(query)
         if not match_query:
             return json.dumps({"results": []}, ensure_ascii=False)
         with contextlib.closing(self._connect()) as conn:
+            log(f"remember search sql: fts5 match={match_query}")
             rows = conn.execute(
                 f"""
                 SELECT
@@ -594,6 +645,16 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             if not rows:
                 keywords = _keywords_from_match_query(match_query, query)
                 if keywords:
+                    log(
+                        "remember search fallback: "
+                        + json.dumps(
+                            {
+                                "strategy": "like",
+                                "keywords": keywords,
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
                     like_clauses = " OR ".join(
                         "(memory LIKE ? OR original_text LIKE ?)"
                         for _ in keywords
@@ -602,6 +663,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     for keyword in keywords:
                         pattern = f"%{keyword}%"
                         params.extend([pattern, pattern])
+                        log(
+                            "remember search like keyword: "
+                            + json.dumps(
+                                {"keyword": keyword, "pattern": pattern},
+                                ensure_ascii=False,
+                            )
+                        )
                     params.append(self.max_results)
                     rows = conn.execute(
                         f"""
