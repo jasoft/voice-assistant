@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import contextlib
-import copy
 import json
-import os
 import re
 from typing import Any
 
@@ -19,28 +16,18 @@ from ..utils.env import (
 from ..utils.logging import log, log_llm_prompt, log_multiline
 from ..utils.shell import parse_json_output
 from ..utils.text import (
-    chat_context_prefix,
     current_time_text,
     format_local_datetime,
-    merge_reply_segments,
-    preview_text,
     strip_think_tags,
 )
 from .intent import (
-    coerce_to_local_find_payload,
     salvage_truncated_intent_payload,
-    wants_explicit_search,
 )
 from .memory import extract_mem0_summary_payload
 
 
 def _runtime_current_time_text() -> str:
-    try:
-        from press_to_talk import core as core_module
-
-        return str(core_module.current_time_text())
-    except Exception:
-        return current_time_text()
+    return current_time_text()
 
 
 def _format_structured_mem0_summary(items: list[dict[str, Any]]) -> str:
@@ -137,12 +124,13 @@ class OpenAICompatibleAgent:
         mcp_servers = workflow_cfg.get("mcp_servers")
         if not isinstance(mcp_servers, dict):
             workflow_cfg["mcp_servers"] = {}
-        for key in ("record", "find", "chat"):
+        for key in ("record", "find"):
             _require_mapping(intents.get(key), f"intents.{key}")
-            _require_mapping(prompts.get(key if key != "chat" else "chat"), f"prompts.{key}")
+            _require_mapping(prompts.get(key), f"prompts.{key}")
         _require_mapping(prompts.get("intent_extractor"), "prompts.intent_extractor")
         _require_mapping(prompts.get("query_normalize"), "prompts.query_normalize")
-        _require_mapping(prompts.get("keyword_rewrite"), "prompts.keyword_rewrite")
+        # 统一从 prompts.query_rewrite 读取
+        _require_mapping(prompts.get("query_rewrite"), "prompts.query_rewrite")
         _require_mapping(prompts.get("memory_translate"), "prompts.memory_translate")
         _require_mapping(prompts.get("remember_summary"), "prompts.remember_summary")
         return workflow_cfg
@@ -228,18 +216,8 @@ class OpenAICompatibleAgent:
                 "LLM intent parsed: "
                 + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
             )
-            if wants_explicit_search(user_input):
-                return coerce_to_local_find_payload(
-                    user_input, payload, note="联网搜索请求已并入本地查询"
-                )
-            if payload.get("intent") == "search":
-                payload = coerce_to_local_find_payload(
-                    user_input, payload, note="search 已并入本地查询"
-                )
-            if payload.get("intent") == "chat":
-                payload = coerce_to_local_find_payload(
-                    user_input, payload, note="chat 已并入本地查询"
-                )
+            if payload.get("intent") not in ("record", "find"):
+                payload["intent"] = "find"
             payload.setdefault("args", {})
             args = payload["args"] if isinstance(payload["args"], dict) else {}
             args.setdefault("memory", "")
@@ -275,13 +253,12 @@ class OpenAICompatibleAgent:
             return payload
         except Exception as e:
             log(f"Intent extraction failed: {e}")
-        return coerce_to_local_find_payload(
-            user_input,
-            {
-                "confidence": 0.0,
-            },
-            note="结构化提取失败，回退本地查询",
-        )
+        return {
+            "intent": "find",
+            "tool": "remember_find",
+            "args": {"query": user_input.strip(), "note": "结构化提取失败，回退本地查询"},
+            "confidence": 0.0,
+        }
 
     async def classify_intent(self, user_input: str) -> str:
         payload = await self._extract_intent_payload(user_input)
@@ -496,218 +473,23 @@ class OpenAICompatibleAgent:
     async def chat(self, user_input: str) -> str:
         intent_payload = await self._extract_intent_payload(user_input)
         intent_key = str(intent_payload.get("intent", "")).strip()
-        if intent_key not in self.workflow.get("intents", {}):
+        
+        # 强制归类为 record 或 find
+        if intent_key not in ("record", "find"):
             intent_key = "find"
+            
         log(f"Detected intent branch: [bold cyan]{intent_key}[/bold cyan]")
 
-        prompts = _require_mapping(self.workflow.get("prompts"), "prompts")
-        intent_cfg = _require_mapping(
-            self.workflow.get("intents"), "intents"
-        ).get(intent_key)
-        if not isinstance(intent_cfg, dict):
-            raise RuntimeError(f"workflow config missing intent config: intents.{intent_key}")
-        intent_prompt_cfg = _require_mapping(prompts.get(intent_key), f"prompts.{intent_key}")
-        log(
-            "active system prompt: "
-            + preview_text(str(intent_prompt_cfg.get("system_prompt", "")), limit=160)
-        )
-        structured_tool_result = await self._execute_structured_tool(
-            intent_payload.get("tool"),
+        # 统一执行结构化工具路径
+        tool_name = "remember_add" if intent_key == "record" else "remember_find"
+
+        reply = await self._execute_structured_tool(
+            tool_name,
             intent_payload.get("args", {}),
             user_input=user_input,
         )
-        if structured_tool_result is not None:
-            return structured_tool_result
 
-        # Prepare branch-specific context in a fresh, local message list.
-        messages: list[dict[str, Any]] = [
-            {
-                "role": "system",
-                "content": f"{chat_context_prefix()}\n{intent_prompt_cfg['system_prompt']}",
-            },
-            {"role": "user", "content": user_input},
-        ]
+        if reply is not None:
+            return reply
 
-        async with contextlib.AsyncExitStack() as stack:
-            from mcp import ClientSession, StdioServerParameters
-            from mcp.client.stdio import stdio_client
-
-            sessions: dict[str, Any] = {}
-            active_mcp = set()
-
-            # Filter relevant MCP servers based on selected intent tools
-            for t_name in intent_cfg.get("tools", []):
-                if "___" in t_name:
-                    active_mcp.add(t_name.split("___")[0])
-
-            for name in active_mcp:
-                if name in self.workflow["mcp_servers"]:
-                    config = self.workflow["mcp_servers"][name]
-                    env = os.environ.copy()
-                    if "env" in config:
-                        env.update(config["env"])
-                    server_params = StdioServerParameters(
-                        command=config["command"], args=config["args"], env=env
-                    )
-                    try:
-                        read, write = await stack.enter_async_context(
-                            stdio_client(server_params)
-                        )
-                        session = await stack.enter_async_context(
-                            ClientSession(read, write)
-                        )
-                        await session.initialize()
-                        sessions[name] = session
-                    except Exception as e:
-                        log(f"Failed to initialize MCP server {name}: {e}")
-
-            # Collect tools for this specific branch
-            tools: list[Any] = []
-            remember_tools = self._get_remember_tools()
-            for tool_name in intent_cfg.get("tools", []):
-                tool_spec = remember_tools.get(tool_name)
-                if tool_spec is not None:
-                    tools.append(tool_spec)
-
-            for name, session in sessions.items():
-                try:
-                    mcp_tools = await session.list_tools()
-                    for t in mcp_tools.tools:
-                        full_name = f"{name}___{t.name}"
-                        configured_tools = set(intent_cfg.get("tools", []))
-                        aliases = {full_name}
-                        if name == "brave-search":
-                            aliases.add("brave-search___search")
-                            aliases.add("brave-search___brave-search")
-                        if aliases & configured_tools:
-                            tools.append(
-                                {
-                                    "type": "function",
-                                    "function": {
-                                        "name": full_name,
-                                        "description": t.description,
-                                        "parameters": t.inputSchema,
-                                    },
-                                }
-                            )
-                except Exception as e:
-                    log(f"Failed to list tools for {name}: {e}")
-
-            log(
-                f"active tools for intent {intent_key}: "
-                + ", ".join(
-                    tool["function"]["name"] for tool in tools if "function" in tool
-                )
-                if tools
-                else f"active tools for intent {intent_key}: none"
-            )
-            if intent_key == "search" and not tools:
-                raise RuntimeError(
-                    "search intent has no available MCP tools; check brave-search/fetch server startup"
-                )
-
-            reply_segments: list[str] = []
-            continuation_requests = 0
-            for iteration in range(7):
-                try:
-                    # Construct parameters dynamically to avoid API errors with tool_choice
-                    api_params: dict[str, Any] = {
-                        "model": self.model,
-                        "messages": messages,  # type: ignore
-                    }
-                    if tools:
-                        api_params["tools"] = tools
-                        api_params["tool_choice"] = "auto"
-
-                    log(
-                        f"calling LLM iteration={iteration + 1} intent={intent_key} "
-                        f"messages={len(messages)} tools={len(tools)}"
-                    )
-                    log_llm_prompt(f"chat/{intent_key}", messages)
-                    response = self.client.chat.completions.create(**api_params)
-                except Exception as e:
-                    return f"Error calling LLM: {e}"
-
-                resp_message = response.choices[0].message
-                messages.append(resp_message.model_dump(exclude_none=True))
-                finish_reason = str(response.choices[0].finish_reason or "")
-                tool_call_count = len(resp_message.tool_calls or [])
-                raw_resp_content = str(resp_message.content or "").strip()
-                clean_resp_content = strip_think_tags(raw_resp_content)
-                log(
-                    f"LLM response meta: tool_calls={tool_call_count} "
-                    f"finish_reason={finish_reason or 'unknown'} "
-                    f"chars_raw={len(raw_resp_content)} chars_cleaned={len(clean_resp_content)}"
-                )
-                log_multiline("LLM response raw", raw_resp_content)
-                log_multiline("LLM response cleaned", clean_resp_content)
-
-                if not resp_message.tool_calls:
-                    raw_reply = raw_resp_content
-                    reply_part = strip_think_tags(raw_reply)
-                    if reply_part:
-                        reply_segments.append(reply_part)
-                    reply = merge_reply_segments(reply_segments)
-                    if not reply and not reply_part:
-                        log("LLM produced no tool call and no usable text reply")
-                    if finish_reason == "length" and continuation_requests < 2:
-                        continuation_requests += 1
-                        log(
-                            f"LLM reply truncated by length; requesting continuation pass {continuation_requests}"
-                        )
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": (
-                                    "继续上一个回答，从刚才没说完的地方接着说完。"
-                                    "不要重复前文，不要输出 <think>，直接续写完整。"
-                                ),
-                            }
-                        )
-                        continue
-                    return reply
-
-                for tool_call in resp_message.tool_calls:
-                    func_name = tool_call.function.name
-                    func_args = json.loads(tool_call.function.arguments)
-                    log(
-                        f"LLM tool call: name={func_name} args={tool_call.function.arguments}"
-                    )
-
-                    tool_result = ""
-                    if func_name.startswith("remember_"):
-                        tool_result = await self._execute_remember_tool(
-                            func_name, func_args
-                        )
-                    elif "___" in func_name:
-                        server_name, actual_tool_name = func_name.split("___", 1)
-                        if server_name in sessions:
-                            try:
-                                log(
-                                    f"Calling MCP tool: {actual_tool_name} on {server_name}"
-                                )
-                                result = await sessions[server_name].call_tool(
-                                    actual_tool_name, func_args
-                                )
-                                tool_result = "\n".join(
-                                    c.text for c in result.content if c.type == "text"
-                                )  # type: ignore
-                            except Exception as e:
-                                tool_result = f"Error calling {actual_tool_name}: {e}"
-                        else:
-                            tool_result = (
-                                f"Error: MCP server {server_name} not available"
-                            )
-                    else:
-                        tool_result = f"Error: Unknown tool format {func_name}"
-
-                    messages.append(
-                        {
-                            "tool_call_id": tool_call.id,
-                            "role": "tool",
-                            "name": func_name,
-                            "content": tool_result,
-                        }
-                    )
-
-            return "Error: Too many tool call iterations."
+        return "无法处理该请求，请尝试换种说法。"

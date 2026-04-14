@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: F401, F811
 from __future__ import annotations
 
 import asyncio

@@ -6,10 +6,9 @@ import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 from ..utils.env import (
     load_env_files, env_int, env_float, env_str, env_path, 
-    PROJECT_ROOT, PTT_PACKAGE_ROOT
+    PROJECT_ROOT
 )
 
 @dataclass
@@ -160,13 +159,13 @@ def parse_args() -> Config:
     )
     parser.add_argument(
         "--api-key",
-        default=env_str("OPENAI_API_KEY", env_str("GROQ_API_KEY", "")),
+        default=env_str("OPENAI_API_KEY", ""),
     )
     parser.add_argument(
         "--base-url",
-        default=env_str("OPENAI_BASE_URL", env_str("GROQ_BASE_URL", "")),
+        default=env_str("OPENAI_BASE_URL", ""),
     )
-    parser.add_argument("--model", default=env_str("PTT_MODEL", env_str("PTT_GROQ_MODEL", "qwen/qwen3-32b")))
+    parser.add_argument("--model", default=env_str("PTT_MODEL", "qwen/qwen3-32b"))
     parser.add_argument(
         "--workspace-root",
         type=Path,
@@ -191,7 +190,7 @@ def parse_args() -> Config:
         parser.error("missing STT token; set PTT_STT_TOKEN in .env or pass --stt-token")
     if not args.api_key:
         parser.error(
-            "missing API key; set OPENAI_API_KEY or GROQ_API_KEY in .env, or pass --api-key"
+            "missing API key; set OPENAI_API_KEY in .env, or pass --api-key"
         )
 
     return Config(

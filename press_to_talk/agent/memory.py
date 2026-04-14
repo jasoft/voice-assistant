@@ -80,6 +80,8 @@ def extract_mem0_summary_payload(raw_payload: str | dict[str, Any] | list[Any]) 
     scored_items: list[dict[str, Any]] = []
     for item in items:
         score = item.get("score")
+        if score is None:
+            continue
         try:
             numeric_score = float(score)
         except (TypeError, ValueError):

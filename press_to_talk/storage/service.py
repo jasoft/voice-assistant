@@ -24,19 +24,19 @@ WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 
 @dataclass
 class StorageConfig:
-    backend: str = "mem0"
-    mem0_api_key: str = ""
-    mem0_user_id: str = "soj"
-    mem0_app_id: str = "voice-assistant"
-    mem0_min_score: float = 0.8
-    mem0_max_items: int = 3
-    history_db_path: str = str(DEFAULT_HISTORY_DB_PATH)
-    remember_db_path: str = str(DEFAULT_REMEMBER_DB_PATH)
-    remember_max_results: int = 3
-    groq_rewrite_enabled: bool = False
-    groq_rewrite_model: str = "qwen/qwen3-32b"
-    groq_rewrite_api_key: str = ""
-    groq_rewrite_base_url: str = ""
+    backend: str
+    mem0_api_key: str
+    mem0_user_id: str
+    mem0_app_id: str
+    mem0_min_score: float
+    mem0_max_items: int
+    history_db_path: str
+    remember_db_path: str
+    remember_max_results: int
+    query_rewrite_enabled: bool
+    llm_api_key: str
+    llm_base_url: str
+    llm_model: str  # 统一使用全局模型
 
 
 @dataclass
@@ -127,63 +127,69 @@ def _workflow_storage_config() -> dict[str, Any]:
 
 def load_storage_config() -> StorageConfig:
     storage_cfg = _workflow_storage_config()
+    
+    # 提取子配置
     sqlite_cfg = storage_cfg.get("sqlite_fts5", {})
     sqlite_cfg = sqlite_cfg if isinstance(sqlite_cfg, dict) else {}
-    rewrite_cfg = sqlite_cfg.get("groq_query_rewrite", {})
+    mem0_cfg = storage_cfg.get("mem0", {})
+    mem0_cfg = mem0_cfg if isinstance(mem0_cfg, dict) else {}
+    # 修正：直接从 sqlite_fts5 下读取 query_rewrite，并兼容旧键
+    rewrite_cfg = sqlite_cfg.get("query_rewrite", sqlite_cfg.get("groq_query_rewrite", {}))
     rewrite_cfg = rewrite_cfg if isinstance(rewrite_cfg, dict) else {}
 
+    # 获取全局或特定后端的检索限制，默认为 20
+    global_max_results = int(storage_cfg.get("max_results", 20))
+    
     raw_app_id = os.environ.get("MEM0_APP_ID")
     app_id = "voice-assistant" if raw_app_id is None else str(raw_app_id).strip()
 
     configured_backend = str(storage_cfg.get("provider", "mem0")).strip() or "mem0"
-    remember_db_path = (
-        str(sqlite_cfg.get("db_path", str(DEFAULT_REMEMBER_DB_PATH))).strip()
-        or str(DEFAULT_REMEMBER_DB_PATH)
-    )
-    remember_max_results = max(1, int(sqlite_cfg.get("max_results", 3)))
-    rewrite_enabled = bool(rewrite_cfg.get("enabled", False))
-    rewrite_model = (
-        str(
-            rewrite_cfg.get(
-                "model",
-                env_str("PTT_GROQ_MODEL", env_str("PTT_MODEL", "qwen/qwen3-32b")),
-            )
-        ).strip()
-        or "qwen/qwen3-32b"
-    )
+    
+    # 获取全局模型配置
+    default_model = env_str("PTT_MODEL", "qwen/qwen3-32b")
 
-    return StorageConfig(
+    # 汇总最终配置
+    config = StorageConfig(
         backend=str(env_str("PTT_REMEMBER_BACKEND", configured_backend)).strip()
         or configured_backend,
+        
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
         mem0_user_id=str(env_str("MEM0_USER_ID", "soj")).strip() or "soj",
         mem0_app_id=app_id,
-        mem0_min_score=env_float("MEM0_MIN_SCORE", 0.8),
-        mem0_max_items=max(1, env_int("MEM0_MAX_ITEMS", 3)),
+        mem0_min_score=env_float("MEM0_MIN_SCORE", float(mem0_cfg.get("min_score", 0.8))),
+        mem0_max_items=max(1, env_int("MEM0_MAX_ITEMS", int(mem0_cfg.get("max_items", global_max_results)))),
+        
         history_db_path=env_str(
             "PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)
         ).strip()
         or str(DEFAULT_HISTORY_DB_PATH),
-        remember_db_path=env_str("PTT_REMEMBER_DB_PATH", remember_db_path).strip()
-        or remember_db_path,
+        
+        remember_db_path=env_str("PTT_REMEMBER_DB_PATH", str(sqlite_cfg.get("db_path", str(DEFAULT_REMEMBER_DB_PATH)))).strip()
+        or str(DEFAULT_REMEMBER_DB_PATH),
+        
         remember_max_results=max(
             1,
-            env_int("PTT_REMEMBER_MAX_RESULTS", remember_max_results),
+            env_int("PTT_REMEMBER_MAX_RESULTS", int(sqlite_cfg.get("max_results", global_max_results))),
         ),
-        groq_rewrite_enabled=env_bool(
-            "PTT_GROQ_REWRITE_ENABLED", rewrite_enabled
+        
+        query_rewrite_enabled=env_bool(
+            "PTT_QUERY_REWRITE_ENABLED", env_bool("PTT_GROQ_REWRITE_ENABLED", bool(rewrite_cfg.get("enabled", False)))
         ),
-        groq_rewrite_model=str(
-            env_str("PTT_GROQ_REWRITE_MODEL", rewrite_model)
-        ).strip()
-        or rewrite_model,
-        groq_rewrite_api_key=env_str(
-            "OPENAI_API_KEY", env_str("GROQ_API_KEY", "")
-        ).strip(),
-        groq_rewrite_base_url=env_str(
-            "OPENAI_BASE_URL", env_str("GROQ_BASE_URL", "")
-        ).strip(),
+        
+        llm_api_key=env_str("OPENAI_API_KEY", env_str("GROQ_API_KEY", "")).strip(),
+        llm_base_url=env_str("OPENAI_BASE_URL", env_str("GROQ_BASE_URL", "")).strip(),
+        
+        llm_model=default_model
     )
+
+    # 打印加载后的配置信息（隐藏敏感 Key）
+    safe_config = {
+        k: (v if "api_key" not in k else ("***" if v else "None"))
+        for k, v in config.__dict__.items()
+    }
+    log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}")
+    
+    return config
 
 
 class BaseRememberStore:
@@ -386,16 +392,16 @@ def _keywords_from_match_query(match_query: str, raw_query: str) -> list[str]:
     return _tokenize_for_match(raw_query)
 
 
-class GroqKeywordRewriter:
+class LLMKeywordRewriter:
     def __init__(
         self,
         *,
         api_key: str,
-        model: str,
+        llm_model: str,
         base_url: str = "",
     ) -> None:
         self.api_key = api_key.strip()
-        self.model = model.strip()
+        self.model = llm_model.strip()
         self.base_url = base_url.strip()
         self._client: Any | None = None
 
@@ -409,20 +415,24 @@ class GroqKeywordRewriter:
             self._client = OpenAI(**client_kwargs)
         return self._client
 
-    def _normalize_query(self, query: str) -> str:
+    def rewrite(self, query: str) -> str:
         cleaned_query = str(query or "").strip()
         if not cleaned_query:
             return ""
+            
         workflow = _require_mapping(load_workflow_config(), "workflow")
         prompts = _require_mapping(workflow.get("prompts"), "prompts")
-        normalize_cfg = _require_mapping(
-            prompts.get("query_normalize"), "prompts.query_normalize"
+        
+        # 统一从 prompts.query_rewrite 读取
+        rewrite_cfg = _require_mapping(
+            prompts.get("query_rewrite"), "prompts.query_rewrite"
         )
-        system_prompt = str(normalize_cfg.get("system_prompt", "")).strip()
+        system_prompt = str(rewrite_cfg.get("system_prompt", "")).strip()
         if not system_prompt:
             raise RuntimeError(
-                "workflow config missing required section: prompts.query_normalize.system_prompt"
+                "workflow config missing required section: prompts.query_rewrite.system_prompt"
             )
+            
         messages = [
             {
                 "role": "system",
@@ -430,44 +440,7 @@ class GroqKeywordRewriter:
             },
             {"role": "user", "content": cleaned_query},
         ]
-        log_llm_prompt("query normalize", messages)
-        response = self._client_instance().chat.completions.create(
-            model=self.model,
-            temperature=0,
-            messages=messages,
-        )
-        content = str(response.choices[0].message.content or "").strip()
-        log_multiline("query normalize raw", content)
-        payload = json.loads(content)
-        normalized_query = (
-            str(payload.get("query", "")).strip() if isinstance(payload, dict) else ""
-        )
-        final_query = normalized_query or cleaned_query
-        log(f"query normalize parsed: {final_query}")
-        return final_query
-
-    def rewrite(self, query: str) -> str:
-        cleaned_query = str(query or "").strip()
-        if not cleaned_query:
-            return ""
-        normalized_query = self._normalize_query(cleaned_query)
-        workflow = _require_mapping(load_workflow_config(), "workflow")
-        prompts = _require_mapping(workflow.get("prompts"), "prompts")
-        rewrite_cfg = _require_mapping(
-            prompts.get("keyword_rewrite"), "prompts.keyword_rewrite"
-        )
-        system_prompt = str(rewrite_cfg.get("system_prompt", "")).strip()
-        if not system_prompt:
-            raise RuntimeError(
-                "workflow config missing required section: prompts.keyword_rewrite.system_prompt"
-            )
-        messages = [
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-            {"role": "user", "content": normalized_query},
-        ]
+        
         log_llm_prompt("keyword rewrite", messages)
         response = self._client_instance().chat.completions.create(
             model=self.model,
@@ -476,19 +449,36 @@ class GroqKeywordRewriter:
         )
         content = str(response.choices[0].message.content or "").strip()
         log_multiline("keyword rewrite raw", content)
-        payload = json.loads(content)
-        keywords = payload.get("keywords", []) if isinstance(payload, dict) else []
-        cleaned_keywords = [
-            str(item).strip()
-            for item in keywords
-            if str(item).strip()
-        ]
+        
+        # 优先提取纯文本关键词（新 Prompt 要求）
+        text_result = re.sub(r"(?is)<think>.*?</think>", "", content).strip()
+        
+        # 兼容性：如果模型还是返回了 JSON（虽然新 Prompt 不要求）
+        cleaned_keywords = []
+        if "{" in text_result and "}" in text_result:
+            try:
+                json_start = text_result.find("{")
+                json_end = text_result.rfind("}") + 1
+                payload = json.loads(text_result[json_start:json_end])
+                keywords = payload.get("keywords", []) if isinstance(payload, dict) else []
+                cleaned_keywords = [str(k).strip() for k in keywords if str(k).strip()]
+            except Exception:
+                pass
+        
+        if not cleaned_keywords:
+            # 按换行、逗号或空格分割，防止模型返回了多个词
+            raw_tokens = re.split(r"[\n,，\s]+", text_result)
+            cleaned_keywords = [t.strip() for t in raw_tokens if t.strip()]
+
         log(
             "keyword rewrite parsed: "
             + json.dumps(cleaned_keywords, ensure_ascii=False)
         )
+        
         if not cleaned_keywords:
-            return _default_match_query(normalized_query)
+            return _quote_match_token(cleaned_query)
+            
+        # 构造 FTS5 查询语句 (OR 逻辑)
         rewritten_query = " OR ".join(
             _quote_match_token(keyword) for keyword in cleaned_keywords if keyword
         )
@@ -496,16 +486,16 @@ class GroqKeywordRewriter:
         return rewritten_query
 
 
-class GroqMemoryTranslator:
+class LLMMemoryTranslator:
     def __init__(
         self,
         *,
         api_key: str,
-        model: str,
+        llm_model: str,
         base_url: str = "",
     ) -> None:
         self.api_key = api_key.strip()
-        self.model = model.strip()
+        self.model = llm_model.strip()
         self.base_url = base_url.strip()
         self._client: Any | None = None
 
@@ -795,82 +785,47 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         cleaned_query = str(query or "").strip()
         if not cleaned_query:
             return ""
+
+        # 1. 尝试获取重写后的关键词（如果有 rewriter）
+        rewritten_query = ""
+        keywords: list[str] = []
+        if self.keyword_rewriter:
+            try:
+                # 这里的 rewrite 应该已经返回了 "word1 OR word2" 格式
+                rewritten_query = str(self.keyword_rewriter.rewrite(cleaned_query)).strip()
+                keywords = _keywords_from_match_query(rewritten_query, cleaned_query)
+            except Exception as e:
+                log(f"Keyword rewrite failed: {e}")
+
+        # 2. 如果重写失败或没有 rewriter，使用默认分词
+        if not rewritten_query:
+            rewritten_query = _default_match_query(cleaned_query)
+            keywords = _tokenize_for_match(cleaned_query)
+
+        # 3. 根据是否使用 libsimple 构造最终的 MATCH 语法
         if self.use_simple_query:
-            if self.keyword_rewriter is None:
-                simple_query = cleaned_query
-                rewritten_query = cleaned_query
-            else:
-                try:
-                    rewritten_query = str(
-                        self.keyword_rewriter.rewrite(cleaned_query)
-                    ).strip()
-                except Exception:
-                    rewritten_query = ""
-                keywords = _keywords_from_match_query(
-                    rewritten_query, cleaned_query
-                )
-                simple_query = " ".join(keywords).strip() or cleaned_query
-            log(
-                "remember search input: "
-                + json.dumps(
-                    {
-                        "query": cleaned_query,
-                        "match_query": simple_query,
-                        "keywords": _tokenize_for_match(simple_query),
-                        "rewrite": False,
-                        "fts": "simple_query",
-                    },
-                    ensure_ascii=False,
-                )
-            )
-            return simple_query
-        if self.keyword_rewriter is None:
-            match_query = _default_match_query(cleaned_query)
-            log(
-                "remember search input: "
-                + json.dumps(
-                    {
-                        "query": cleaned_query,
-                        "match_query": match_query,
-                        "keywords": _keywords_from_match_query(match_query, cleaned_query),
-                        "rewrite": False,
-                    },
-                    ensure_ascii=False,
-                )
-            )
-            return match_query
-        try:
-            rewritten = str(self.keyword_rewriter.rewrite(cleaned_query)).strip()
-            match_query = rewritten or _default_match_query(cleaned_query)
-            log(
-                "remember search input: "
-                + json.dumps(
-                    {
-                        "query": cleaned_query,
-                        "match_query": match_query,
-                        "keywords": _keywords_from_match_query(match_query, cleaned_query),
-                        "rewrite": True,
-                    },
-                    ensure_ascii=False,
-                )
-            )
-            return match_query
-        except Exception:
-            match_query = _default_match_query(cleaned_query)
-            log(
-                "remember search input: "
-                + json.dumps(
-                    {
-                        "query": cleaned_query,
-                        "match_query": match_query,
-                        "keywords": _keywords_from_match_query(match_query, cleaned_query),
-                        "rewrite": False,
-                        "fallback": "raw_query",
-                    },
-                    ensure_ascii=False,
-                )
-            )
-            return match_query
+            # libsimple 的 simple_query() 函数接受以空格分隔的关键词，默认行为通常符合预期
+            # 但为了保证 OR 逻辑，我们重新组合它们
+            match_query = " ".join(keywords).strip() or cleaned_query
+            log_info = {
+                "query": cleaned_query,
+                "match_query": match_query,
+                "keywords": keywords,
+                "rewrite": bool(self.keyword_rewriter),
+                "fts": "simple_query",
+            }
+        else:
+            match_query = rewritten_query
+            log_info = {
+                "query": cleaned_query,
+                "match_query": match_query,
+                "keywords": keywords,
+                "rewrite": bool(self.keyword_rewriter),
+                "fts": "standard",
+            }
+
+        log("remember search input: " + json.dumps(log_info, ensure_ascii=False))
+        return match_query
 
     def find(self, *, query: str) -> str:
         match_query = self._match_query(query)
@@ -881,7 +836,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 "simple_query(?)" if self.use_simple_query else "?"
             )
             log(
-                f"remember search sql: fts5 match="
+                "remember search sql: fts5 match="
                 + (f"simple_query({match_query})" if self.use_simple_query else match_query)
             )
             rows = conn.execute(
@@ -987,7 +942,8 @@ def migrate_mem0_memories_to_sqlite(
             source_memory = str(item.get("memory") or item.get("text") or "").strip()
             if not source_memory:
                 continue
-            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            raw_metadata = item.get("metadata")
+            metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
             original_text = str(
                 metadata.get("original_text")
                 or metadata.get("source_text")
@@ -1162,10 +1118,10 @@ class StorageService:
             history_db_path=config.history_db_path,
             remember_db_path=config.remember_db_path,
             remember_max_results=config.remember_max_results,
-            groq_rewrite_enabled=config.groq_rewrite_enabled,
-            groq_rewrite_model=config.groq_rewrite_model,
-            groq_rewrite_api_key=config.groq_rewrite_api_key,
-            groq_rewrite_base_url=config.groq_rewrite_base_url,
+            query_rewrite_enabled=config.query_rewrite_enabled,
+            llm_api_key=config.llm_api_key,
+            llm_base_url=config.llm_base_url,
+            llm_model=config.llm_model,
         )
         self._history_store: BaseHistoryStore = SQLiteHistoryStore(
             self.config.history_db_path
@@ -1179,23 +1135,23 @@ class StorageService:
         return None
 
     def _sqlite_keyword_rewriter(self) -> KeywordRewriter | None:
-        if not self.config.groq_rewrite_enabled:
+        if not self.config.query_rewrite_enabled:
             return None
-        if not self.config.groq_rewrite_api_key.strip():
+        if not self.config.llm_api_key.strip():
             return None
-        return GroqKeywordRewriter(
-            api_key=self.config.groq_rewrite_api_key,
-            model=self.config.groq_rewrite_model,
-            base_url=self.config.groq_rewrite_base_url,
+        return LLMKeywordRewriter(
+            api_key=self.config.llm_api_key,
+            llm_model=self.config.llm_model,
+            base_url=self.config.llm_base_url,
         )
 
     def _sqlite_memory_translator(self) -> MemoryTranslator | None:
-        if not self.config.groq_rewrite_api_key.strip():
+        if not self.config.llm_api_key.strip():
             return None
-        return GroqMemoryTranslator(
-            api_key=self.config.groq_rewrite_api_key,
-            model=self.config.groq_rewrite_model,
-            base_url=self.config.groq_rewrite_base_url,
+        return LLMMemoryTranslator(
+            api_key=self.config.llm_api_key,
+            llm_model=self.config.llm_model,
+            base_url=self.config.llm_base_url,
         )
 
     def _bootstrap_sqlite_from_mem0(

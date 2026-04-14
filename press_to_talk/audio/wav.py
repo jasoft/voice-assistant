@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import wave
 from pathlib import Path
+from typing import Any
 
 def write_wav(path: Path, audio: Any, sample_rate: int, channels: int) -> None:
     import numpy as np

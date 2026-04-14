@@ -1,35 +1,10 @@
 from __future__ import annotations
 
-import json
-from typing import Any
 import re
-
-def wants_explicit_search(text: str) -> bool:
-    normalized = re.sub(r"[ \t]+", "", text or "")
-    return "联网搜索" in normalized or "上网搜索" in normalized
-
-def coerce_to_local_find_payload(
-    user_input: str, payload: dict[str, Any] | None = None, *, note: str = ""
-) -> dict[str, Any]:
-    original = payload if isinstance(payload, dict) else {}
-    query = str(user_input or "").strip()
-    tool_name = "remember_find"
-    return {
-        "intent": "find",
-        "tool": tool_name,
-        "args": {
-            "memory": "",
-            "query": query,
-            "note": "",
-        },
-        "confidence": max(float(original.get("confidence", 0.0) or 0.0), 0.6),
-        "notes": note or "默认归入本地查询",
-    }
+from typing import Any
 
 def prefers_local_record(text: str) -> bool:
-    normalized = re.sub(r"[ \t]+", "", text or "")
-    if wants_explicit_search(normalized):
-        return False
+    normalized = re.sub(r"[\s,，。！？]+", "", text or "")
     record_markers = [
         "记住",
         "帮我记一下",
@@ -41,33 +16,10 @@ def prefers_local_record(text: str) -> bool:
     ]
     return any(marker in normalized for marker in record_markers)
 
-def prefers_local_find(text: str) -> bool:
-    normalized = re.sub(r"[ \t]+", "", text or "")
-    if wants_explicit_search(normalized):
-        return False
-    local_markers = [
-        "找",
-        "查找",
-        "查询",
-        "在哪",
-        "位置",
-        "哪里",
-        "怎么记",
-        "记住",
-        "什么时间",
-        "什么时候",
-        "生日",
-        "特征",
-        "属性",
-    ]
-    return any(marker in normalized for marker in local_markers)
-
-def detect_local_intent(text: str) -> str | None:
+def detect_local_intent(text: str) -> str:
     if prefers_local_record(text):
         return "record"
-    if prefers_local_find(text):
-        return "find"
-    return None
+    return "find"
 
 def salvage_truncated_intent_payload(text: str) -> dict[str, Any] | None:
     intent_match = re.search(r'"intent"\s*:\s*"([^"]+)"', text)
