@@ -176,8 +176,8 @@ def load_storage_config() -> StorageConfig:
             "PTT_QUERY_REWRITE_ENABLED", env_bool("PTT_GROQ_REWRITE_ENABLED", bool(rewrite_cfg.get("enabled", False)))
         ),
         
-        llm_api_key=env_str("OPENAI_API_KEY", env_str("GROQ_API_KEY", "")).strip(),
-        llm_base_url=env_str("OPENAI_BASE_URL", env_str("GROQ_BASE_URL", "")).strip(),
+        llm_api_key=env_str("OPENAI_API_KEY", "").strip(),
+        llm_base_url=env_str("OPENAI_BASE_URL", "").strip(),
         
         llm_model=default_model
     )
