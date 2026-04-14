@@ -14,8 +14,9 @@ from typing import Any, Protocol
 from press_to_talk.utils.text import format_local_datetime
 
 APP_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_HISTORY_DB_PATH = APP_ROOT / "data" / "voice_assistant.sqlite3"
-DEFAULT_REMEMBER_DB_PATH = APP_ROOT / "data" / "voice_assistant.sqlite3"
+DEFAULT_APP_DB_PATH = APP_ROOT / "data" / "voice_assistant_store.sqlite3"
+DEFAULT_HISTORY_DB_PATH = DEFAULT_APP_DB_PATH
+DEFAULT_REMEMBER_DB_PATH = DEFAULT_APP_DB_PATH
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 
 
@@ -184,6 +185,116 @@ class BaseHistoryStore:
 
     def delete(self, *, session_id: str) -> None:
         raise NotImplementedError
+
+
+def migrate_history_table(
+    source_db_path: str | Path,
+    target_db_path: str | Path,
+) -> int:
+    source = Path(source_db_path).expanduser()
+    target = Path(target_db_path).expanduser()
+    if not source.exists():
+        return 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source_conn = sqlite3.connect(source)
+    source_conn.row_factory = sqlite3.Row
+    try:
+        rows = source_conn.execute(
+            """
+            SELECT
+                session_id,
+                started_at,
+                ended_at,
+                transcript,
+                reply,
+                peak_level,
+                mean_level,
+                auto_closed,
+                reopened_by_click,
+                mode,
+                created_at
+            FROM session_histories
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    except sqlite3.OperationalError:
+        source_conn.close()
+        return 0
+    finally:
+        source_conn.close()
+
+    target_conn = sqlite3.connect(target)
+    try:
+        target_conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_histories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL UNIQUE,
+                started_at TEXT NOT NULL,
+                ended_at TEXT NOT NULL,
+                transcript TEXT NOT NULL,
+                reply TEXT NOT NULL,
+                peak_level REAL NOT NULL,
+                mean_level REAL NOT NULL,
+                auto_closed INTEGER NOT NULL,
+                reopened_by_click INTEGER NOT NULL,
+                mode TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        target_conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_session_histories_started_at
+            ON session_histories(started_at DESC)
+            """
+        )
+        with target_conn:
+            for row in rows:
+                target_conn.execute(
+                    """
+                    INSERT INTO session_histories (
+                        session_id,
+                        started_at,
+                        ended_at,
+                        transcript,
+                        reply,
+                        peak_level,
+                        mean_level,
+                        auto_closed,
+                        reopened_by_click,
+                        mode,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        started_at = excluded.started_at,
+                        ended_at = excluded.ended_at,
+                        transcript = excluded.transcript,
+                        reply = excluded.reply,
+                        peak_level = excluded.peak_level,
+                        mean_level = excluded.mean_level,
+                        auto_closed = excluded.auto_closed,
+                        reopened_by_click = excluded.reopened_by_click,
+                        mode = excluded.mode,
+                        created_at = excluded.created_at
+                    """,
+                    (
+                        str(row["session_id"]),
+                        str(row["started_at"]),
+                        str(row["ended_at"]),
+                        str(row["transcript"]),
+                        str(row["reply"]),
+                        float(row["peak_level"]),
+                        float(row["mean_level"]),
+                        int(row["auto_closed"]),
+                        int(row["reopened_by_click"]),
+                        str(row["mode"]),
+                        str(row["created_at"]),
+                    ),
+                )
+    finally:
+        target_conn.close()
+    return len(rows)
 
 
 def create_mem0_client(api_key: str) -> Any:
@@ -376,7 +487,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         self.table_name = "remember_entries"
         self.fts_table_name = "remember_entries_fts"
 
-    def _bootstrap_schema(self, conn: sqlite3.Connection) -> None:
+    def _connect(self) -> sqlite3.Connection:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
         conn.execute(
             f"""
             CREATE TABLE IF NOT EXISTS {self.table_name} (
@@ -405,79 +519,6 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             ON {self.table_name}(updated_at DESC)
             """
         )
-
-    def _has_table(self, conn: sqlite3.Connection, table_name: str) -> bool:
-        row = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
-            (table_name,),
-        ).fetchone()
-        return row is not None
-
-    def _row_count(self, conn: sqlite3.Connection, table_name: str) -> int:
-        return int(conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
-
-    def _migrate_legacy_rows(self, conn: sqlite3.Connection) -> None:
-        if not self._has_table(conn, "remember_items"):
-            return
-        if self._row_count(conn, self.table_name) > 0:
-            return
-        legacy_columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(remember_items)").fetchall()
-        }
-        if {"name", "content", "original_text", "created_at"} - legacy_columns:
-            return
-
-        legacy_rows = conn.execute(
-            """
-            SELECT
-                id,
-                name,
-                content,
-                original_text,
-                created_at
-            FROM remember_items
-            ORDER BY created_at ASC
-            """
-        ).fetchall()
-        for row in legacy_rows:
-            name = str(row["name"] or "").strip()
-            content = str(row["content"] or "").strip()
-            memory = "：".join(part for part in [name, content] if part).strip()
-            if not memory:
-                memory = content or name
-            original_text = str(row["original_text"] or "").strip()
-            created_at = str(row["created_at"] or "").strip() or _now_iso()
-            item_id = f"legacy-{row['id']}"
-            conn.execute(
-                f"""
-                INSERT OR IGNORE INTO {self.table_name} (
-                    id,
-                    memory,
-                    original_text,
-                    created_at,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                (item_id, memory, original_text, created_at, created_at),
-            )
-            conn.execute(
-                f"""
-                INSERT INTO {self.fts_table_name} (
-                    memory,
-                    original_text,
-                    item_id
-                ) VALUES (?, ?, ?)
-                """,
-                (memory, original_text, item_id),
-            )
-
-    def _connect(self) -> sqlite3.Connection:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        self._bootstrap_schema(conn)
-        self._migrate_legacy_rows(conn)
         return conn
 
     def add(self, *, memory: str, original_text: str = "") -> str:

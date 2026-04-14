@@ -59,7 +59,7 @@ uv run press-to-talk --text-input "记录一下，我今天安装了显示器的
 - `PTT_LOG_DIR`：运行日志目录，默认写到项目根目录下的 `logs/`
 - `MEM0_API_KEY`：托管版 mem0 API Key
 - `MEM0_USER_ID`：mem0 用户 ID，默认 `soj`
-- `PTT_HISTORY_DB_PATH`：历史记录 SQLite 路径，默认 `data/voice_assistant.sqlite3`
+- `PTT_HISTORY_DB_PATH`：历史记录 SQLite 路径，默认 `data/voice_assistant_store.sqlite3`
 - `PTT_REMEMBER_BACKEND`：覆盖 remember provider
 - `PTT_REMEMBER_DB_PATH`：覆盖 sqlite remember 库路径
 - `PTT_REMEMBER_MAX_RESULTS`：覆盖 sqlite remember 返回条数
@@ -92,7 +92,7 @@ uv run press-to-talk --text-input "记录一下，我今天安装了显示器的
   "storage": {
     "provider": "sqlite_fts5",
     "sqlite_fts5": {
-      "db_path": "data/voice_assistant.sqlite3",
+      "db_path": "data/voice_assistant_store.sqlite3",
       "max_results": 3,
       "groq_query_rewrite": {
         "enabled": true,
@@ -136,7 +136,7 @@ uv run python scripts/migrate_mem0_app_id.py --apply
 
 ## 历史记录
 
-历史记录会写入本地 SQLite，默认路径是 `data/voice_assistant.sqlite3`。GUI 的 History 面板和 `press_to_talk.storage_cli list-history` 都会读取这份库；如需自定义路径，可设置 `PTT_HISTORY_DB_PATH`。
+历史记录会写入本地 SQLite，默认路径是 `data/voice_assistant_store.sqlite3`。GUI 的 History 面板和 `press_to_talk.storage_cli list-history` 都会读取这份库；如需自定义路径，可设置 `PTT_HISTORY_DB_PATH`。
 
 ## 回归测试
 

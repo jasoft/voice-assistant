@@ -734,7 +734,9 @@ class HistoryWriterTests(unittest.TestCase):
         )
 
         self.assertTrue(
-            str(service.config.history_db_path).endswith("data/voice_assistant.sqlite3")
+            str(service.config.history_db_path).endswith(
+                "data/voice_assistant_store.sqlite3"
+            )
         )
 
     def test_load_storage_config_defaults_to_workflow_backend(self) -> None:
@@ -746,8 +748,12 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(config.mem0_app_id, "voice-assistant")
         self.assertEqual(config.mem0_min_score, 0.8)
         self.assertEqual(config.mem0_max_items, 3)
-        self.assertTrue(config.history_db_path.endswith("data/voice_assistant.sqlite3"))
-        self.assertTrue(config.remember_db_path.endswith("data/voice_assistant.sqlite3"))
+        self.assertTrue(
+            config.history_db_path.endswith("data/voice_assistant_store.sqlite3")
+        )
+        self.assertTrue(
+            config.remember_db_path.endswith("data/voice_assistant_store.sqlite3")
+        )
         self.assertTrue(config.groq_rewrite_enabled)
 
     def test_load_storage_config_reads_mem0_credentials(self) -> None:
@@ -1050,49 +1056,57 @@ class SQLiteRememberStoreTests(unittest.TestCase):
 
         self.assertIn('"memory": "AirPods 在办公桌左边抽屉"', found)
 
-    def test_sqlite_store_migrates_legacy_table_shape(self) -> None:
+    def test_migrate_history_table_copies_rows_to_new_db(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "remember.sqlite3"
-            conn = storage_service_module.sqlite3.connect(db_path)
+            source_db_path = Path(tmpdir) / "legacy.sqlite3"
+            target_db_path = Path(tmpdir) / "store.sqlite3"
+            conn = storage_service_module.sqlite3.connect(source_db_path)
             try:
                 conn.execute(
                     """
-                    CREATE TABLE remember_items (
+                    CREATE TABLE session_histories (
                         id INTEGER NOT NULL PRIMARY KEY,
-                        remote_id VARCHAR(255),
-                        name VARCHAR(255) NOT NULL,
-                        content TEXT NOT NULL,
-                        record_type VARCHAR(255) NOT NULL,
-                        note TEXT NOT NULL,
-                        original_text TEXT NOT NULL,
-                        photo_json TEXT NOT NULL,
+                        session_id VARCHAR(255) NOT NULL,
+                        started_at VARCHAR(255) NOT NULL,
+                        ended_at VARCHAR(255) NOT NULL,
+                        transcript TEXT NOT NULL,
+                        reply TEXT NOT NULL,
+                        peak_level REAL NOT NULL,
+                        mean_level REAL NOT NULL,
+                        auto_closed INTEGER NOT NULL,
+                        reopened_by_click INTEGER NOT NULL,
+                        mode VARCHAR(255) NOT NULL,
                         created_at DATETIME NOT NULL
                     )
                     """
                 )
                 conn.execute(
                     """
-                    INSERT INTO remember_items (
-                        id,
-                        remote_id,
-                        name,
-                        content,
-                        record_type,
-                        note,
-                        original_text,
-                        photo_json,
+                    INSERT INTO session_histories (
+                        session_id,
+                        started_at,
+                        ended_at,
+                        transcript,
+                        reply,
+                        peak_level,
+                        mean_level,
+                        auto_closed,
+                        reopened_by_click,
+                        mode,
                         created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        1,
-                        "",
-                        "usb测试版",
-                        "在书房抽屉里",
-                        "location",
-                        "",
                         "usb测试版在哪",
-                        "",
+                        "2026-04-14T10:00:00+08:00",
+                        "2026-04-14T10:00:10+08:00",
+                        "usb测试版在哪",
+                        "没有找到匹配的记忆信息。",
+                        0.8,
+                        0.5,
+                        0,
+                        0,
+                        "cli",
                         "2026-04-14T10:00:00+08:00",
                     ),
                 )
@@ -1100,10 +1114,25 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path)
-            found = store.find(query="usb测试版在哪")
+            copied = storage_service_module.migrate_history_table(
+                source_db_path,
+                target_db_path,
+            )
+            target_conn = storage_service_module.sqlite3.connect(target_db_path)
+            try:
+                row = target_conn.execute(
+                    """
+                    SELECT session_id, transcript, reply
+                    FROM session_histories
+                    """
+                ).fetchone()
+            finally:
+                target_conn.close()
 
-        self.assertIn('"memory": "usb测试版：在书房抽屉里"', found)
+        self.assertEqual(copied, 1)
+        self.assertEqual(row[0], "usb测试版在哪")
+        self.assertEqual(row[1], "usb测试版在哪")
+        self.assertEqual(row[2], "没有找到匹配的记忆信息。")
 
 
 class NonReentrantLock:

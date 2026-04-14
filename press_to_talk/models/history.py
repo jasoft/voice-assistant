@@ -22,8 +22,8 @@ def build_storage_config(cfg: Config) -> StorageConfig:
     )
     config.history_db_path = env_str(
         "PTT_HISTORY_DB_PATH",
-        str(APP_ROOT / "data" / "voice_assistant.sqlite3"),
-    ).strip() or str(APP_ROOT / "data" / "voice_assistant.sqlite3")
+        str(APP_ROOT / "data" / "voice_assistant_store.sqlite3"),
+    ).strip() or str(APP_ROOT / "data" / "voice_assistant_store.sqlite3")
     config.groq_rewrite_api_key = cfg.llm_api_key.strip()
     config.groq_rewrite_base_url = cfg.llm_base_url.strip()
     if cfg.llm_model.strip():

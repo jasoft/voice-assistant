@@ -22,7 +22,7 @@
                 "哪些",
                 "查找"
             ],
-            "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询mem0数据库。只使用 remember_find；remember_find 会直接使用我的原始问句查询。回复必须控制在30字以内。",
+            "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询本地数据库。只使用 remember_find；remember_find 会直接使用我的原始问句查询。回复必须控制在30字以内。",
             "tools": ["remember_find"]
         },
         "chat": {
@@ -51,7 +51,7 @@
     "storage": {
         "provider": "sqlite_fts5",
         "sqlite_fts5": {
-            "db_path": "data/voice_assistant.sqlite3",
+            "db_path": "data/voice_assistant_store.sqlite3",
             "max_results": 3,
             "groq_query_rewrite": {
                 "enabled": true,
