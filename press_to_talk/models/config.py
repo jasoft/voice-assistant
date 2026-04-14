@@ -159,11 +159,11 @@ def parse_args() -> Config:
     )
     parser.add_argument(
         "--api-key",
-        default=env_str("OPENAI_API_KEY", ""),
+        default=env_str("OPENAI_API_KEY", env_str("GROQ_API_KEY", "")),
     )
     parser.add_argument(
         "--base-url",
-        default=env_str("OPENAI_BASE_URL", ""),
+        default=env_str("OPENAI_BASE_URL", env_str("GROQ_BASE_URL", "")),
     )
     parser.add_argument("--model", default=env_str("PTT_MODEL", "qwen/qwen3-32b"))
     parser.add_argument(

@@ -642,6 +642,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         self.use_simple_query = self._load_simple_extension(conn)
+        fts_tokenizer_clause = ",\n                tokenize='simple'" if self.use_simple_query else ""
         conn.execute(
             f"""
             CREATE TABLE IF NOT EXISTS {self.table_name} (
@@ -671,8 +672,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             USING fts5(
                 memory,
                 original_text,
-                item_id UNINDEXED,
-                tokenize='simple'
+                item_id UNINDEXED
+                -- NOTE: tokenize='simple' requires libsimple.dylib; fall back to default tokenizer if absent.
+                {fts_tokenizer_clause}
             )
             """
         )
