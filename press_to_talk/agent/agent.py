@@ -454,6 +454,8 @@ class OpenAICompatibleAgent:
             log(
                 f"remember summary response: chars_raw={len(raw_summary)} chars_cleaned={len(clean_summary)}"
             )
+            log_multiline("remember summary raw", raw_summary)
+            log_multiline("remember summary cleaned", clean_summary)
             return clean_summary or "处理完成。"
         except Exception as e:
             log(f"remember output summary failed: {e}")

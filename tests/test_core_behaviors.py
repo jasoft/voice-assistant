@@ -389,6 +389,32 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertEqual(summary, "护照在书房抽屉里。")
         self.assertNotIn("max_tokens", agent.client.chat.completions.calls[0])
 
+    def test_remember_summary_logs_raw_and_cleaned_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = core.init_session_log(Path(tmpdir), session_id="remember-summary")
+            try:
+                agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+                agent.client = FakeClient("<think>内部思考</think>\n护照在书房抽屉里。")
+                agent.model = "test-model"
+                agent.workflow = {"remember_summary": {"system_prompt": "请整理结果。"}}
+
+                summary = agent._summarize_remember_output(
+                    "remember_find",
+                    "**护照**\n📌 内容: 书房抽屉里",
+                    user_question="护照在哪",
+                )
+            finally:
+                core.close_session_log()
+
+            content = log_path.read_text(encoding="utf-8")
+
+        self.assertEqual(summary, "护照在书房抽屉里。")
+        self.assertIn("remember summary raw:", content)
+        self.assertIn("remember summary raw | <think>内部思考</think>", content)
+        self.assertIn("remember summary raw | 护照在书房抽屉里。", content)
+        self.assertIn("remember summary cleaned:", content)
+        self.assertIn("remember summary cleaned | 护照在书房抽屉里。", content)
+
     def test_remember_summary_injects_current_time_into_system_prompt(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("最近三天有两条记录。")
