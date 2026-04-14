@@ -41,6 +41,7 @@ class StorageConfig:
 @dataclass
 class RememberItemRecord:
     id: str
+    source_memory_id: str
     memory: str
     original_text: str
     created_at: str
@@ -62,6 +63,10 @@ class SessionHistoryRecord:
 
 class KeywordRewriter(Protocol):
     def rewrite(self, query: str) -> str: ...
+
+
+class MemoryTranslator(Protocol):
+    def translate(self, text: str) -> str: ...
 
 
 def env_str(name: str, default: str) -> str:
@@ -322,6 +327,17 @@ def _localize_timestamp_fields(payload: Any) -> Any:
     return payload
 
 
+def _extract_mem0_results(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, dict):
+        results = payload.get("results", [])
+        if isinstance(results, list):
+            return [item for item in results if isinstance(item, dict)]
+        return []
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return []
+
+
 def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -456,6 +472,61 @@ class GroqKeywordRewriter:
         return rewritten_query
 
 
+class GroqMemoryTranslator:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        base_url: str = "",
+    ) -> None:
+        self.api_key = api_key.strip()
+        self.model = model.strip()
+        self.base_url = base_url.strip()
+        self._client: Any | None = None
+
+    def _client_instance(self) -> Any:
+        if self._client is None:
+            from openai import OpenAI
+
+            client_kwargs: dict[str, Any] = {"api_key": self.api_key}
+            if self.base_url:
+                client_kwargs["base_url"] = self.base_url
+            self._client = OpenAI(**client_kwargs)
+        return self._client
+
+    def translate(self, text: str) -> str:
+        cleaned_text = str(text or "").strip()
+        if not cleaned_text:
+            return ""
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一个中文翻译器。"
+                    "把输入内容翻译成自然、简洁、适合记忆检索的中文。"
+                    "保持原意，不要扩写，不要解释，只返回翻译结果原文。"
+                ),
+            },
+            {"role": "user", "content": cleaned_text},
+        ]
+        log_llm_prompt("memory translate", messages)
+        response = self._client_instance().chat.completions.create(
+            model=self.model,
+            temperature=0,
+            messages=messages,
+        )
+        content = str(response.choices[0].message.content or "").strip()
+        log_multiline("memory translate raw", content)
+        translated_text = re.sub(
+            r"(?is)<think>.*?</think>",
+            "",
+            content,
+        ).strip() or cleaned_text
+        log(f"memory translate parsed: {translated_text}")
+        return translated_text
+
+
 class Mem0RememberStore(BaseRememberStore):
     def __init__(
         self,
@@ -515,6 +586,10 @@ class Mem0RememberStore(BaseRememberStore):
         response = self.client.search(query, **self._read_scope_kwargs())
         return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
 
+    def get_all(self) -> list[dict[str, Any]]:
+        response = self.client.get_all(**self._read_scope_kwargs())
+        return _extract_mem0_results(response)
+
 
 class SQLiteFTS5RememberStore(BaseRememberStore):
     def __init__(
@@ -538,6 +613,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             f"""
             CREATE TABLE IF NOT EXISTS {self.table_name} (
                 id TEXT PRIMARY KEY,
+                source_memory_id TEXT NOT NULL DEFAULT '',
                 memory TEXT NOT NULL,
                 original_text TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
@@ -545,6 +621,17 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             )
             """
         )
+        columns = {
+            str(row["name"])
+            for row in conn.execute(f"PRAGMA table_info({self.table_name})").fetchall()
+        }
+        if "source_memory_id" not in columns:
+            conn.execute(
+                f"""
+                ALTER TABLE {self.table_name}
+                ADD COLUMN source_memory_id TEXT NOT NULL DEFAULT ''
+                """
+            )
         conn.execute(
             f"""
             CREATE VIRTUAL TABLE IF NOT EXISTS {self.fts_table_name}
@@ -562,27 +649,52 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             ON {self.table_name}(updated_at DESC)
             """
         )
+        conn.execute(
+            f"""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_{self.table_name}_source_memory_id
+            ON {self.table_name}(source_memory_id)
+            WHERE source_memory_id != ''
+            """
+        )
         return conn
 
-    def add(self, *, memory: str, original_text: str = "") -> str:
+    def add(
+        self,
+        *,
+        memory: str,
+        original_text: str = "",
+        source_memory_id: str = "",
+    ) -> str:
         item_id = uuid.uuid4().hex
         timestamp = _now_iso()
         stored_memory = str(memory or "").strip()
         stored_original_text = str(original_text or "").strip()
+        stored_source_memory_id = str(source_memory_id or "").strip()
         with contextlib.closing(self._connect()) as conn:
             with conn:
+                if stored_source_memory_id:
+                    conn.execute(
+                        f"DELETE FROM {self.fts_table_name} WHERE item_id IN (SELECT id FROM {self.table_name} WHERE source_memory_id = ?)",
+                        (stored_source_memory_id,),
+                    )
+                    conn.execute(
+                        f"DELETE FROM {self.table_name} WHERE source_memory_id = ?",
+                        (stored_source_memory_id,),
+                    )
                 conn.execute(
                     f"""
                     INSERT INTO {self.table_name} (
                         id,
+                        source_memory_id,
                         memory,
                         original_text,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
                         item_id,
+                        stored_source_memory_id,
                         stored_memory,
                         stored_original_text,
                         timestamp,
@@ -600,6 +712,26 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     (stored_memory, stored_original_text, item_id),
                 )
         return f"✅ 已记录：{stored_memory}"
+
+    def upsert(
+        self,
+        *,
+        source_memory_id: str,
+        memory: str,
+        original_text: str = "",
+    ) -> str:
+        return self.add(
+            source_memory_id=source_memory_id,
+            memory=memory,
+            original_text=original_text,
+        )
+
+    def has_any_rows(self) -> bool:
+        with contextlib.closing(self._connect()) as conn:
+            row = conn.execute(
+                f"SELECT 1 FROM {self.table_name} LIMIT 1"
+            ).fetchone()
+        return row is not None
 
     def _match_query(self, query: str) -> str:
         cleaned_query = str(query or "").strip()
@@ -732,6 +864,50 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             for index, row in enumerate(rows)
         ]
         return json.dumps({"results": results}, ensure_ascii=False)
+
+
+def migrate_mem0_memories_to_sqlite(
+    *,
+    source_store: Mem0RememberStore,
+    target_store: SQLiteFTS5RememberStore,
+    translator: MemoryTranslator,
+    page_size: int = 100,
+) -> int:
+    copied = 0
+    page = 1
+    effective_page_size = max(1, int(page_size))
+    while True:
+        payload = source_store.client.get_all(
+            **source_store._read_scope_kwargs(),
+            page=page,
+            page_size=effective_page_size,
+        )
+        items = _extract_mem0_results(payload)
+        if not items:
+            break
+        for item in items:
+            source_memory_id = str(item.get("id", "")).strip()
+            source_memory = str(item.get("memory") or item.get("text") or "").strip()
+            if not source_memory:
+                continue
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            original_text = str(
+                metadata.get("original_text")
+                or metadata.get("source_text")
+                or item.get("original_text")
+                or source_memory
+            ).strip()
+            translated_memory = translator.translate(source_memory) or source_memory
+            target_store.upsert(
+                source_memory_id=source_memory_id,
+                memory=translated_memory,
+                original_text=original_text,
+            )
+            copied += 1
+        if len(items) < effective_page_size:
+            break
+        page += 1
+    return copied
 
 
 class NullHistoryStore(BaseHistoryStore):
@@ -916,13 +1092,47 @@ class StorageService:
             base_url=self.config.groq_rewrite_base_url,
         )
 
+    def _sqlite_memory_translator(self) -> MemoryTranslator | None:
+        if not self.config.groq_rewrite_api_key.strip():
+            return None
+        return GroqMemoryTranslator(
+            api_key=self.config.groq_rewrite_api_key,
+            model=self.config.groq_rewrite_model,
+            base_url=self.config.groq_rewrite_base_url,
+        )
+
+    def _bootstrap_sqlite_from_mem0(
+        self, store: SQLiteFTS5RememberStore
+    ) -> int:
+        if store.has_any_rows():
+            return 0
+        if not self.config.mem0_api_key.strip():
+            return 0
+        translator = self._sqlite_memory_translator()
+        if translator is None:
+            return 0
+        source_store = Mem0RememberStore(
+            api_key=self.config.mem0_api_key,
+            user_id=self.config.mem0_user_id,
+            app_id=self.config.mem0_app_id,
+        )
+        copied = migrate_mem0_memories_to_sqlite(
+            source_store=source_store,
+            target_store=store,
+            translator=translator,
+        )
+        log(f"sqlite remember bootstrap copied={copied}")
+        return copied
+
     def remember_store(self) -> BaseRememberStore:
         if self.config.backend == "sqlite_fts5":
-            return SQLiteFTS5RememberStore(
+            store = SQLiteFTS5RememberStore(
                 db_path=self.config.remember_db_path,
                 max_results=self.config.remember_max_results,
                 keyword_rewriter=self._sqlite_keyword_rewriter(),
             )
+            self._bootstrap_sqlite_from_mem0(store)
+            return store
         return Mem0RememberStore(
             api_key=self.config.mem0_api_key,
             user_id=self.config.mem0_user_id,

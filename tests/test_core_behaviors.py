@@ -137,6 +137,10 @@ class FakeMem0Client:
                 return {"results": filtered}
         return self.search_response
 
+    def get_all(self, **kwargs: object) -> object:
+        self.search_calls.append({"get_all": True, **kwargs})
+        return {"results": list(self.memories)}
+
 
 class FakeChatCompletions:
     def __init__(self, response_content: str) -> None:
@@ -193,6 +197,15 @@ class FakeKeywordRewriter:
     def rewrite(self, query: str) -> str:
         self.calls.append(query)
         return self.rewritten_query
+
+
+class FakeMemoryTranslator:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def translate(self, text: str) -> str:
+        self.calls.append(text)
+        return f"中文:{text}"
 
 
 class LogCapture:
@@ -1175,6 +1188,53 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             found = store.find(query="办公桌")
 
         self.assertIn('"memory": "AirPods 在办公桌左边抽屉"', found)
+
+    def test_migrate_mem0_memories_to_sqlite_translates_and_inserts(self) -> None:
+        source_client = FakeMem0Client()
+        source_client.memories = [
+            {
+                "id": "mem-1",
+                "memory": "passport is in the study drawer",
+                "metadata": {"original_text": "passport is in the study drawer"},
+                "created_at": "2026-04-12T10:00:00+08:00",
+            },
+            {
+                "id": "mem-2",
+                "memory": "usb test board is on the desk",
+                "metadata": {"original_text": "usb test board is on the desk"},
+                "created_at": "2026-04-12T10:01:00+08:00",
+            },
+        ]
+        source_store = storage_service_module.Mem0RememberStore(
+            client=source_client,
+            user_id="soj",
+            app_id="voice-assistant",
+        )
+        translator = FakeMemoryTranslator()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            target_store = storage_service_module.SQLiteFTS5RememberStore(
+                db_path=db_path,
+            )
+
+            copied = storage_service_module.migrate_mem0_memories_to_sqlite(
+                source_store=source_store,
+                target_store=target_store,
+                translator=translator,
+            )
+            found = target_store.find(query="中文")
+
+        self.assertEqual(copied, 2)
+        self.assertEqual(
+            translator.calls,
+            [
+                "passport is in the study drawer",
+                "usb test board is on the desk",
+            ],
+        )
+        self.assertIn('"memory": "中文:passport is in the study drawer"', found)
+        self.assertIn('"memory": "中文:usb test board is on the desk"', found)
 
     def test_migrate_history_table_copies_rows_to_new_db(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
