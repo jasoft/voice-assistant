@@ -768,14 +768,19 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if not cleaned_query:
             return ""
         if self.use_simple_query:
+            rewritten_query = cleaned_query
             if self.keyword_rewriter is None:
                 simple_query = cleaned_query
             else:
                 try:
-                    rewritten = str(self.keyword_rewriter.rewrite(cleaned_query)).strip()
+                    rewritten_query = str(
+                        self.keyword_rewriter.rewrite(cleaned_query)
+                    ).strip()
                 except Exception:
-                    rewritten = ""
-                keywords = _keywords_from_match_query(rewritten, cleaned_query)
+                    rewritten_query = ""
+                keywords = _keywords_from_match_query(
+                    rewritten_query, cleaned_query
+                )
                 simple_query = " ".join(keywords).strip() or cleaned_query
             log(
                 "remember search input: "
@@ -868,7 +873,11 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 (match_query, self.max_results),
             ).fetchall()
             if not rows:
-                keywords = _keywords_from_match_query(match_query, query)
+                keywords = (
+                    _tokenize_for_match(match_query)
+                    if self.use_simple_query
+                    else _keywords_from_match_query(match_query, query)
+                )
                 if keywords:
                     log(
                         "remember search fallback: "
