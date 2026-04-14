@@ -18,6 +18,7 @@ APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_APP_DB_PATH = APP_ROOT / "data" / "voice_assistant_store.sqlite3"
 DEFAULT_HISTORY_DB_PATH = DEFAULT_APP_DB_PATH
 DEFAULT_REMEMBER_DB_PATH = DEFAULT_APP_DB_PATH
+SIMPLE_EXTENSION_PATH = APP_ROOT / "third_party" / "simple" / "libsimple.dylib"
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 
 
@@ -405,6 +406,7 @@ class GroqKeywordRewriter:
                 "content": (
                     "你是一个查询纠错改写器。"
                     "请在保持原意不变的前提下，修正语音转文字或听写造成的明显错字、错词、同音词错误。"
+                    "同时去掉没有检索价值的提问前缀，例如“查询”“查找”“搜索”“帮我找下”“帮我找一下”“关于”“有关”。"
                     "不要扩写，不要解释，只返回 JSON：{\"query\":\"纠正后的问句\"}。"
                     "如果原句无需修正，也原样返回。"
                 ),
@@ -603,12 +605,25 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         self.max_results = max(1, int(max_results))
         self.keyword_rewriter = keyword_rewriter
         self.table_name = "remember_entries"
-        self.fts_table_name = "remember_entries_fts"
+        self.fts_table_name = "remember_entries_simple_fts"
+        self.use_simple_query = False
+
+    def _load_simple_extension(self, conn: sqlite3.Connection) -> bool:
+        extension_path = SIMPLE_EXTENSION_PATH.expanduser()
+        if not extension_path.is_file():
+            return False
+        conn.enable_load_extension(True)
+        try:
+            conn.load_extension(str(extension_path))
+        finally:
+            conn.enable_load_extension(False)
+        return True
 
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        self.use_simple_query = self._load_simple_extension(conn)
         conn.execute(
             f"""
             CREATE TABLE IF NOT EXISTS {self.table_name} (
@@ -639,7 +654,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 memory,
                 original_text,
                 item_id UNINDEXED,
-                tokenize='unicode61'
+                tokenize='simple'
             )
             """
         )
@@ -654,6 +669,21 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             CREATE UNIQUE INDEX IF NOT EXISTS idx_{self.table_name}_source_memory_id
             ON {self.table_name}(source_memory_id)
             WHERE source_memory_id != ''
+            """
+        )
+        conn.execute(f"DELETE FROM {self.fts_table_name}")
+        conn.execute(
+            f"""
+            INSERT INTO {self.fts_table_name} (
+                memory,
+                original_text,
+                item_id
+            )
+            SELECT
+                memory,
+                original_text,
+                id
+            FROM {self.table_name}
             """
         )
         return conn
@@ -737,6 +767,30 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         cleaned_query = str(query or "").strip()
         if not cleaned_query:
             return ""
+        if self.use_simple_query:
+            if self.keyword_rewriter is None:
+                simple_query = cleaned_query
+            else:
+                try:
+                    rewritten = str(self.keyword_rewriter.rewrite(cleaned_query)).strip()
+                except Exception:
+                    rewritten = ""
+                keywords = _keywords_from_match_query(rewritten, cleaned_query)
+                simple_query = " ".join(keywords).strip() or cleaned_query
+            log(
+                "remember search input: "
+                + json.dumps(
+                    {
+                        "query": cleaned_query,
+                        "match_query": simple_query,
+                        "keywords": _tokenize_for_match(simple_query),
+                        "rewrite": False,
+                        "fts": "simple_query",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return simple_query
         if self.keyword_rewriter is None:
             match_query = _default_match_query(cleaned_query)
             log(
@@ -790,7 +844,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if not match_query:
             return json.dumps({"results": []}, ensure_ascii=False)
         with contextlib.closing(self._connect()) as conn:
-            log(f"remember search sql: fts5 match={match_query}")
+            match_sql = (
+                "simple_query(?)" if self.use_simple_query else "?"
+            )
+            log(
+                f"remember search sql: fts5 match="
+                + (f"simple_query({match_query})" if self.use_simple_query else match_query)
+            )
             rows = conn.execute(
                 f"""
                 SELECT
@@ -801,7 +861,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     items.updated_at
                 FROM {self.fts_table_name} fts
                 JOIN {self.table_name} items ON items.id = fts.item_id
-                WHERE {self.fts_table_name} MATCH ?
+                WHERE {self.fts_table_name} MATCH {match_sql}
                 ORDER BY bm25({self.fts_table_name}), items.updated_at DESC
                 LIMIT ?
                 """,
