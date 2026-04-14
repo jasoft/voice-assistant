@@ -768,9 +768,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if not cleaned_query:
             return ""
         if self.use_simple_query:
-            rewritten_query = cleaned_query
             if self.keyword_rewriter is None:
                 simple_query = cleaned_query
+                rewritten_query = cleaned_query
             else:
                 try:
                     rewritten_query = str(
