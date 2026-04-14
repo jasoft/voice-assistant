@@ -12,12 +12,9 @@ from press_to_talk.storage import StorageService
 from ..models.config import Config
 from ..models.history import build_storage_config
 from ..utils.env import (
-    DEFAULT_WORKFLOW_PATH,
-    INTENT_EXTRACTOR_CONFIG_PATH,
     WORKFLOW_CONFIG_PATH,
     expand_env_placeholders,
     load_json_file,
-    load_workflow_defaults,
 )
 from ..utils.logging import log, log_llm_prompt, log_multiline
 from ..utils.shell import parse_json_output
@@ -80,6 +77,19 @@ def _format_structured_mem0_summary(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _require_mapping(value: Any, path: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"workflow config missing required section: {path}")
+    return value
+
+
+def _render_prompt_template(template: str, values: dict[str, str]) -> str:
+    rendered = str(template or "")
+    for key, value in values.items():
+        rendered = rendered.replace(f"${{{key}}}", value)
+    return rendered
+
+
 def _memory_date_prefix(timestamp: str) -> str:
     raw = str(timestamp or "").strip()
     if not raw:
@@ -115,39 +125,33 @@ class OpenAICompatibleAgent:
         self._load_workflow_config()
 
     def _load_workflow_config(self) -> None:
-        defaults = load_workflow_defaults()
-        try:
-            workflow_data = load_json_file(WORKFLOW_CONFIG_PATH)
-            workflow_data = expand_env_placeholders(workflow_data)
-            workflow_data = self._inject_runtime_context(workflow_data)
-            self.workflow = workflow_data
-            log(f"workflow config loaded: {WORKFLOW_CONFIG_PATH}")
-        except Exception as e:
-            log(f"Failed to load workflow config: {e}")
-            self.workflow = defaults
-            log(f"workflow config source: {DEFAULT_WORKFLOW_PATH}")
+        workflow_data = load_json_file(WORKFLOW_CONFIG_PATH)
+        workflow_data = expand_env_placeholders(workflow_data)
+        self.workflow = self._validate_workflow_config(workflow_data)
+        log(f"workflow config loaded: {WORKFLOW_CONFIG_PATH}")
 
-        intents = self.workflow.get("intents")
-        if not isinstance(intents, dict) or "chat" not in intents:
-            log("workflow config missing valid intents; falling back to defaults")
-            self.workflow = defaults
-            return
-
-        mcp_servers = self.workflow.get("mcp_servers")
+    def _validate_workflow_config(self, workflow: Any) -> dict[str, Any]:
+        workflow_cfg = _require_mapping(workflow, "workflow")
+        intents = _require_mapping(workflow_cfg.get("intents"), "intents")
+        prompts = _require_mapping(workflow_cfg.get("prompts"), "prompts")
+        mcp_servers = workflow_cfg.get("mcp_servers")
         if not isinstance(mcp_servers, dict):
-            self.workflow["mcp_servers"] = {}
-
-    def _inject_runtime_context(self, workflow: dict[str, Any]) -> dict[str, Any]:
-        chat_cfg = workflow.get("intents", {}).get("chat")
-        if isinstance(chat_cfg, dict):
-            system_prompt = str(chat_cfg.get("system_prompt", ""))
-            chat_cfg["system_prompt"] = system_prompt.replace(
-                "${PTT_CURRENT_TIME}", current_time_text()
-            ).replace("${PTT_LOCATION}", "南京")
-        return workflow
+            workflow_cfg["mcp_servers"] = {}
+        for key in ("record", "find", "chat"):
+            _require_mapping(intents.get(key), f"intents.{key}")
+            _require_mapping(prompts.get(key if key != "chat" else "chat"), f"prompts.{key}")
+        _require_mapping(prompts.get("intent_extractor"), "prompts.intent_extractor")
+        _require_mapping(prompts.get("query_normalize"), "prompts.query_normalize")
+        _require_mapping(prompts.get("keyword_rewrite"), "prompts.keyword_rewrite")
+        _require_mapping(prompts.get("memory_translate"), "prompts.memory_translate")
+        _require_mapping(prompts.get("remember_summary"), "prompts.remember_summary")
+        return workflow_cfg
 
     def _build_intent_extractor_messages(self, user_input: str) -> list[dict[str, str]]:
-        extractor_cfg = load_json_file(INTENT_EXTRACTOR_CONFIG_PATH)
+        prompts = _require_mapping(self.workflow.get("prompts"), "prompts")
+        extractor_cfg = _require_mapping(
+            prompts.get("intent_extractor"), "prompts.intent_extractor"
+        )
         intent_desc = "\n".join(
             [
                 f"- {k}: {v.get('description', '')}"
@@ -161,18 +165,18 @@ class OpenAICompatibleAgent:
             f"{index}. {item}"
             for index, item in enumerate(extractor_cfg["instructions"], start=1)
         )
+        system_prompt = _render_prompt_template(
+            str(extractor_cfg["system_prompt"]),
+            {
+                "INTENT_DESCRIPTIONS": intent_desc,
+                "INTENT_EXTRACTION_RULES": instructions,
+                "INTENT_JSON_SCHEMA": schema,
+            },
+        )
         messages: list[dict[str, str]] = [
             {
                 "role": "system",
-                "content": (
-                    "你是一个中文意图识别与结构化抽取器。"
-                    + "请根据用户输入，判断意图，并把要记录、要查找、要联网搜索的内容拆解成 JSON。\n\n"
-                    + "意图列表：\n"
-                    f"{intent_desc}\n\n"
-                    "规则：\n"
-                    f"{instructions}\n\n"
-                    f"JSON schema:\n{schema}"
-                ),
+                "content": system_prompt,
             },
         ]
         for example in extractor_cfg["examples"]:
@@ -406,24 +410,18 @@ class OpenAICompatibleAgent:
 
         memories_summary = "\n".join(extracted_memories)
 
-        remember_summary_cfg = self.workflow.get("remember_summary", {})
+        prompts = _require_mapping(self.workflow.get("prompts"), "prompts")
+        remember_summary_cfg = _require_mapping(
+            prompts.get("remember_summary"), "prompts.remember_summary"
+        )
         system_prompt = str(remember_summary_cfg.get("system_prompt", "")).strip()
         if not system_prompt:
-            system_prompt = (
-                "你是一个智能助手。"
-                f"今天是 {_runtime_current_time_text()}。"
-                "你收到了我询问的问题，以及从数据库中筛选出的记忆列表。"
-                "你需要只基于这些结果，用友好简短的方式直接回答我。"
-                "绝对不要提及记录 ID、技术字段、分数或内部术语。\n"
-                "规则：\n"
-                "1. 用“我”和“你”来指代，不要说“用户”，可以称呼我为“大王”。\n"
-                "2. 结合记录时间，用人类习惯的口语回答（如：‘你在周一记过……’）。\n"
-                "3. 回复要简练，直接进入主题。"
+            raise RuntimeError(
+                "workflow config missing required section: remember_summary.system_prompt"
             )
-        else:
-            system_prompt = system_prompt.replace(
-                "${PTT_CURRENT_TIME}", _runtime_current_time_text()
-            )
+        system_prompt = system_prompt.replace(
+            "${PTT_CURRENT_TIME}", _runtime_current_time_text()
+        )
 
         user_prompt = (
             f"我的问题：{user_question or query or '（无）'}\n"
@@ -502,16 +500,16 @@ class OpenAICompatibleAgent:
             intent_key = "find"
         log(f"Detected intent branch: [bold cyan]{intent_key}[/bold cyan]")
 
-        intents = self.workflow.get("intents", {})
-        intent_cfg = (
-            intents.get(intent_key) or intents.get("find") or intents.get("chat")
-        )
-        if not intent_cfg:
-            raise RuntimeError("workflow config does not contain a usable chat intent")
-        intent_cfg = copy.deepcopy(intent_cfg)
+        prompts = _require_mapping(self.workflow.get("prompts"), "prompts")
+        intent_cfg = _require_mapping(
+            self.workflow.get("intents"), "intents"
+        ).get(intent_key)
+        if not isinstance(intent_cfg, dict):
+            raise RuntimeError(f"workflow config missing intent config: intents.{intent_key}")
+        intent_prompt_cfg = _require_mapping(prompts.get(intent_key), f"prompts.{intent_key}")
         log(
             "active system prompt: "
-            + preview_text(str(intent_cfg.get("system_prompt", "")), limit=160)
+            + preview_text(str(intent_prompt_cfg.get("system_prompt", "")), limit=160)
         )
         structured_tool_result = await self._execute_structured_tool(
             intent_payload.get("tool"),
@@ -525,7 +523,7 @@ class OpenAICompatibleAgent:
         messages: list[dict[str, Any]] = [
             {
                 "role": "system",
-                "content": f"{chat_context_prefix()}\n{intent_cfg['system_prompt']}",
+                "content": f"{chat_context_prefix()}\n{intent_prompt_cfg['system_prompt']}",
             },
             {"role": "user", "content": user_input},
         ]

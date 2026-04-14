@@ -106,6 +106,19 @@ def load_workflow_config() -> dict[str, Any]:
     return {}
 
 
+def _require_mapping(value: Any, path: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"workflow config missing required section: {path}")
+    return value
+
+
+def _render_prompt_template(template: str, values: dict[str, str]) -> str:
+    rendered = str(template or "")
+    for key, value in values.items():
+        rendered = rendered.replace(f"${{{key}}}", value)
+    return rendered
+
+
 def _workflow_storage_config() -> dict[str, Any]:
     workflow = load_workflow_config()
     storage = workflow.get("storage", {}) if isinstance(workflow, dict) else {}
@@ -400,16 +413,20 @@ class GroqKeywordRewriter:
         cleaned_query = str(query or "").strip()
         if not cleaned_query:
             return ""
+        workflow = _require_mapping(load_workflow_config(), "workflow")
+        prompts = _require_mapping(workflow.get("prompts"), "prompts")
+        normalize_cfg = _require_mapping(
+            prompts.get("query_normalize"), "prompts.query_normalize"
+        )
+        system_prompt = str(normalize_cfg.get("system_prompt", "")).strip()
+        if not system_prompt:
+            raise RuntimeError(
+                "workflow config missing required section: prompts.query_normalize.system_prompt"
+            )
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "你是一个查询纠错改写器。"
-                    "请在保持原意不变的前提下，修正语音转文字或听写造成的明显错字、错词、同音词错误。"
-                    "同时去掉没有检索价值的提问前缀，例如“查询”“查找”“搜索”“帮我找下”“帮我找一下”“关于”“有关”。"
-                    "不要扩写，不要解释，只返回 JSON：{\"query\":\"纠正后的问句\"}。"
-                    "如果原句无需修正，也原样返回。"
-                ),
+                "content": system_prompt,
             },
             {"role": "user", "content": cleaned_query},
         ]
@@ -434,17 +451,20 @@ class GroqKeywordRewriter:
         if not cleaned_query:
             return ""
         normalized_query = self._normalize_query(cleaned_query)
+        workflow = _require_mapping(load_workflow_config(), "workflow")
+        prompts = _require_mapping(workflow.get("prompts"), "prompts")
+        rewrite_cfg = _require_mapping(
+            prompts.get("keyword_rewrite"), "prompts.keyword_rewrite"
+        )
+        system_prompt = str(rewrite_cfg.get("system_prompt", "")).strip()
+        if not system_prompt:
+            raise RuntimeError(
+                "workflow config missing required section: prompts.keyword_rewrite.system_prompt"
+            )
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "你是一个 SQLite FTS5 查询改写器。"
-                    "把用户原始问题拆成 2 到 5 个最可能命中的短关键词或短语。"
-                    "关键词应该是名词、专有名词、地点、物品或动作，不要把“在哪里”“哪儿呢”“在哪儿”“哪里有”"
-                    "这类纯查询尾巴当成关键词。"
-                    "只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。"
-                    "不要解释，不要补充其它字段。"
-                ),
+                "content": system_prompt,
             },
             {"role": "user", "content": normalized_query},
         ]
@@ -503,14 +523,20 @@ class GroqMemoryTranslator:
         cleaned_text = str(text or "").strip()
         if not cleaned_text:
             return ""
+        workflow = _require_mapping(load_workflow_config(), "workflow")
+        prompts = _require_mapping(workflow.get("prompts"), "prompts")
+        translate_cfg = _require_mapping(
+            prompts.get("memory_translate"), "prompts.memory_translate"
+        )
+        system_prompt = str(translate_cfg.get("system_prompt", "")).strip()
+        if not system_prompt:
+            raise RuntimeError(
+                "workflow config missing required section: prompts.memory_translate.system_prompt"
+            )
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "你是一个中文翻译器。"
-                    "把输入内容翻译成自然、简洁、适合记忆检索的中文。"
-                    "保持原意，不要扩写，不要解释，只返回翻译结果原文。"
-                ),
+                "content": system_prompt,
             },
             {"role": "user", "content": cleaned_text},
         ]

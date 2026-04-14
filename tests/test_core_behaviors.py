@@ -14,6 +14,58 @@ from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageSe
 from press_to_talk.storage import service as storage_service_module
 
 
+def workflow_with_prompts(
+    *,
+    record_prompt: str = "记录。",
+    find_prompt: str = "查询。",
+    chat_prompt: str = "聊天。",
+    remember_summary_prompt: str = "请整理结果。",
+) -> dict[str, object]:
+    return {
+        "intents": {
+            "record": {},
+            "find": {},
+            "chat": {},
+        },
+        "prompts": {
+            "record": {"system_prompt": record_prompt},
+            "find": {"system_prompt": find_prompt},
+            "chat": {"system_prompt": chat_prompt},
+            "intent_extractor": {
+                "system_prompt": "你是一个中文意图识别与结构化抽取器。请根据用户输入，判断意图，并把要记录、要查找、要联网搜索的内容拆解成 JSON。\n\n意图列表：\n${INTENT_DESCRIPTIONS}\n\n规则：\n${INTENT_EXTRACTION_RULES}\n\nJSON schema:\n${INTENT_JSON_SCHEMA}",
+                "schema": {
+                    "intent": "record|find",
+                    "task": {
+                        "record": {"memory": "", "notes": ""},
+                        "find": {"query": "", "mode": "item|list|property"},
+                    },
+                    "tool": "remember_add|remember_find",
+                    "args": {"memory": "", "query": "", "note": ""},
+                    "confidence": 0.0,
+                    "notes": "简短中文说明",
+                },
+                "instructions": [
+                    "record 表示要记录或更新信息，task.record.memory 和 args.memory 要写成一句适合长期保存和检索的中文记忆，不要拆成 item、content、type。",
+                    "find 表示要查询数据库里可能已经存在的信息。若是找某个具体主题，task.find.mode 用 item；若是按属性或维度追问，mode 用 property。",
+                ],
+                "examples": [],
+            },
+            "query_normalize": {
+                "system_prompt": "你是一个查询纠错改写器。请在保持原意不变的前提下，修正语音转文字或听写造成的明显错字、错词、同音词错误。同时去掉没有检索价值的提问前缀，例如“查询”“查找”“搜索”“帮我找下”“帮我找一下”“关于”“有关”。不要扩写，不要解释，只返回 JSON：{\"query\":\"纠正后的问句\"}。如果原句无需修正，也原样返回。"
+            },
+            "keyword_rewrite": {
+                "system_prompt": "你是一个 SQLite FTS5 查询改写器。把用户原始问题拆成 2 到 5 个最可能命中的短关键词或短语。关键词应该是名词、专有名词、地点、物品或动作，不要把“在哪里”“哪儿呢”“在哪儿”“哪里有”这类纯查询尾巴当成关键词。只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。不要解释，不要补充其它字段。"
+            },
+            "memory_translate": {
+                "system_prompt": "你是一个中文翻译器。把输入内容翻译成自然、简洁、适合记忆检索的中文。保持原意，不要扩写，不要解释，只返回翻译结果原文。"
+            },
+            "remember_summary": {
+                "system_prompt": "你是一个智能助手。今天是 ${PTT_CURRENT_TIME}。现在你有一个我询问的问题，并且已经拿到了经过筛选的数据库结果。你需要只基于这些结果，用友好简短的方式直接回答我。忽略里面的今天、明天等相对日期，以每条记录的记录日期为准，忽略记录 ID 和调试信息。 记住你是在直接跟我说话，用“我”和“你”来指代，而不要说“用户”, 你收到的消息里面的用户，就是我, 你可以称呼我:大王"
+            },
+        },
+    }
+
+
 class FakeRememberStore:
     def __init__(self) -> None:
         self.add_calls: list[dict[str, object]] = []
@@ -405,7 +457,7 @@ class ThinkTagFilterTests(unittest.TestCase):
             '{"intent":"find","tool":"remember_find","args":{"item":"","content":"","type":"","query":"护照","image":"","note":""},"confidence":0.99,"notes":"查询护照"}'
         )
         agent.model = "test-model"
-        agent.workflow = {"intents": {"record": {}, "find": {}, "chat": {}}}
+        agent.workflow = workflow_with_prompts()
 
         payload = self.async_run(agent._extract_intent_payload("护照在哪"))
 
@@ -416,7 +468,7 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("护照在书房抽屉里。")
         agent.model = "test-model"
-        agent.workflow = {"remember_summary": {"system_prompt": "请整理结果。"}}
+        agent.workflow = workflow_with_prompts()
 
         summary = agent._summarize_remember_output(
             "remember_find",
@@ -434,7 +486,7 @@ class ThinkTagFilterTests(unittest.TestCase):
                 agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
                 agent.client = FakeClient("<think>内部思考</think>\n护照在书房抽屉里。")
                 agent.model = "test-model"
-                agent.workflow = {"remember_summary": {"system_prompt": "请整理结果。"}}
+                agent.workflow = workflow_with_prompts()
 
                 summary = agent._summarize_remember_output(
                     "remember_find",
@@ -457,11 +509,9 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("最近三天有两条记录。")
         agent.model = "test-model"
-        agent.workflow = {
-            "remember_summary": {
-                "system_prompt": "今天是 ${PTT_CURRENT_TIME}。请整理结果。"
-            }
-        }
+        agent.workflow = workflow_with_prompts(
+            remember_summary_prompt="今天是 ${PTT_CURRENT_TIME}。请整理结果。"
+        )
 
         with patch(
             "press_to_talk.core.current_time_text", return_value="2026-04-11 09:30:00"
@@ -533,7 +583,7 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("护照在书房抽屉里。")
         agent.model = "test-model"
-        agent.workflow = {"remember_summary": {"system_prompt": "请整理结果。"}}
+        agent.workflow = workflow_with_prompts()
 
         raw_output = (
             '{"results":[{"id":"m1","memory":"护照在书房抽屉里","score":0.91,'
@@ -644,7 +694,7 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("护照在书房抽屉里。")
         agent.model = "test-model"
-        agent.workflow = {"remember_summary": {"system_prompt": "请整理结果。"}}
+        agent.workflow = workflow_with_prompts()
         agent.storage = FakeStorageService(backend="mem0")
 
         result = self.async_run(
@@ -664,10 +714,7 @@ class ThinkTagFilterTests(unittest.TestCase):
             '{"intent":"find","tool":"remember_find","args":{"memory":"","query":"小狗","note":""},"confidence":0.8,"notes":"用户在查询与小狗相关的信息"}'
         )
         agent.model = "test-model"
-        agent.workflow = {
-            "intents": {"record": {}, "find": {}, "chat": {}},
-            "remember_summary": {"system_prompt": "请整理结果。"},
-        }
+        agent.workflow = workflow_with_prompts()
         agent.storage = FakeStorageService()
 
         payload = self.async_run(agent._extract_intent_payload("查找关于小狗的信息。"))
@@ -683,7 +730,7 @@ class ThinkTagFilterTests(unittest.TestCase):
             '{"intent":"find","tool":"remember_find","args":{"memory":"","query":"上海天气","note":""},"confidence":0.76,"notes":"用户在查询上海天气"}'
         )
         agent.model = "test-model"
-        agent.workflow = {"intents": {"record": {}, "find": {}, "chat": {}}}
+        agent.workflow = workflow_with_prompts()
 
         payload = self.async_run(agent._extract_intent_payload("帮我联网搜索上海天气"))
 
@@ -697,7 +744,7 @@ class ThinkTagFilterTests(unittest.TestCase):
             '{"intent":"record","tool":"remember_add","args":{"memory":"用户安装了显示器的增高板","query":"","note":""},"confidence":0.98,"notes":"用户在记录安装信息"}'
         )
         agent.model = "test-model"
-        agent.workflow = {"intents": {"record": {}, "find": {}, "chat": {}}}
+        agent.workflow = workflow_with_prompts()
 
         payload = self.async_run(
             agent._extract_intent_payload("记录一下，我今天安装了显示器的增高板")
