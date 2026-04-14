@@ -379,10 +379,43 @@ class GroqKeywordRewriter:
             self._client = OpenAI(**client_kwargs)
         return self._client
 
+    def _normalize_query(self, query: str) -> str:
+        cleaned_query = str(query or "").strip()
+        if not cleaned_query:
+            return ""
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一个查询纠错改写器。"
+                    "请在保持原意不变的前提下，修正语音转文字或听写造成的明显错字、错词、同音词错误。"
+                    "不要扩写，不要解释，只返回 JSON：{\"query\":\"纠正后的问句\"}。"
+                    "如果原句无需修正，也原样返回。"
+                ),
+            },
+            {"role": "user", "content": cleaned_query},
+        ]
+        log_llm_prompt("query normalize", messages)
+        response = self._client_instance().chat.completions.create(
+            model=self.model,
+            temperature=0,
+            messages=messages,
+        )
+        content = str(response.choices[0].message.content or "").strip()
+        log_multiline("query normalize raw", content)
+        payload = json.loads(content)
+        normalized_query = (
+            str(payload.get("query", "")).strip() if isinstance(payload, dict) else ""
+        )
+        final_query = normalized_query or cleaned_query
+        log(f"query normalize parsed: {final_query}")
+        return final_query
+
     def rewrite(self, query: str) -> str:
         cleaned_query = str(query or "").strip()
         if not cleaned_query:
             return ""
+        normalized_query = self._normalize_query(cleaned_query)
         messages = [
             {
                 "role": "system",
@@ -393,7 +426,7 @@ class GroqKeywordRewriter:
                     "不要解释，不要补充其它字段。"
                 ),
             },
-            {"role": "user", "content": cleaned_query},
+            {"role": "user", "content": normalized_query},
         ]
         log_llm_prompt("keyword rewrite", messages)
         response = self._client_instance().chat.completions.create(
@@ -415,7 +448,7 @@ class GroqKeywordRewriter:
             + json.dumps(cleaned_keywords, ensure_ascii=False)
         )
         if not cleaned_keywords:
-            return _default_match_query(cleaned_query)
+            return _default_match_query(normalized_query)
         rewritten_query = " OR ".join(
             _quote_match_token(keyword) for keyword in cleaned_keywords if keyword
         )

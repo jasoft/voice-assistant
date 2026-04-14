@@ -160,6 +160,31 @@ class FakeClient:
         self.chat = SimpleNamespace(completions=FakeChatCompletions(response_content))
 
 
+class SequentialFakeChatCompletions:
+    def __init__(self, response_contents: list[str]) -> None:
+        self.response_contents = list(response_contents)
+        self.calls: list[dict[str, object]] = []
+
+    def create(self, **kwargs: object) -> SimpleNamespace:
+        self.calls.append(dict(kwargs))
+        content = self.response_contents.pop(0)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(content=content),
+                )
+            ]
+        )
+
+
+class SequentialFakeClient:
+    def __init__(self, response_contents: list[str]) -> None:
+        self.chat = SimpleNamespace(
+            completions=SequentialFakeChatCompletions(response_contents)
+        )
+
+
 class FakeKeywordRewriter:
     def __init__(self, rewritten_query: str) -> None:
         self.rewritten_query = rewritten_query
@@ -1077,7 +1102,12 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             api_key="test-key",
             model="test-model",
         )
-        rewriter._client = FakeClient('{"keywords":["护照","书房"]}')
+        rewriter._client = SequentialFakeClient(
+            [
+                '{"query":"USB 木板在哪里"}',
+                '{"keywords":["USB","木板"]}',
+            ]
+        )
 
         with (
             patch.object(storage_service_module, "log", capture),
@@ -1094,12 +1124,14 @@ class SQLiteRememberStoreTests(unittest.TestCase):
                 ),
             ),
         ):
-            rewritten = rewriter.rewrite("我的护照放哪了")
+            rewritten = rewriter.rewrite("USB 测试版在哪里")
 
-        self.assertEqual(rewritten, '"护照" OR "书房"')
+        self.assertEqual(rewritten, '"USB" OR "木板"')
+        self.assertTrue(any("query normalize" in message for message in capture.messages))
         self.assertTrue(any("keyword rewrite" in message for message in capture.messages))
-        self.assertTrue(any("我的护照放哪了" in message for message in capture.messages))
-        self.assertTrue(any('{"keywords":["护照","书房"]}' in message for message in capture.messages))
+        self.assertTrue(any("USB 测试版在哪里" in message for message in capture.messages))
+        self.assertTrue(any("USB 木板在哪里" in message for message in capture.messages))
+        self.assertTrue(any('{"keywords":["USB","木板"]}' in message for message in capture.messages))
 
     def test_sqlite_store_logs_search_keywords_and_queries(self) -> None:
         capture = LogCapture()
