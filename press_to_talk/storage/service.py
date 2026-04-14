@@ -373,14 +373,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         self.db_path = Path(db_path).expanduser()
         self.max_results = max(1, int(max_results))
         self.keyword_rewriter = keyword_rewriter
+        self.table_name = "remember_entries"
+        self.fts_table_name = "remember_entries_fts"
 
-    def _connect(self) -> sqlite3.Connection:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+    def _bootstrap_schema(self, conn: sqlite3.Connection) -> None:
         conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS remember_items (
+            f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} (
                 id TEXT PRIMARY KEY,
                 memory TEXT NOT NULL,
                 original_text TEXT NOT NULL DEFAULT '',
@@ -390,8 +389,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             """
         )
         conn.execute(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS remember_items_fts
+            f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS {self.fts_table_name}
             USING fts5(
                 memory,
                 original_text,
@@ -401,11 +400,84 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             """
         )
         conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_remember_items_updated_at
-            ON remember_items(updated_at DESC)
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.table_name}_updated_at
+            ON {self.table_name}(updated_at DESC)
             """
         )
+
+    def _has_table(self, conn: sqlite3.Connection, table_name: str) -> bool:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+            (table_name,),
+        ).fetchone()
+        return row is not None
+
+    def _row_count(self, conn: sqlite3.Connection, table_name: str) -> int:
+        return int(conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
+
+    def _migrate_legacy_rows(self, conn: sqlite3.Connection) -> None:
+        if not self._has_table(conn, "remember_items"):
+            return
+        if self._row_count(conn, self.table_name) > 0:
+            return
+        legacy_columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(remember_items)").fetchall()
+        }
+        if {"name", "content", "original_text", "created_at"} - legacy_columns:
+            return
+
+        legacy_rows = conn.execute(
+            """
+            SELECT
+                id,
+                name,
+                content,
+                original_text,
+                created_at
+            FROM remember_items
+            ORDER BY created_at ASC
+            """
+        ).fetchall()
+        for row in legacy_rows:
+            name = str(row["name"] or "").strip()
+            content = str(row["content"] or "").strip()
+            memory = "：".join(part for part in [name, content] if part).strip()
+            if not memory:
+                memory = content or name
+            original_text = str(row["original_text"] or "").strip()
+            created_at = str(row["created_at"] or "").strip() or _now_iso()
+            item_id = f"legacy-{row['id']}"
+            conn.execute(
+                f"""
+                INSERT OR IGNORE INTO {self.table_name} (
+                    id,
+                    memory,
+                    original_text,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (item_id, memory, original_text, created_at, created_at),
+            )
+            conn.execute(
+                f"""
+                INSERT INTO {self.fts_table_name} (
+                    memory,
+                    original_text,
+                    item_id
+                ) VALUES (?, ?, ?)
+                """,
+                (memory, original_text, item_id),
+            )
+
+    def _connect(self) -> sqlite3.Connection:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        self._bootstrap_schema(conn)
+        self._migrate_legacy_rows(conn)
         return conn
 
     def add(self, *, memory: str, original_text: str = "") -> str:
@@ -416,8 +488,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         with contextlib.closing(self._connect()) as conn:
             with conn:
                 conn.execute(
-                    """
-                    INSERT INTO remember_items (
+                    f"""
+                    INSERT INTO {self.table_name} (
                         id,
                         memory,
                         original_text,
@@ -434,8 +506,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     ),
                 )
                 conn.execute(
-                    """
-                    INSERT INTO remember_items_fts (
+                    f"""
+                    INSERT INTO {self.fts_table_name} (
                         memory,
                         original_text,
                         item_id
@@ -463,17 +535,17 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             return json.dumps({"results": []}, ensure_ascii=False)
         with contextlib.closing(self._connect()) as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT
                     items.id,
                     items.memory,
                     items.original_text,
                     items.created_at,
                     items.updated_at
-                FROM remember_items_fts fts
-                JOIN remember_items items ON items.id = fts.item_id
-                WHERE remember_items_fts MATCH ?
-                ORDER BY bm25(remember_items_fts), items.updated_at DESC
+                FROM {self.fts_table_name} fts
+                JOIN {self.table_name} items ON items.id = fts.item_id
+                WHERE {self.fts_table_name} MATCH ?
+                ORDER BY bm25({self.fts_table_name}), items.updated_at DESC
                 LIMIT ?
                 """,
                 (match_query, self.max_results),
@@ -498,7 +570,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                             original_text,
                             created_at,
                             updated_at
-                        FROM remember_items
+                        FROM {self.table_name}
                         WHERE {like_clauses}
                         ORDER BY updated_at DESC
                         LIMIT ?

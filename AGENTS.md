@@ -50,3 +50,9 @@
   `uv run press-to-talk --text-input "测试内容" --no-tts`
 - 只测意图：
   `uv run press-to-talk --text-input "测试内容" --classify-only`
+
+## 收尾校验
+
+- 结束任务前必须运行：
+  `uv run press-to-talk --text-input "usb测试版在哪" --no-tts`
+- 只有当这条命令不报错时，任务才算完成

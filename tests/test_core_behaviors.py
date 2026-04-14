@@ -1050,6 +1050,61 @@ class SQLiteRememberStoreTests(unittest.TestCase):
 
         self.assertIn('"memory": "AirPods 在办公桌左边抽屉"', found)
 
+    def test_sqlite_store_migrates_legacy_table_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            conn = storage_service_module.sqlite3.connect(db_path)
+            try:
+                conn.execute(
+                    """
+                    CREATE TABLE remember_items (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        remote_id VARCHAR(255),
+                        name VARCHAR(255) NOT NULL,
+                        content TEXT NOT NULL,
+                        record_type VARCHAR(255) NOT NULL,
+                        note TEXT NOT NULL,
+                        original_text TEXT NOT NULL,
+                        photo_json TEXT NOT NULL,
+                        created_at DATETIME NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO remember_items (
+                        id,
+                        remote_id,
+                        name,
+                        content,
+                        record_type,
+                        note,
+                        original_text,
+                        photo_json,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        1,
+                        "",
+                        "usb测试版",
+                        "在书房抽屉里",
+                        "location",
+                        "",
+                        "usb测试版在哪",
+                        "",
+                        "2026-04-14T10:00:00+08:00",
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path)
+            found = store.find(query="usb测试版在哪")
+
+        self.assertIn('"memory": "usb测试版：在书房抽屉里"', found)
+
 
 class NonReentrantLock:
     def __init__(self) -> None:
