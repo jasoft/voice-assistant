@@ -1146,6 +1146,37 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         self.assertTrue(any("USB 木板在哪里" in message for message in capture.messages))
         self.assertTrue(any('{"keywords":["USB","木板"]}' in message for message in capture.messages))
 
+    def test_groq_keyword_rewriter_prompt_excludes_query_tail_keywords(self) -> None:
+        rewriter = storage_service_module.GroqKeywordRewriter(
+            api_key="test-key",
+            model="test-model",
+        )
+
+        captured_messages: list[list[dict[str, str]]] = []
+
+        def capture_prompt(label: str, messages: list[dict[str, str]]) -> None:
+            if label == "keyword rewrite":
+                captured_messages.append(messages)
+
+        rewriter._client = SequentialFakeClient(
+            [
+                '{"query":"USB测试版在哪"}',
+                '{"keywords":["USB","测试版"]}',
+            ]
+        )
+
+        with patch.object(
+            storage_service_module,
+            "log_llm_prompt",
+            capture_prompt,
+        ):
+            rewriter.rewrite("USB 测试版在哪里")
+
+        self.assertTrue(captured_messages)
+        prompt_text = json.dumps(captured_messages[0], ensure_ascii=False)
+        self.assertIn("不要把“在哪里”", prompt_text)
+        self.assertIn("关键词应该是名词", prompt_text)
+
     def test_sqlite_store_logs_search_keywords_and_queries(self) -> None:
         capture = LogCapture()
         with tempfile.TemporaryDirectory() as tmpdir:
