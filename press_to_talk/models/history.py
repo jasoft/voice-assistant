@@ -5,6 +5,7 @@ from press_to_talk.storage import (
     SessionHistoryRecord,
     StorageConfig,
     StorageService,
+    load_storage_config,
 )
 from .config import Config, SessionHistory
 from ..utils.env import APP_ROOT, env_str
@@ -14,16 +15,20 @@ def format_history_timestamp(ts: datetime | None = None) -> str:
     return current.isoformat(timespec="seconds")
 
 def build_storage_config(cfg: Config) -> StorageConfig:
-    return StorageConfig(
-        backend="mem0",
-        mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
-        mem0_user_id=env_str("MEM0_USER_ID", "soj").strip() or "soj",
-        history_db_path=env_str(
-            "PTT_HISTORY_DB_PATH",
-            str(APP_ROOT / "data" / "voice_assistant.sqlite3"),
-        ).strip()
-        or str(APP_ROOT / "data" / "voice_assistant.sqlite3"),
+    config = load_storage_config()
+    config.mem0_api_key = env_str("MEM0_API_KEY", config.mem0_api_key).strip()
+    config.mem0_user_id = (
+        env_str("MEM0_USER_ID", config.mem0_user_id).strip() or config.mem0_user_id
     )
+    config.history_db_path = env_str(
+        "PTT_HISTORY_DB_PATH",
+        str(APP_ROOT / "data" / "voice_assistant.sqlite3"),
+    ).strip() or str(APP_ROOT / "data" / "voice_assistant.sqlite3")
+    config.groq_rewrite_api_key = cfg.llm_api_key.strip()
+    config.groq_rewrite_base_url = cfg.llm_base_url.strip()
+    if cfg.llm_model.strip():
+        config.groq_rewrite_model = config.groq_rewrite_model or cfg.llm_model.strip()
+    return config
 
 class HistoryWriter:
     def __init__(self, service: StorageService) -> None:

@@ -159,6 +159,16 @@ class FakeClient:
         self.chat = SimpleNamespace(completions=FakeChatCompletions(response_content))
 
 
+class FakeKeywordRewriter:
+    def __init__(self, rewritten_query: str) -> None:
+        self.rewritten_query = rewritten_query
+        self.calls: list[str] = []
+
+    def rewrite(self, query: str) -> str:
+        self.calls.append(query)
+        return self.rewritten_query
+
+
 class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
     async def test_remember_find_uses_storage_backend(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
@@ -727,16 +737,18 @@ class HistoryWriterTests(unittest.TestCase):
             str(service.config.history_db_path).endswith("data/voice_assistant.sqlite3")
         )
 
-    def test_load_storage_config_defaults_to_mem0_backend(self) -> None:
+    def test_load_storage_config_defaults_to_workflow_backend(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
             config = storage_service_module.load_storage_config()
 
-        self.assertEqual(config.backend, "mem0")
+        self.assertEqual(config.backend, "sqlite_fts5")
         self.assertEqual(config.mem0_user_id, "soj")
         self.assertEqual(config.mem0_app_id, "voice-assistant")
         self.assertEqual(config.mem0_min_score, 0.8)
         self.assertEqual(config.mem0_max_items, 3)
         self.assertTrue(config.history_db_path.endswith("data/voice_assistant.sqlite3"))
+        self.assertTrue(config.remember_db_path.endswith("data/voice_assistant.sqlite3"))
+        self.assertTrue(config.groq_rewrite_enabled)
 
     def test_load_storage_config_reads_mem0_credentials(self) -> None:
         with patch.dict(
@@ -750,7 +762,7 @@ class HistoryWriterTests(unittest.TestCase):
         ):
             config = storage_service_module.load_storage_config()
 
-        self.assertEqual(config.backend, "mem0")
+        self.assertEqual(config.backend, "sqlite_fts5")
         self.assertEqual(config.mem0_api_key, "test-mem0-key")
         self.assertEqual(config.mem0_user_id, "soj")
         self.assertEqual(config.mem0_app_id, "voice-assistant")
@@ -957,6 +969,86 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(stored.transcript, "你好")
         self.assertEqual(stored.reply, "在这里")
         self.assertTrue(stored.auto_closed)
+
+
+class SQLiteRememberStoreTests(unittest.TestCase):
+    def test_load_storage_config_reads_workflow_sqlite_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workflow_path = Path(tmpdir) / "workflow_config.json"
+            workflow_path.write_text(
+                (
+                    "{"
+                    '"storage":{"provider":"sqlite_fts5","sqlite_fts5":{"db_path":"/tmp/remember.db","max_results":5,'
+                    '"groq_query_rewrite":{"enabled":true,"model":"llama-3.3-70b-versatile"}}}'
+                    "}"
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(storage_service_module, "WORKFLOW_CONFIG_PATH", workflow_path),
+                patch.dict("os.environ", {}, clear=True),
+            ):
+                config = storage_service_module.load_storage_config()
+
+        self.assertEqual(config.backend, "sqlite_fts5")
+        self.assertEqual(config.remember_db_path, "/tmp/remember.db")
+        self.assertEqual(config.remember_max_results, 5)
+        self.assertTrue(config.groq_rewrite_enabled)
+        self.assertEqual(config.groq_rewrite_model, "llama-3.3-70b-versatile")
+
+    def test_sqlite_store_add_and_find_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path)
+
+            result = store.add(
+                memory="周会在二号会议室",
+                original_text="帮我记一下周会在二号会议室，别搞错",
+            )
+            found = store.find(query="二号会议室")
+
+        self.assertIn("✅ 已记录", result)
+        self.assertIn('"memory": "周会在二号会议室"', found)
+        self.assertIn('"original_text": "帮我记一下周会在二号会议室，别搞错"', found)
+
+    def test_sqlite_store_uses_keyword_rewriter_before_search(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            rewriter = FakeKeywordRewriter('"护照" OR "书房"')
+            store = storage_service_module.SQLiteFTS5RememberStore(
+                db_path=db_path,
+                keyword_rewriter=rewriter,
+            )
+            store.add(
+                memory="护照在书房第二层抽屉里",
+                original_text="帮我记住护照在书房第二层抽屉里",
+            )
+
+            found = store.find(query="我的护照放哪了")
+
+        self.assertEqual(rewriter.calls, ["我的护照放哪了"])
+        self.assertIn('"memory": "护照在书房第二层抽屉里"', found)
+
+    def test_sqlite_store_falls_back_to_raw_query_when_rewriter_fails(self) -> None:
+        class RaisingKeywordRewriter:
+            def rewrite(self, query: str) -> str:
+                raise RuntimeError(f"boom:{query}")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            store = storage_service_module.SQLiteFTS5RememberStore(
+                db_path=db_path,
+                keyword_rewriter=RaisingKeywordRewriter(),
+            )
+            store.add(
+                memory="AirPods 在办公桌左边抽屉",
+                original_text="记住 AirPods 在办公桌左边抽屉",
+            )
+
+            found = store.find(query="办公桌")
+
+        self.assertIn('"memory": "AirPods 在办公桌左边抽屉"', found)
 
 
 class NonReentrantLock:

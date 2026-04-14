@@ -23,7 +23,9 @@ uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 
 `press-to-talk` 里的 `remember` 流程会先把用户原话归纳成一条可长期保存和检索的“记忆句”，再落库。数据库主查询字段不再拆成 `name/content/type`，而是统一围绕 `Memory` 检索。
 
-默认情况下，remember 会直接走托管版 `mem0` API。项目会固定使用 `user_id=soj`（可通过 `MEM0_USER_ID` 覆盖）和 `app_id=voice-assistant`，保存记忆时写入抽取后的记忆句并附带用户原话，查询时直接用用户原始问句检索，再把 `mem0` 返回里分数大于 `0.8` 的前三条结果交给当前 Groq/OpenAI-compatible LLM 总结成中文回复。
+默认 provider 现在由 [`workflow_config.json`](/Users/weiwang/Projects/voice-assistant/workflow_config.json) 的 `storage.provider` 控制。当前默认配置是 `sqlite_fts5`：写入时同时保存抽取后的 `memory` 和用户原始表达 `original_text`，查询时先走 SQLite FTS5，全量命不中再用 `LIKE` 兜底；如果打开 `groq_query_rewrite.enabled`，会先调用当前 OpenAI-compatible / Groq 模型把原始问句拆成少量关键词再检索。上层 `remember_add` / `remember_find` 接口不变。
+
+如果把 `storage.provider` 切回 `mem0`，项目会固定使用 `user_id=soj`（可通过 `MEM0_USER_ID` 覆盖）和 `app_id=voice-assistant`，保存记忆时写入抽取后的记忆句并附带用户原话，查询时直接用用户原始问句检索，再把 `mem0` 返回里分数大于阈值的结果交给当前模型总结成中文回复。
 
 可调参数：
 
@@ -31,6 +33,11 @@ uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 - `MEM0_APP_ID`：mem0 app 作用域，默认 `voice-assistant`
 - `MEM0_MIN_SCORE`：mem0 结果最低分数阈值，默认 `0.8`
 - `MEM0_MAX_ITEMS`：最终喂给总结模型的最大条数，默认 `3`
+- `storage.provider`：remember provider，可选 `sqlite_fts5` / `mem0`
+- `storage.sqlite_fts5.db_path`：SQLite remember 库路径
+- `storage.sqlite_fts5.max_results`：remember 查询最多返回多少条
+- `storage.sqlite_fts5.groq_query_rewrite.enabled`：是否先用 Groq/OpenAI-compatible 模型拆关键词
+- `storage.sqlite_fts5.groq_query_rewrite.model`：查询改写使用的模型名
 
 `remember` 的脚本源码默认来自外部兄弟仓库 `ursoft-skills`：实际默认路径是 `/Users/weiwang/Projects/ursoft-skills/skills/remember/scripts/manage_items.py`。项目优先读取 `URSOFT_REMEMBER_SCRIPT`，同时兼容旧变量 `OPENCLAW_REMEMBER_SCRIPT`。
 
@@ -53,6 +60,11 @@ uv run press-to-talk --text-input "记录一下，我今天安装了显示器的
 - `MEM0_API_KEY`：托管版 mem0 API Key
 - `MEM0_USER_ID`：mem0 用户 ID，默认 `soj`
 - `PTT_HISTORY_DB_PATH`：历史记录 SQLite 路径，默认 `data/voice_assistant.sqlite3`
+- `PTT_REMEMBER_BACKEND`：覆盖 remember provider
+- `PTT_REMEMBER_DB_PATH`：覆盖 sqlite remember 库路径
+- `PTT_REMEMBER_MAX_RESULTS`：覆盖 sqlite remember 返回条数
+- `PTT_GROQ_REWRITE_ENABLED`：覆盖查询改写开关
+- `PTT_GROQ_REWRITE_MODEL`：覆盖查询改写模型
 - `URSOFT_REMEMBER_SCRIPT`：覆盖默认 remember 脚本路径
 - `OPENCLAW_REMEMBER_SCRIPT`：旧变量名，仍兼容，但建议迁移到 `URSOFT_REMEMBER_SCRIPT`
 - 其余录音阈值、TTS 参数、输出路径也都支持从 `.env` 覆盖
@@ -69,16 +81,31 @@ uv run press-to-talk --text-input "记录一下，我今天安装了显示器的
 - 回归样本：`--intent-samples-file testdata/intent_samples.jsonl`
 - 记忆语义：`record` 覆盖位置、日期、特征、事件、备注，不再局限于 location
 - 运行日志：每次启动都会自动写一份会话日志到 `logs/`
-- 数据后端：当前只保留 `mem0`
+- 数据后端：支持 `sqlite_fts5` 和 `mem0`
 
-## Mem0 云记忆
+## Remember Provider
 
-默认 remember 就会走 `mem0`，在 `.env` 里至少放这些：
+默认 `workflow_config.json` 已切到 `sqlite_fts5`，配置示例：
+
+```json
+{
+  "storage": {
+    "provider": "sqlite_fts5",
+    "sqlite_fts5": {
+      "db_path": "data/voice_assistant.sqlite3",
+      "max_results": 3,
+      "groq_query_rewrite": {
+        "enabled": true,
+        "model": "qwen/qwen3-32b"
+      }
+    }
+  }
+}
+```
+
+如果要启用查询改写，需要在 `.env` 里准备 Groq 或兼容 OpenAI 协议的鉴权：
 
 ```bash
-MEM0_API_KEY=你的_mem0_key
-MEM0_USER_ID=soj
-
 GROQ_API_KEY=你的_groq_key
 GROQ_BASE_URL=https://api.groq.com/openai/v1
 PTT_GROQ_MODEL=qwen/qwen3-32b
@@ -91,7 +118,14 @@ uv run press-to-talk --text-input "帮我记住护照在书房抽屉里" --no-tt
 uv run press-to-talk --text-input "护照在哪" --no-tts
 ```
 
-`remember_find` 拿到的原始响应会保留 `mem0` JSON，再提取记忆正文、时间、score、metadata 等重点字段，随后交给当前模型整理成适合播报的中文回答。
+`remember_find` 拿到的原始响应会保留统一的 JSON 结构，再提取记忆正文、时间、score、metadata 等重点字段，随后交给当前模型整理成适合播报的中文回答。
+
+如果你仍要走 `mem0`，把 `storage.provider` 改成 `mem0`，并在 `.env` 里至少放这些：
+
+```bash
+MEM0_API_KEY=你的_mem0_key
+MEM0_USER_ID=soj
+```
 
 如需把旧的无 `app_id` 记录迁移到 `app_id=voice-assistant`，可先 dry-run 再执行：
 

@@ -48,10 +48,21 @@
     "remember_summary": {
         "system_prompt": "你是一个智能助手。今天是 ${PTT_CURRENT_TIME}。现在你有一个我询问的问题，并且已经拿到了经过筛选的数据库结果。你需要只基于这些结果，用友好简短的方式直接回答我。忽略里面的今天、明天等相对日期，以每条记录的记录日期为准，忽略记录 ID 和调试信息。 记住你是在直接跟我说话，用“我”和“你”来指代，而不要说“用户”, 你收到的消息里面的用户，就是我, 你可以称呼我:大王"
     },
+    "storage": {
+        "provider": "sqlite_fts5",
+        "sqlite_fts5": {
+            "db_path": "data/voice_assistant.sqlite3",
+            "max_results": 3,
+            "groq_query_rewrite": {
+                "enabled": true,
+                "model": "qwen/qwen3-32b"
+            }
+        }
+    },
     "mem0": {
         "user_id": "soj",
         "app_id": "voice-assistant",
-        "min_score": 0.85,
+        "min_score": 0.7,
         "max_items": 3
     }
 }
