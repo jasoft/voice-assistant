@@ -7,8 +7,8 @@
         },
         "find": {
             "description": "查询数据库中可能已保存的各类个人生活信息，包括人物、宠物、物品、事件、地点、日期、偏好、状态与历史记录。",
-            "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询本地数据库。只使用 remember_find，不要把问题改写成长解释，remember_find 会直接使用我的原始问句查询。回复必须控制在30字以内。",
-            "tools": ["remember_find"]
+            "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询本地数据库。查询长期事实时使用 remember_find；查询之前的对话、历史记录、刚才说过什么时使用 history_find。回复必须控制在30字以内。",
+            "tools": ["remember_find", "history_find"]
         },
         "search": {
             "description": "联网查询实时外部信息。",

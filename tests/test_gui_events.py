@@ -100,13 +100,13 @@ class StorageCliTests(unittest.TestCase):
             with chdir(tmp_path), patch.object(
                 storage_cli.sys,
                 "argv",
-                ["press_to_talk.storage_cli", "list-history", "--limit", "5"],
+                ["press_to_talk.storage_cli", "history", "list", "--limit", "5"],
             ), patch.dict(os.environ, {}, clear=True), redirect_stdout(stdout), redirect_stderr(stderr):
                 code = storage_cli.main()
 
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(stdout.getvalue().strip()), [])
-            self.assertEqual(stderr.getvalue(), "")
+            self.assertIn("Storage configuration loaded", stderr.getvalue())
 
 
 if __name__ == "__main__":

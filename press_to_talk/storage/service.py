@@ -385,16 +385,20 @@ def _default_match_query(query: str) -> str:
     tokens = _tokenize_for_match(query)
     if not tokens:
         return ""
-    if len(tokens) == 1:
-        return _quote_match_token(tokens[0])
-    return " OR ".join(_quote_match_token(token) for token in tokens if token)
+    # 不再在默认分词时加引号，让 _match_query 统一处理
+    return " OR ".join(tokens)
 
 
 def _keywords_from_match_query(match_query: str, raw_query: str) -> list[str]:
+    # 提取被双引号包围的词，并去掉引号
     quoted = re.findall(r'"([^"]+)"', str(match_query or ""))
     cleaned = [item.strip() for item in quoted if item.strip()]
     if cleaned:
         return cleaned
+    # 如果没有被引号包围的词，则按 OR 分割并清理
+    tokens = [t.strip() for t in str(match_query or "").split(" OR ") if t.strip()]
+    if tokens:
+        return tokens
     return _tokenize_for_match(raw_query)
 
 
@@ -822,13 +826,6 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if not cleaned_query:
             return ""
 
-        # If the query already looks like a FTS5 match query (contains OR or quotes), use it directly
-        if " OR " in cleaned_query or (
-            cleaned_query.startswith('"') and cleaned_query.endswith('"')
-        ):
-            log(f"Query already processed: {cleaned_query}")
-            return cleaned_query
-
         # 1. 尝试获取重写后的关键词（如果有 rewriter）
         rewritten_query = ""
         keywords: list[str] = []
@@ -844,13 +841,14 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
 
         # 2. 如果重写失败或没有 rewriter，使用默认分词
         if not rewritten_query:
-            rewritten_query = _default_match_query(cleaned_query)
-            keywords = _tokenize_for_match(cleaned_query)
+            # 移除所有引号，直接用原始词构造 OR 逻辑
+            raw_tokens = _tokenize_for_match(cleaned_query)
+            rewritten_query = " OR ".join(f'"{t}"' for t in raw_tokens if t)
+            keywords = raw_tokens
 
         # 3. 根据是否使用 libsimple 构造最终的 MATCH 语法
         if self.use_simple_query:
-            # libsimple 的 simple_query() 函数接受以空格分隔的关键词，默认行为通常符合预期
-            # 但为了保证 OR 逻辑，我们重新组合它们
+            # libsimple 的 simple_query() 函数接受以空格分隔的关键词
             match_query = " ".join(keywords).strip() or cleaned_query
             log_info = {
                 "query": cleaned_query,
@@ -901,11 +899,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 (match_query, self.max_results),
             ).fetchall()
             if not rows:
-                keywords = (
-                    _tokenize_for_match(match_query)
-                    if self.use_simple_query
-                    else _keywords_from_match_query(match_query, query)
-                )
+                # Fallback: 使用原始查询词的分词进行 LIKE 搜索，确保没有引号干扰
+                keywords = _tokenize_for_match(query)
                 if keywords:
                     log(
                         "remember search fallback: "

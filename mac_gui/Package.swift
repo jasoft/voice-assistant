@@ -19,6 +19,11 @@ let package = Package(
             name: "VoiceAssistantGUI",
             dependencies: ["VoiceAssistantGUIKit"],
             path: "Sources/VoiceAssistantGUI"
+        ),
+        .testTarget(
+            name: "VoiceAssistantGUIKitTests",
+            dependencies: ["VoiceAssistantGUIKit"],
+            path: "Tests/VoiceAssistantGUIKitTests"
         )
     ]
 )

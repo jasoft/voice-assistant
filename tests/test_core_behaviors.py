@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import numpy as np
 
@@ -92,8 +92,24 @@ class FakeStorageService:
     def history_store(self) -> "FakeStorageService":
         return self
 
+    def keyword_rewriter(self):
+        return None
+
     def persist(self, entry: SessionHistoryRecord) -> None:
         self.history_entries.append(entry)
+
+    def list_recent(
+        self, *, limit: int = 10, query: str = ""
+    ) -> list[SessionHistoryRecord]:
+        normalized = query.strip()
+        entries = self.history_entries
+        if normalized:
+            entries = [
+                entry
+                for entry in entries
+                if normalized in entry.transcript or normalized in entry.reply
+            ]
+        return entries[:limit]
 
 
 class FakeMem0Client:
@@ -292,6 +308,82 @@ class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, "Error: Unknown tool unknown_tool")
+
+    async def test_chat_uses_structured_tool_name_from_intent_payload(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent._extract_intent_payload = AsyncMock(
+            return_value={
+                "intent": "find",
+                "tool": "history_find",
+                "args": {"query": "查询壮壮的记录"},
+            }
+        )
+        agent._execute_structured_tool = AsyncMock(return_value="最近有两条壮壮记录。")
+
+        reply = await core.OpenAICompatibleAgent.chat(agent, "查询壮壮的记录")
+
+        self.assertEqual(reply, "最近有两条壮壮记录。")
+        agent._execute_structured_tool.assert_awaited_once_with(
+            "history_find",
+            {"query": "查询壮壮的记录"},
+            user_input="查询壮壮的记录",
+        )
+
+    async def test_history_find_returns_multiple_history_entries(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.storage = FakeStorageService()
+        agent.storage.history_entries = [
+            SessionHistoryRecord(
+                session_id="h1",
+                started_at="2026-04-16T00:20:42+08:00",
+                ended_at="2026-04-16T00:20:57+08:00",
+                transcript="茶长壮壮的。",
+                reply="✅ 已记录：茶长壮壮的",
+                peak_level=0.1,
+                mean_level=0.01,
+                auto_closed=True,
+                reopened_by_click=False,
+                mode="gui",
+            ),
+            SessionHistoryRecord(
+                session_id="h2",
+                started_at="2026-04-16T00:23:51+08:00",
+                ended_at="2026-04-16T00:23:55+08:00",
+                transcript="查询壮壮的记录",
+                reply="大王，目前没有找到关于“壮壮”的相关记录哦。",
+                peak_level=0.0,
+                mean_level=0.0,
+                auto_closed=False,
+                reopened_by_click=False,
+                mode="cli",
+            ),
+            SessionHistoryRecord(
+                session_id="h3",
+                started_at="2026-04-16T00:26:36+08:00",
+                ended_at="2026-04-16T00:26:40+08:00",
+                transcript="查询护照的位置",
+                reply="护照在书房。",
+                peak_level=0.0,
+                mean_level=0.0,
+                auto_closed=False,
+                reopened_by_click=False,
+                mode="cli",
+            ),
+        ]
+
+        reply = await core.OpenAICompatibleAgent._execute_structured_tool(
+            agent,
+            "history_find",
+            {"query": "壮壮"},
+            user_input="查询壮壮的记录",
+        )
+
+        self.assertIsNotNone(reply)
+        assert reply is not None
+        self.assertIn("查到 2 条", reply)
+        self.assertIn("茶长壮壮的。", reply)
+        self.assertIn("查询壮壮的记录", reply)
+        self.assertNotIn("查询护照的位置", reply)
 
 
 class ThinkTagFilterTests(unittest.TestCase):

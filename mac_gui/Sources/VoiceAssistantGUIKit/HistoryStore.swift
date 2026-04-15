@@ -37,17 +37,15 @@ public final class HistoryStore {
         HistoryStore(workingDirectory: workingDirectory)
     }
 
-    public func loadRecent(limit: Int, query: String = "") async throws -> [HistoryEntry] {
-        let resolvedWorkingDirectory = resolveWorkingDirectory(startingAt: workingDirectory)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    static func loadRecentArguments(limit: Int, query: String = "") -> [String] {
         var arguments = [
             "uv",
             "run",
             "python",
             "-m",
             "press_to_talk.storage_cli",
-            "list-history",
+            "history",
+            "list",
             "--limit",
             String(limit),
         ]
@@ -55,7 +53,28 @@ public final class HistoryStore {
         if !trimmedQuery.isEmpty {
             arguments.append(contentsOf: ["--query", trimmedQuery])
         }
-        process.arguments = arguments
+        return arguments
+    }
+
+    static func deleteArguments(sessionID: String) -> [String] {
+        [
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "press_to_talk.storage_cli",
+            "history",
+            "delete",
+            "--session-id",
+            sessionID,
+        ]
+    }
+
+    public func loadRecent(limit: Int, query: String = "") async throws -> [HistoryEntry] {
+        let resolvedWorkingDirectory = resolveWorkingDirectory(startingAt: workingDirectory)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = Self.loadRecentArguments(limit: limit, query: query)
         process.currentDirectoryURL = resolvedWorkingDirectory
 
         let outPipe = Pipe()
@@ -85,16 +104,7 @@ public final class HistoryStore {
         let resolvedWorkingDirectory = resolveWorkingDirectory(startingAt: workingDirectory)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "press_to_talk.storage_cli",
-            "delete-history",
-            "--session-id",
-            sessionID
-        ]
+        process.arguments = Self.deleteArguments(sessionID: sessionID)
         process.currentDirectoryURL = resolvedWorkingDirectory
 
         let outPipe = Pipe()
