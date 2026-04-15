@@ -199,6 +199,12 @@ class BaseRememberStore:
     def find(self, *, query: str) -> str:
         raise NotImplementedError
 
+    def delete(self, *, memory_id: str) -> None:
+        raise NotImplementedError
+
+    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
+        raise NotImplementedError
+
 
 class BaseHistoryStore:
     def persist(self, entry: SessionHistoryRecord) -> None:
@@ -606,6 +612,34 @@ class Mem0RememberStore(BaseRememberStore):
         response = self.client.search(query, **self._read_scope_kwargs())
         return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
 
+    def delete(self, *, memory_id: str) -> None:
+        self.client.delete(memory_id)
+
+    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
+        kwargs = self._read_scope_kwargs()
+        # Mem0 API may not support limit directly in get_all, 
+        # but we can try passing it if it supports pagination parameters,
+        # or just truncate the result from get_all.
+        # Based on existing migrate code, it uses page and page_size.
+        response = self.client.get_all(**kwargs)
+        items = _extract_mem0_results(response)
+        
+        records = []
+        for item in items[:limit]:
+            metadata = item.get("metadata", {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            records.append(
+                RememberItemRecord(
+                    id=str(item.get("id", "")),
+                    source_memory_id=str(item.get("id", "")),
+                    memory=str(item.get("memory") or item.get("text") or ""),
+                    original_text=str(metadata.get("original_text") or ""),
+                    created_at=str(item.get("created_at") or ""),
+                )
+            )
+        return records
+
     def get_all(self) -> list[dict[str, Any]]:
         response = self.client.get_all(**self._read_scope_kwargs())
         return _extract_mem0_results(response)
@@ -918,6 +952,45 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             for index, row in enumerate(rows)
         ]
         return json.dumps({"results": results}, ensure_ascii=False)
+
+    def delete(self, *, memory_id: str) -> None:
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(
+                    f"DELETE FROM {self.fts_table_name} WHERE item_id = ?",
+                    (memory_id,),
+                )
+                conn.execute(
+                    f"DELETE FROM {self.table_name} WHERE id = ?",
+                    (memory_id,),
+                )
+
+    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
+        with contextlib.closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    id,
+                    source_memory_id,
+                    memory,
+                    original_text,
+                    created_at
+                FROM {self.table_name}
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (max(1, limit),),
+            ).fetchall()
+        return [
+            RememberItemRecord(
+                id=str(row["id"]),
+                source_memory_id=str(row["source_memory_id"]),
+                memory=str(row["memory"]),
+                original_text=str(row["original_text"]),
+                created_at=str(row["created_at"]),
+            )
+            for row in rows
+        ]
 
 
 def migrate_mem0_memories_to_sqlite(
