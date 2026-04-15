@@ -325,7 +325,17 @@ class OpenAICompatibleAgent:
                     original_text=str(args.get("original_text", "")),
                 )
             elif name == "remember_find":
-                output = remember_store.find(query=str(args["query"]))
+                query = str(args.get("query", ""))
+                rewriter = self.storage.keyword_rewriter()
+                if rewriter:
+                    try:
+                        rewritten_query = rewriter.rewrite(query)
+                        if rewritten_query:
+                            log(f"Query rewritten: '{query}' -> '{rewritten_query}'")
+                            query = rewritten_query
+                    except Exception as e:
+                        log(f"Query rewrite failed in agent: {e}")
+                output = remember_store.find(query=query)
             else:
                 return f"Error: Unknown tool {name}"
             log(f"remember tool result: {output}")

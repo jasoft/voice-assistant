@@ -52,7 +52,7 @@ def main() -> int:
     load_env_files()
     
     try:
-        service = StorageService.from_env()
+        service = StorageService.from_env(use_cli=False)
         # Force disable LLM features in CLI
         service.config.query_rewrite_enabled = False
 

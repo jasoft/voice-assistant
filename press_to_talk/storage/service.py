@@ -822,13 +822,22 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if not cleaned_query:
             return ""
 
+        # If the query already looks like a FTS5 match query (contains OR or quotes), use it directly
+        if " OR " in cleaned_query or (
+            cleaned_query.startswith('"') and cleaned_query.endswith('"')
+        ):
+            log(f"Query already processed: {cleaned_query}")
+            return cleaned_query
+
         # 1. 尝试获取重写后的关键词（如果有 rewriter）
         rewritten_query = ""
         keywords: list[str] = []
         if self.keyword_rewriter:
             try:
                 # 这里的 rewrite 应该已经返回了 "word1 OR word2" 格式
-                rewritten_query = str(self.keyword_rewriter.rewrite(cleaned_query)).strip()
+                rewritten_query = str(
+                    self.keyword_rewriter.rewrite(cleaned_query)
+                ).strip()
                 keywords = _keywords_from_match_query(rewritten_query, cleaned_query)
             except Exception as e:
                 log(f"Keyword rewrite failed: {e}")
@@ -1181,8 +1190,11 @@ class SQLiteHistoryStore(BaseHistoryStore):
                 )
 
 
+from .cli_wrapper import CLIHistoryStore, CLIRememberStore
+
+
 class StorageService:
-    def __init__(self, config: StorageConfig) -> None:
+    def __init__(self, config: StorageConfig, use_cli: bool = True) -> None:
         self.config = StorageConfig(
             backend=config.backend,
             mem0_api_key=config.mem0_api_key,
@@ -1198,18 +1210,37 @@ class StorageService:
             llm_base_url=config.llm_base_url,
             llm_model=config.llm_model,
         )
-        self._history_store: BaseHistoryStore = SQLiteHistoryStore(
-            self.config.history_db_path
-        )
+        if use_cli:
+            from .cli_wrapper import CLIHistoryStore, CLIRememberStore
+
+            self._history_store = CLIHistoryStore()
+            self._remember_store = CLIRememberStore()
+        else:
+            # History
+            self._history_store = SQLiteHistoryStore(self.config.history_db_path)
+
+            # Remember
+            if self.config.backend == "sqlite_fts5":
+                self._remember_store = SQLiteFTS5RememberStore(
+                    db_path=self.config.remember_db_path,
+                    max_results=self.config.remember_max_results,
+                    keyword_rewriter=self.keyword_rewriter(),
+                )
+            else:
+                self._remember_store = Mem0RememberStore(
+                    api_key=self.config.mem0_api_key,
+                    user_id=self.config.mem0_user_id,
+                    app_id=self.config.mem0_app_id,
+                )
 
     @classmethod
-    def from_env(cls) -> "StorageService":
-        return cls(load_storage_config())
+    def from_env(cls, use_cli: bool = True) -> "StorageService":
+        return cls(load_storage_config(), use_cli=use_cli)
 
     def close(self) -> None:
         return None
 
-    def _sqlite_keyword_rewriter(self) -> KeywordRewriter | None:
+    def keyword_rewriter(self) -> KeywordRewriter | None:
         if not self.config.query_rewrite_enabled:
             return None
         if not self.config.llm_api_key.strip():
@@ -1229,43 +1260,8 @@ class StorageService:
             base_url=self.config.llm_base_url,
         )
 
-    def _bootstrap_sqlite_from_mem0(
-        self, store: SQLiteFTS5RememberStore
-    ) -> int:
-        if store.has_any_rows():
-            return 0
-        if not self.config.mem0_api_key.strip():
-            return 0
-        translator = self._sqlite_memory_translator()
-        if translator is None:
-            return 0
-        source_store = Mem0RememberStore(
-            api_key=self.config.mem0_api_key,
-            user_id=self.config.mem0_user_id,
-            app_id=self.config.mem0_app_id,
-        )
-        copied = migrate_mem0_memories_to_sqlite(
-            source_store=source_store,
-            target_store=store,
-            translator=translator,
-        )
-        log(f"sqlite remember bootstrap copied={copied}")
-        return copied
-
     def remember_store(self) -> BaseRememberStore:
-        if self.config.backend == "sqlite_fts5":
-            store = SQLiteFTS5RememberStore(
-                db_path=self.config.remember_db_path,
-                max_results=self.config.remember_max_results,
-                keyword_rewriter=self._sqlite_keyword_rewriter(),
-            )
-            self._bootstrap_sqlite_from_mem0(store)
-            return store
-        return Mem0RememberStore(
-            api_key=self.config.mem0_api_key,
-            user_id=self.config.mem0_user_id,
-            app_id=self.config.mem0_app_id,
-        )
+        return self._remember_store
 
     def history_store(self) -> BaseHistoryStore:
         return self._history_store
