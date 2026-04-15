@@ -376,6 +376,78 @@ def _tokenize_for_match(query: str) -> list[str]:
     return tokens or [raw]
 
 
+def _normalize_match_text(text: str) -> str:
+    return re.sub(r"[\s,，。！？；:：/|\"'`]+", "", str(text or "").strip()).lower()
+
+
+def _sanitize_rewritten_keywords(
+    keywords: list[str],
+    raw_query: str,
+) -> list[str]:
+    invalid_terms = {
+        "在哪",
+        "哪里",
+        "哪儿",
+        "在哪儿",
+        "位置",
+        "地方",
+        "同义词",
+        "同义词:",
+        "同义词：",
+        "扩展",
+        "同义词扩展",
+        "同义词扩展:",
+        "同义词扩展：",
+        "->",
+        "=>",
+    }
+    normalized_query = _normalize_match_text(raw_query)
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for keyword in keywords:
+        candidate = str(keyword or "").strip().strip("\"'`")
+        if not candidate:
+            continue
+        lowered = candidate.lower()
+        if lowered in invalid_terms:
+            continue
+        normalized_candidate = _normalize_match_text(candidate)
+        if (
+            not normalized_candidate
+            or normalized_candidate in invalid_terms
+            or normalized_candidate in seen
+        ):
+            continue
+        if normalized_query and normalized_candidate not in normalized_query:
+            continue
+        seen.add(normalized_candidate)
+        cleaned.append(candidate)
+    return cleaned
+
+
+def _reduce_filter_keywords(keywords: list[str]) -> list[str]:
+    normalized_pairs = [
+        (str(keyword or "").strip(), _normalize_match_text(keyword))
+        for keyword in keywords
+        if str(keyword or "").strip()
+    ]
+    reduced: list[str] = []
+    for keyword, normalized_keyword in normalized_pairs:
+        if not normalized_keyword:
+            continue
+        covered_by_parts = [
+            other_normalized
+            for other_keyword, other_normalized in normalized_pairs
+            if other_keyword != keyword
+            and other_normalized
+            and other_normalized in normalized_keyword
+        ]
+        if len(covered_by_parts) >= 2:
+            continue
+        reduced.append(keyword)
+    return reduced
+
+
 def _quote_match_token(token: str) -> str:
     escaped = token.replace('"', '""').strip()
     return f'"{escaped}"' if escaped else ""
@@ -398,6 +470,8 @@ def _keywords_from_match_query(match_query: str, raw_query: str) -> list[str]:
     # 如果没有被引号包围的词，则按 OR 分割并清理
     tokens = [t.strip() for t in str(match_query or "").split(" OR ") if t.strip()]
     if tokens:
+        if len(tokens) == 1 and " " in tokens[0]:
+            return [t.strip() for t in tokens[0].split() if t.strip()]
         return tokens
     return _tokenize_for_match(raw_query)
 
@@ -485,6 +559,8 @@ class LLMKeywordRewriter:
             + json.dumps(cleaned_keywords, ensure_ascii=False)
         )
         
+        cleaned_keywords = _sanitize_rewritten_keywords(cleaned_keywords, cleaned_query)
+
         if not cleaned_keywords:
             return _quote_match_token(cleaned_query)
             
@@ -835,7 +911,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 rewritten_query = str(
                     self.keyword_rewriter.rewrite(cleaned_query)
                 ).strip()
-                keywords = _keywords_from_match_query(rewritten_query, cleaned_query)
+                keywords = _sanitize_rewritten_keywords(
+                    _keywords_from_match_query(rewritten_query, cleaned_query),
+                    cleaned_query,
+                )
             except Exception as e:
                 log(f"Keyword rewrite failed: {e}")
 
@@ -874,6 +953,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         match_query = self._match_query(query)
         if not match_query:
             return json.dumps({"results": []}, ensure_ascii=False)
+        keywords = _sanitize_rewritten_keywords(
+            _keywords_from_match_query(match_query, query),
+            query,
+        ) or _tokenize_for_match(query)
         with contextlib.closing(self._connect()) as conn:
             match_sql = (
                 "simple_query(?)" if self.use_simple_query else "?"
@@ -900,7 +983,6 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             ).fetchall()
             if not rows:
                 # Fallback: 使用原始查询词的分词进行 LIKE 搜索，确保没有引号干扰
-                keywords = _tokenize_for_match(query)
                 if keywords:
                     log(
                         "remember search fallback: "
@@ -943,6 +1025,22 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                         """,
                         params,
                     ).fetchall()
+        filtered_rows = rows
+        primary_keywords = _reduce_filter_keywords(
+            _sanitize_rewritten_keywords(keywords, query)
+        )
+        if primary_keywords:
+            filtered_rows = [
+                row
+                for row in rows
+                if all(
+                    _normalize_match_text(keyword)
+                    in _normalize_match_text(
+                        str(row["memory"])
+                    )
+                    for keyword in primary_keywords
+                )
+            ]
         results = [
             {
                 "id": str(row["id"]),
@@ -953,7 +1051,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 "score": round(0.99 - (index * 0.01), 2),
                 "metadata": {"original_text": str(row["original_text"])},
             }
-            for index, row in enumerate(rows)
+            for index, row in enumerate(filtered_rows)
         ]
         return json.dumps({"results": results}, ensure_ascii=False)
 

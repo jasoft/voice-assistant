@@ -1209,6 +1209,23 @@ class HistoryWriterTests(unittest.TestCase):
 
 
 class SQLiteRememberStoreTests(unittest.TestCase):
+    def test_sanitize_rewritten_keywords_discards_meta_and_hotwords(self) -> None:
+        sanitized = storage_service_module._sanitize_rewritten_keywords(
+            [
+                "USB测试版",
+                "在哪",
+                "壮壮",
+                "同义词:",
+                "->",
+                "USB",
+                "测试版",
+                "测试版本",
+            ],
+            "usb测试版在哪",
+        )
+
+        self.assertEqual(sanitized, ["USB测试版", "USB", "测试版"])
+
     def test_load_storage_config_reads_workflow_sqlite_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             workflow_path = Path(tmpdir) / "workflow_config.json"
@@ -1266,6 +1283,53 @@ class SQLiteRememberStoreTests(unittest.TestCase):
 
         self.assertEqual(rewriter.calls, ["我的护照放哪了"])
         self.assertIn('"memory": "护照在书房第二层抽屉里"', found)
+
+    def test_sqlite_store_filters_irrelevant_results_after_broad_rewrite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            rewriter = FakeKeywordRewriter(
+                '"USB测试版" OR "在哪" OR "壮壮" OR "同义词:" OR "USB" OR "测试版"'
+            )
+            store = storage_service_module.SQLiteFTS5RememberStore(
+                db_path=db_path,
+                keyword_rewriter=rewriter,
+            )
+            store.add(
+                memory="USB测试版在书房白色柜子抽屉内透明盒中",
+                original_text="User has a USB beta build stored in a transparent box inside a drawer of a white cabinet in the study",
+            )
+            store.add(
+                memory="护照在书房白色柜子的第一个抽屉里。",
+                original_text="User's passport is stored in the first drawer of the white cabinet in the study",
+            )
+
+            found = store.find(query="usb测试版在哪")
+
+        self.assertIn("USB测试版在书房白色柜子抽屉内透明盒中", found)
+        self.assertNotIn("护照在书房白色柜子的第一个抽屉里", found)
+
+    def test_sqlite_store_filters_irrelevant_results_for_pre_rewritten_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path)
+            store.add(
+                memory="USB测试版在书房柜子第二层",
+                original_text="记住 USB 测试版放在书房柜子第二层",
+            )
+            store.add(
+                memory="这是一个普通测试记录",
+                original_text="只提到了测试，没有提到 usb",
+            )
+            store.add(
+                memory="USB 集线器在客厅电视柜",
+                original_text="只提到了 usb，跟测试版无关",
+            )
+
+            found = store.find(query='"usb" OR "测试版"')
+
+        self.assertIn("USB测试版在书房柜子第二层", found)
+        self.assertNotIn("这是一个普通测试记录", found)
+        self.assertNotIn("USB 集线器在客厅电视柜", found)
 
     def test_groq_keyword_rewriter_logs_prompt_and_raw_response(self) -> None:
         capture = LogCapture()
