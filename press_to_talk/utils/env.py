@@ -165,7 +165,7 @@ def load_workflow_defaults() -> dict[str, Any]:
         if isinstance(defaults, dict):
             return defaults
     except Exception as e:
-        log(f"Failed to load default workflow config: {e}")
+        log(f"Failed to load default workflow config: {e}", level="error")
     return json.loads(json.dumps(MINIMAL_WORKFLOW))
 
 def load_mem0_tuning_config() -> dict[str, Any]:
@@ -180,5 +180,5 @@ def load_mem0_tuning_config() -> dict[str, Any]:
         if mem0_cfg.get("max_items") is not None:
             defaults["max_items"] = max(1, int(mem0_cfg["max_items"]))
     except Exception as e:
-        log(f"Failed to load mem0 tuning config: {e}")
+        log(f"Failed to load mem0 tuning config: {e}", level="error")
     return defaults

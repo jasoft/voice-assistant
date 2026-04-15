@@ -37,5 +37,5 @@ def run_stt(stt_url: str, stt_token: str, audio_file: Path) -> str:
             return str(data.get("text", "")).strip()
         return ""
     except RuntimeError:
-        log(f"failed to parse STT response: {proc.stdout or proc.stderr}")
+        log(f"failed to parse STT response: {proc.stdout or proc.stderr}", level="error")
         return ""

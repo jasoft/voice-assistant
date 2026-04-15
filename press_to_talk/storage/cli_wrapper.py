@@ -38,12 +38,13 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
         return data["result"]
 
     def find(self, *, query: str) -> str:
-        # Note: CLI search already returns JSON string
         cmd = [sys.executable, "-m", "press_to_talk.storage_cli", "memory", "search", "--query", query]
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
         if result.returncode != 0:
-            raise RuntimeError(f"Storage CLI error: {result.stderr}")
-        return result.stdout.strip()
+            error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error"
+            raise RuntimeError(f"Storage CLI error: {error_msg}")
+        payload = result.stderr.strip() or result.stdout.strip()
+        return payload
 
     def delete(self, *, memory_id: str) -> None:
         self._run(["memory", "delete", "--id", memory_id])

@@ -1,8 +1,24 @@
+import contextlib
+import io
 import argparse
 import json
 import sys
 from dataclasses import asdict
 from press_to_talk.storage.service import StorageService, SessionHistoryRecord
+
+
+def _emit_memory_search_output(raw_payload: str) -> None:
+    payload = json.loads(raw_payload)
+    results = payload.get("results", []) if isinstance(payload, dict) else []
+    if not isinstance(results, list):
+        results = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        memory = str(item.get("memory", "")).strip()
+        if memory:
+            print(memory)
+    print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -75,6 +91,15 @@ Examples:
     from press_to_talk.storage.service import load_storage_config
     
     try:
+        if args.category == "memory" and args.command == "search":
+            with contextlib.redirect_stderr(io.StringIO()):
+                config = load_storage_config()
+                config.query_rewrite_enabled = False
+                service = StorageService(config, use_cli=False)
+                payload = service.remember_store().find(query=args.query)
+            _emit_memory_search_output(payload)
+            return 0
+
         config = load_storage_config()
         # Force disable LLM features in CLI BEFORE initializing the service
         config.query_rewrite_enabled = False
@@ -99,12 +124,6 @@ Examples:
             if args.command == "add":
                 res = store.add(memory=args.memory, original_text=args.original_text)
                 print(json.dumps({"result": res}))
-            elif args.command == "search":
-                res = store.find(query=args.query)
-                # If res is already a JSON string (as some stores return it), 
-                # we should be careful not to double-encode it if it's supposed to be printed directly.
-                # In the plan it says: print(res) # store.find already returns JSON string
-                print(res)
             elif args.command == "delete":
                 store.delete(memory_id=args.id)
                 print(json.dumps({"deleted": args.id}))

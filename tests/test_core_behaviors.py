@@ -11,6 +11,7 @@ import numpy as np
 
 from press_to_talk import core
 from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageService
+from press_to_talk.storage.cli_wrapper import CLIRememberStore
 from press_to_talk.storage import service as storage_service_module
 
 
@@ -308,6 +309,24 @@ class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, "Error: Unknown tool unknown_tool")
+
+
+class CLIWrapperTests(unittest.TestCase):
+    def test_cli_remember_store_reads_json_from_stderr(self) -> None:
+        store = CLIRememberStore()
+        payload = {"results": [{"id": "m1", "memory": "茶长壮壮的"}]}
+
+        with patch(
+            "press_to_talk.storage.cli_wrapper.subprocess.run",
+            return_value=SimpleNamespace(
+                returncode=0,
+                stdout="茶长壮壮的\n",
+                stderr=json.dumps(payload, ensure_ascii=False),
+            ),
+        ):
+            result = store.find(query="壮壮")
+
+        self.assertEqual(result, json.dumps(payload, ensure_ascii=False))
 
     async def test_chat_uses_structured_tool_name_from_intent_payload(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)

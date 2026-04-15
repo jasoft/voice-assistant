@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import sys
 import time
@@ -14,20 +15,52 @@ _SESSION_LOG_FILE: TextIO | None = None
 _SESSION_LOG_PATH: Path | None = None
 PROCESS_START_TS = time.perf_counter()
 
-def log(msg: str) -> None:
+_LEVEL_COLORS = {
+    "DEBUG": "\x1b[36m",
+    "INFO": "\x1b[32m",
+    "ERROR": "\x1b[31m",
+}
+_ANSI_RESET = "\x1b[0m"
+
+
+def _normalize_level(level: str) -> str:
+    normalized = str(level or "INFO").strip().upper()
+    return normalized if normalized in _LEVEL_COLORS else "INFO"
+
+
+def _console_supports_color(stream: TextIO) -> bool:
+    if os.environ.get("NO_COLOR"):
+        return False
+    is_tty = getattr(stream, "isatty", lambda: False)()
+    if not is_tty:
+        return False
+    term = os.environ.get("TERM", "").strip().lower()
+    return term != "dumb"
+
+
+def _format_log_line(msg: str, *, level: str) -> str:
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[{ts}] [openclaw-ptt] {msg}"
-    print(line, file=sys.stderr, flush=True)
+    return f"[{ts}] [openclaw-ptt] [{level}] {msg}"
+
+
+def log(msg: str, *, level: str = "info") -> None:
+    normalized_level = _normalize_level(level)
+    line = _format_log_line(msg, level=normalized_level)
+    console_line = line
+    if _console_supports_color(sys.stderr):
+        color = _LEVEL_COLORS[normalized_level]
+        console_line = f"{color}{line}{_ANSI_RESET}"
+    print(console_line, file=sys.stderr, flush=True)
     with _LOG_WRITE_LOCK:
         if _SESSION_LOG_FILE is not None:
             _SESSION_LOG_FILE.write(line + "\n")
             _SESSION_LOG_FILE.flush()
 
-def log_multiline(title: str, content: str) -> None:
+def log_multiline(title: str, content: str, *, level: str = "debug") -> None:
     normalized = content if content else "<empty>"
-    log(f"{title}:")
+    log(f"{title}:", level=level)
     for line in normalized.splitlines():
-        log(f"{title} | {line}")
+        log(f"{title} | {line}", level=level)
 
 def init_session_log(log_dir: Path, session_id: str | None = None) -> Path:
     global _SESSION_LOG_FILE, _SESSION_LOG_PATH
@@ -52,11 +85,11 @@ def close_session_log() -> None:
 
 def log_timing(stage: str) -> None:
     elapsed_ms = (time.perf_counter() - PROCESS_START_TS) * 1000.0
-    log(f"timing {elapsed_ms:8.1f}ms | {stage}")
+    log(f"timing {elapsed_ms:8.1f}ms | {stage}", level="debug")
 
 def log_llm_prompt(label: str, messages: list[dict[str, Any]]) -> None:
-    log(f"{label} prompt count={len(messages)}")
+    log(f"{label} prompt count={len(messages)}", level="debug")
     for index, message in enumerate(messages, start=1):
         role = str(message.get("role", "unknown"))
         content = str(message.get("content", ""))
-        log(f"{label} prompt[{index}] role={role}\n{content}")
+        log(f"{label} prompt[{index}] role={role}\n{content}", level="debug")

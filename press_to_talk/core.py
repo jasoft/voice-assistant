@@ -225,7 +225,7 @@ def main() -> int:
         events.emit("status", phase="cancelled")
         return 130
     except Exception as exc:  # noqa: BLE001
-        log(f"error: {exc}")
+        log(f"error: {exc}", level="error")
         events.emit("error", message=str(exc))
         return 1
     finally:
@@ -248,7 +248,7 @@ def main() -> int:
                 )
                 log("history record persisted")
             except Exception as exc:  # noqa: BLE001
-                log(f"history persist failed: {exc}")
+                log(f"history persist failed: {exc}", level="error")
         close_session_log()
 
 if __name__ == "__main__":

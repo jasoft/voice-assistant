@@ -387,7 +387,7 @@ class VisualRecorder:
                                 last_snapshot = snapshot
                         time.sleep(0.25)
         except Exception as e:
-            log(f"recording error: {e}")
+            log(f"recording error: {e}", level="error")
         finally:
             if listener is not None and listener.running:
                 listener.stop()

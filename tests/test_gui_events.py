@@ -8,6 +8,7 @@ import unittest
 from contextlib import contextmanager
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from press_to_talk import core
@@ -50,7 +51,7 @@ class LoggingTests(unittest.TestCase):
     def tearDown(self) -> None:
         core.close_session_log()
 
-    def test_log_writes_to_stderr(self) -> None:
+    def test_log_writes_to_stderr_with_level(self) -> None:
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -59,19 +60,27 @@ class LoggingTests(unittest.TestCase):
 
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("hello", stderr.getvalue())
+        self.assertIn("[INFO]", stderr.getvalue())
 
-    def test_log_also_writes_to_session_log_file(self) -> None:
+    def test_log_colors_console_but_not_session_log_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = core.init_session_log(Path(tmpdir), session_id="session-1")
 
             stdout = io.StringIO()
             stderr = io.StringIO()
-            with redirect_stdout(stdout), redirect_stderr(stderr):
-                core.log("hello file")
+            with (
+                patch("press_to_talk.utils.logging._console_supports_color", return_value=True),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                core.log("hello file", level="error")
 
             self.assertTrue(log_path.is_file())
             self.assertIn("hello file", log_path.read_text(encoding="utf-8"))
+            self.assertIn("[ERROR]", log_path.read_text(encoding="utf-8"))
             self.assertIn("hello file", stderr.getvalue())
+            self.assertIn("\x1b[", stderr.getvalue())
+            self.assertNotIn("\x1b[", log_path.read_text(encoding="utf-8"))
             self.assertEqual(stdout.getvalue(), "")
 
     def test_init_session_log_creates_timestamped_file(self) -> None:
@@ -107,6 +116,39 @@ class StorageCliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(stdout.getvalue().strip()), [])
             self.assertIn("Storage configuration loaded", stderr.getvalue())
+
+    def test_memory_search_writes_lines_to_stdout_and_json_to_stderr(self) -> None:
+        fake_results = {
+            "results": [
+                {"id": "m1", "memory": "茶长壮壮的", "original_text": "茶长壮壮的。"},
+                {"id": "m2", "memory": "壮壮去打篮球", "original_text": "今天壮壮去打篮球。"},
+            ]
+        }
+        fake_store = SimpleNamespace(
+            find=lambda **_: json.dumps(fake_results, ensure_ascii=False)
+        )
+        fake_service = SimpleNamespace(remember_store=lambda: fake_store)
+        fake_config = SimpleNamespace(query_rewrite_enabled=True)
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            patch("press_to_talk.core.load_env_files"),
+            patch("press_to_talk.storage.service.load_storage_config", return_value=fake_config),
+            patch.object(storage_cli, "StorageService", return_value=fake_service),
+            patch.object(
+                storage_cli.sys,
+                "argv",
+                ["press_to_talk.storage_cli", "memory", "search", "--query", "壮壮"],
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = storage_cli.main()
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stdout.getvalue().splitlines(), ["茶长壮壮的", "壮壮去打篮球"])
+        self.assertEqual(json.loads(stderr.getvalue().strip()), fake_results)
 
 
 if __name__ == "__main__":
