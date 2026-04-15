@@ -1,73 +1,46 @@
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
 import sqlite3
-import uuid
-from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from press_to_talk.utils.logging import log, log_llm_prompt, log_multiline
-from press_to_talk.utils.text import format_local_datetime
+
+from .cli_wrapper import CLIHistoryStore, CLIRememberStore
+from .memory_backends import (
+    SIMPLE_EXTENSION_PATH,
+    Mem0RememberStore,
+    SQLiteFTS5RememberStore,
+    _default_match_query,
+    _extract_mem0_results,
+    _keywords_from_match_query,
+    _localize_timestamp_fields,
+    _normalize_match_text,
+    _quote_match_token,
+    _reduce_filter_keywords,
+    _sanitize_rewritten_keywords,
+    create_mem0_client,
+    migrate_mem0_memories_to_sqlite,
+)
+from .models import (
+    BaseHistoryStore,
+    BaseRememberStore,
+    KeywordRewriter,
+    MemoryTranslator,
+    RememberItemRecord,
+    SessionHistoryRecord,
+    StorageConfig,
+)
+from .sqlite_history import NullHistoryStore, SQLiteHistoryStore, migrate_history_table
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_APP_DB_PATH = APP_ROOT / "data" / "voice_assistant_store.sqlite3"
 DEFAULT_HISTORY_DB_PATH = DEFAULT_APP_DB_PATH
 DEFAULT_REMEMBER_DB_PATH = DEFAULT_APP_DB_PATH
-SIMPLE_EXTENSION_PATH = APP_ROOT / "third_party" / "simple" / "libsimple.dylib"
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
-
-
-@dataclass
-class StorageConfig:
-    backend: str
-    mem0_api_key: str
-    mem0_user_id: str
-    mem0_app_id: str
-    mem0_min_score: float
-    mem0_max_items: int
-    history_db_path: str
-    remember_db_path: str
-    remember_max_results: int
-    query_rewrite_enabled: bool
-    llm_api_key: str
-    llm_base_url: str
-    llm_model: str  # 统一使用全局模型
-
-
-@dataclass
-class RememberItemRecord:
-    id: str
-    source_memory_id: str
-    memory: str
-    original_text: str
-    created_at: str
-
-
-@dataclass
-class SessionHistoryRecord:
-    session_id: str
-    started_at: str
-    ended_at: str
-    transcript: str
-    reply: str
-    peak_level: float
-    mean_level: float
-    auto_closed: bool
-    reopened_by_click: bool
-    mode: str
-
-
-class KeywordRewriter(Protocol):
-    def rewrite(self, query: str) -> str: ...
-
-
-class MemoryTranslator(Protocol):
-    def translate(self, text: str) -> str: ...
 
 
 def env_str(name: str, default: str) -> str:
@@ -97,8 +70,8 @@ def env_bool(name: str, default: bool) -> bool:
 
 def load_workflow_config() -> dict[str, Any]:
     try:
-        with WORKFLOW_CONFIG_PATH.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        with WORKFLOW_CONFIG_PATH.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
         if isinstance(data, dict):
             return data
     except Exception:
@@ -127,363 +100,60 @@ def _workflow_storage_config() -> dict[str, Any]:
 
 def load_storage_config() -> StorageConfig:
     storage_cfg = _workflow_storage_config()
-    
-    # 提取子配置
     sqlite_cfg = storage_cfg.get("sqlite_fts5", {})
     sqlite_cfg = sqlite_cfg if isinstance(sqlite_cfg, dict) else {}
     mem0_cfg = storage_cfg.get("mem0", {})
     mem0_cfg = mem0_cfg if isinstance(mem0_cfg, dict) else {}
-    # 修正：直接从 sqlite_fts5 下读取 query_rewrite，并兼容旧键
     rewrite_cfg = sqlite_cfg.get("query_rewrite", sqlite_cfg.get("groq_query_rewrite", {}))
     rewrite_cfg = rewrite_cfg if isinstance(rewrite_cfg, dict) else {}
-
-    # 获取全局或特定后端的检索限制，默认为 20
     global_max_results = int(storage_cfg.get("max_results", 20))
-    
     raw_app_id = os.environ.get("MEM0_APP_ID")
     app_id = "voice-assistant" if raw_app_id is None else str(raw_app_id).strip()
-
     configured_backend = str(storage_cfg.get("provider", "mem0")).strip() or "mem0"
-    
-    # 获取全局模型配置
     default_model = env_str("PTT_MODEL", "qwen/qwen3-32b")
 
-    # 汇总最终配置
     config = StorageConfig(
         backend=str(env_str("PTT_REMEMBER_BACKEND", configured_backend)).strip()
         or configured_backend,
-        
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
         mem0_user_id=str(env_str("MEM0_USER_ID", "soj")).strip() or "soj",
         mem0_app_id=app_id,
         mem0_min_score=env_float("MEM0_MIN_SCORE", float(mem0_cfg.get("min_score", 0.8))),
         mem0_max_items=max(1, env_int("MEM0_MAX_ITEMS", int(mem0_cfg.get("max_items", global_max_results)))),
-        
-        history_db_path=env_str(
-            "PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)
-        ).strip()
+        history_db_path=env_str("PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)).strip()
         or str(DEFAULT_HISTORY_DB_PATH),
-        
-        remember_db_path=env_str("PTT_REMEMBER_DB_PATH", str(sqlite_cfg.get("db_path", str(DEFAULT_REMEMBER_DB_PATH)))).strip()
+        remember_db_path=env_str(
+            "PTT_REMEMBER_DB_PATH",
+            str(sqlite_cfg.get("db_path", str(DEFAULT_REMEMBER_DB_PATH))),
+        ).strip()
         or str(DEFAULT_REMEMBER_DB_PATH),
-        
         remember_max_results=max(
             1,
             env_int("PTT_REMEMBER_MAX_RESULTS", int(sqlite_cfg.get("max_results", global_max_results))),
         ),
-        
         query_rewrite_enabled=env_bool(
-            "PTT_QUERY_REWRITE_ENABLED", env_bool("PTT_GROQ_REWRITE_ENABLED", bool(rewrite_cfg.get("enabled", False)))
+            "PTT_QUERY_REWRITE_ENABLED",
+            env_bool("PTT_GROQ_REWRITE_ENABLED", bool(rewrite_cfg.get("enabled", False))),
         ),
-        
         llm_api_key=env_str("OPENAI_API_KEY", "").strip(),
         llm_base_url=env_str("OPENAI_BASE_URL", "").strip(),
-        
-        llm_model=default_model
+        llm_model=default_model,
+        groq_rewrite_enabled=env_bool(
+            "PTT_GROQ_REWRITE_ENABLED",
+            bool(rewrite_cfg.get("enabled", False)),
+        ),
+        groq_rewrite_model=str(rewrite_cfg.get("model", "")).strip(),
     )
-
-    # 打印加载后的配置信息（隐藏敏感 Key）
     safe_config = {
-        k: (v if "api_key" not in k else ("***" if v else "None"))
-        for k, v in config.__dict__.items()
+        key: (value if "api_key" not in key else ("***" if value else "None"))
+        for key, value in config.__dict__.items()
     }
     log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}")
-    
     return config
 
 
-class BaseRememberStore:
-    def add(self, *, memory: str, original_text: str = "") -> str:
-        raise NotImplementedError
-
-    def find(self, *, query: str) -> str:
-        raise NotImplementedError
-
-    def delete(self, *, memory_id: str) -> None:
-        raise NotImplementedError
-
-    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
-        raise NotImplementedError
-
-
-class BaseHistoryStore:
-    def persist(self, entry: SessionHistoryRecord) -> None:
-        raise NotImplementedError
-
-    def list_recent(
-        self, *, limit: int = 10, query: str = ""
-    ) -> list[SessionHistoryRecord]:
-        raise NotImplementedError
-
-    def delete(self, *, session_id: str) -> None:
-        raise NotImplementedError
-
-
-def migrate_history_table(
-    source_db_path: str | Path,
-    target_db_path: str | Path,
-) -> int:
-    source = Path(source_db_path).expanduser()
-    target = Path(target_db_path).expanduser()
-    if not source.exists():
-        return 0
-    target.parent.mkdir(parents=True, exist_ok=True)
-    source_conn = sqlite3.connect(source)
-    source_conn.row_factory = sqlite3.Row
-    try:
-        rows = source_conn.execute(
-            """
-            SELECT
-                session_id,
-                started_at,
-                ended_at,
-                transcript,
-                reply,
-                peak_level,
-                mean_level,
-                auto_closed,
-                reopened_by_click,
-                mode,
-                created_at
-            FROM session_histories
-            ORDER BY id ASC
-            """
-        ).fetchall()
-    except sqlite3.OperationalError:
-        source_conn.close()
-        return 0
-    finally:
-        source_conn.close()
-
-    target_conn = sqlite3.connect(target)
-    try:
-        target_conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS session_histories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL UNIQUE,
-                started_at TEXT NOT NULL,
-                ended_at TEXT NOT NULL,
-                transcript TEXT NOT NULL,
-                reply TEXT NOT NULL,
-                peak_level REAL NOT NULL,
-                mean_level REAL NOT NULL,
-                auto_closed INTEGER NOT NULL,
-                reopened_by_click INTEGER NOT NULL,
-                mode TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        target_conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_session_histories_started_at
-            ON session_histories(started_at DESC)
-            """
-        )
-        with target_conn:
-            for row in rows:
-                target_conn.execute(
-                    """
-                    INSERT INTO session_histories (
-                        session_id,
-                        started_at,
-                        ended_at,
-                        transcript,
-                        reply,
-                        peak_level,
-                        mean_level,
-                        auto_closed,
-                        reopened_by_click,
-                        mode,
-                        created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(session_id) DO UPDATE SET
-                        started_at = excluded.started_at,
-                        ended_at = excluded.ended_at,
-                        transcript = excluded.transcript,
-                        reply = excluded.reply,
-                        peak_level = excluded.peak_level,
-                        mean_level = excluded.mean_level,
-                        auto_closed = excluded.auto_closed,
-                        reopened_by_click = excluded.reopened_by_click,
-                        mode = excluded.mode,
-                        created_at = excluded.created_at
-                    """,
-                    (
-                        str(row["session_id"]),
-                        str(row["started_at"]),
-                        str(row["ended_at"]),
-                        str(row["transcript"]),
-                        str(row["reply"]),
-                        float(row["peak_level"]),
-                        float(row["mean_level"]),
-                        int(row["auto_closed"]),
-                        int(row["reopened_by_click"]),
-                        str(row["mode"]),
-                        str(row["created_at"]),
-                    ),
-                )
-    finally:
-        target_conn.close()
-    return len(rows)
-
-
-def create_mem0_client(api_key: str) -> Any:
-    from mem0 import MemoryClient
-
-    return MemoryClient(api_key=api_key)
-
-
-def _localize_timestamp_fields(payload: Any) -> Any:
-    if isinstance(payload, dict):
-        localized: dict[str, Any] = {}
-        for key, value in payload.items():
-            if (
-                key in {"created_at", "updated_at"}
-                and isinstance(value, str)
-                and value.strip()
-            ):
-                localized[key] = format_local_datetime(value)
-            else:
-                localized[key] = _localize_timestamp_fields(value)
-        return localized
-    if isinstance(payload, list):
-        return [_localize_timestamp_fields(item) for item in payload]
-    return payload
-
-
-def _extract_mem0_results(payload: Any) -> list[dict[str, Any]]:
-    if isinstance(payload, dict):
-        results = payload.get("results", [])
-        if isinstance(results, list):
-            return [item for item in results if isinstance(item, dict)]
-        return []
-    if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
-    return []
-
-
-def _now_iso() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def _tokenize_for_match(query: str) -> list[str]:
-    raw = str(query or "").strip()
-    if not raw:
-        return []
-    tokens = [token.strip() for token in re.split(r"[\s,，。！？；:：/|]+", raw) if token.strip()]
-    return tokens or [raw]
-
-
-def _normalize_match_text(text: str) -> str:
-    return re.sub(r"[\s,，。！？；:：/|\"'`]+", "", str(text or "").strip()).lower()
-
-
-def _sanitize_rewritten_keywords(
-    keywords: list[str],
-    raw_query: str,
-) -> list[str]:
-    invalid_terms = {
-        "在哪",
-        "哪里",
-        "哪儿",
-        "在哪儿",
-        "位置",
-        "地方",
-        "同义词",
-        "同义词:",
-        "同义词：",
-        "扩展",
-        "同义词扩展",
-        "同义词扩展:",
-        "同义词扩展：",
-        "->",
-        "=>",
-    }
-    normalized_query = _normalize_match_text(raw_query)
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for keyword in keywords:
-        candidate = str(keyword or "").strip().strip("\"'`")
-        if not candidate:
-            continue
-        lowered = candidate.lower()
-        if lowered in invalid_terms:
-            continue
-        normalized_candidate = _normalize_match_text(candidate)
-        if (
-            not normalized_candidate
-            or normalized_candidate in invalid_terms
-            or normalized_candidate in seen
-        ):
-            continue
-        if normalized_query and normalized_candidate not in normalized_query:
-            continue
-        seen.add(normalized_candidate)
-        cleaned.append(candidate)
-    return cleaned
-
-
-def _reduce_filter_keywords(keywords: list[str]) -> list[str]:
-    normalized_pairs = [
-        (str(keyword or "").strip(), _normalize_match_text(keyword))
-        for keyword in keywords
-        if str(keyword or "").strip()
-    ]
-    reduced: list[str] = []
-    for keyword, normalized_keyword in normalized_pairs:
-        if not normalized_keyword:
-            continue
-        covered_by_parts = [
-            other_normalized
-            for other_keyword, other_normalized in normalized_pairs
-            if other_keyword != keyword
-            and other_normalized
-            and other_normalized in normalized_keyword
-        ]
-        if len(covered_by_parts) >= 2:
-            continue
-        reduced.append(keyword)
-    return reduced
-
-
-def _quote_match_token(token: str) -> str:
-    escaped = token.replace('"', '""').strip()
-    return f'"{escaped}"' if escaped else ""
-
-
-def _default_match_query(query: str) -> str:
-    tokens = _tokenize_for_match(query)
-    if not tokens:
-        return ""
-    # 不再在默认分词时加引号，让 _match_query 统一处理
-    return " OR ".join(tokens)
-
-
-def _keywords_from_match_query(match_query: str, raw_query: str) -> list[str]:
-    # 提取被双引号包围的词，并去掉引号
-    quoted = re.findall(r'"([^"]+)"', str(match_query or ""))
-    cleaned = [item.strip() for item in quoted if item.strip()]
-    if cleaned:
-        return cleaned
-    # 如果没有被引号包围的词，则按 OR 分割并清理
-    tokens = [t.strip() for t in str(match_query or "").split(" OR ") if t.strip()]
-    if tokens:
-        if len(tokens) == 1 and " " in tokens[0]:
-            return [t.strip() for t in tokens[0].split() if t.strip()]
-        return tokens
-    return _tokenize_for_match(raw_query)
-
-
 class LLMKeywordRewriter:
-    def __init__(
-        self,
-        *,
-        api_key: str,
-        llm_model: str,
-        base_url: str = "",
-    ) -> None:
+    def __init__(self, *, api_key: str, llm_model: str, base_url: str = "") -> None:
         self.api_key = api_key.strip()
         self.model = llm_model.strip()
         self.base_url = base_url.strip()
@@ -503,28 +173,18 @@ class LLMKeywordRewriter:
         cleaned_query = str(query or "").strip()
         if not cleaned_query:
             return ""
-            
         workflow = _require_mapping(load_workflow_config(), "workflow")
         prompts = _require_mapping(workflow.get("prompts"), "prompts")
-        
-        # 统一从 prompts.query_rewrite 读取
-        rewrite_cfg = _require_mapping(
-            prompts.get("query_rewrite"), "prompts.query_rewrite"
-        )
+        rewrite_cfg = _require_mapping(prompts.get("query_rewrite"), "prompts.query_rewrite")
         system_prompt = str(rewrite_cfg.get("system_prompt", "")).strip()
         if not system_prompt:
             raise RuntimeError(
                 "workflow config missing required section: prompts.query_rewrite.system_prompt"
             )
-            
         messages = [
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": cleaned_query},
         ]
-        
         log_llm_prompt("keyword rewrite", messages)
         response = self._client_instance().chat.completions.create(
             model=self.model,
@@ -533,38 +193,91 @@ class LLMKeywordRewriter:
         )
         content = str(response.choices[0].message.content or "").strip()
         log_multiline("keyword rewrite raw", content)
-        
-        # 优先提取纯文本关键词（新 Prompt 要求）
         text_result = re.sub(r"(?is)<think>.*?</think>", "", content).strip()
-        
-        # 兼容性：如果模型还是返回了 JSON（虽然新 Prompt 不要求）
-        cleaned_keywords = []
+        cleaned_keywords: list[str] = []
         if "{" in text_result and "}" in text_result:
             try:
                 json_start = text_result.find("{")
                 json_end = text_result.rfind("}") + 1
                 payload = json.loads(text_result[json_start:json_end])
                 keywords = payload.get("keywords", []) if isinstance(payload, dict) else []
-                cleaned_keywords = [str(k).strip() for k in keywords if str(k).strip()]
+                cleaned_keywords = [str(item).strip() for item in keywords if str(item).strip()]
             except Exception:
                 pass
-        
         if not cleaned_keywords:
-            # 按换行、逗号或空格分割，防止模型返回了多个词
             raw_tokens = re.split(r"[\n,，\s]+", text_result)
-            cleaned_keywords = [t.strip() for t in raw_tokens if t.strip()]
-
-        log(
-            "keyword rewrite parsed: "
-            + json.dumps(cleaned_keywords, ensure_ascii=False)
-        )
-        
+            cleaned_keywords = [token.strip() for token in raw_tokens if token.strip()]
+        log("keyword rewrite parsed: " + json.dumps(cleaned_keywords, ensure_ascii=False))
         cleaned_keywords = _sanitize_rewritten_keywords(cleaned_keywords, cleaned_query)
-
         if not cleaned_keywords:
             return _quote_match_token(cleaned_query)
-            
-        # 构造 FTS5 查询语句 (OR 逻辑)
+        rewritten_query = " OR ".join(
+            _quote_match_token(keyword) for keyword in cleaned_keywords if keyword
+        )
+        log(f"keyword rewrite match_query: {rewritten_query}")
+        return rewritten_query
+
+
+class GroqKeywordRewriter(LLMKeywordRewriter):
+    def __init__(self, *, api_key: str, model: str, base_url: str = "") -> None:
+        super().__init__(api_key=api_key, llm_model=model, base_url=base_url)
+
+    def rewrite(self, query: str) -> str:
+        cleaned_query = str(query or "").strip()
+        if not cleaned_query:
+            return ""
+
+        normalize_prompt = (
+            "你是一个查询纠错改写器。请在保持原意不变的前提下，修正语音转文字或听写造成的明显错字、错词、同音词错误。"
+            "不要扩写，不要解释，只返回 JSON：{\"query\":\"纠正后的问句\"}。"
+        )
+        normalize_messages = [
+            {"role": "system", "content": normalize_prompt},
+            {"role": "user", "content": cleaned_query},
+        ]
+        log_llm_prompt("query normalize", normalize_messages)
+        normalize_response = self._client_instance().chat.completions.create(
+            model=self.model,
+            temperature=0,
+            messages=normalize_messages,
+        )
+        normalize_content = str(normalize_response.choices[0].message.content or "").strip()
+        log_multiline("keyword rewrite raw", normalize_content)
+        normalized_query = cleaned_query
+        try:
+            payload = json.loads(normalize_content)
+            normalized_query = str(payload.get("query") or cleaned_query).strip() or cleaned_query
+        except Exception:
+            pass
+
+        keyword_prompt = (
+            "你是一个 SQLite FTS5 查询改写器。把用户原始问题拆成 2 到 5 个最可能命中的短关键词或短语。"
+            "关键词应该是名词、专有名词、地点、物品或动作，不要把“在哪里”“哪儿呢”“在哪儿”“哪里有”这类纯查询尾巴当成关键词。"
+            "只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。不要解释，不要补充其它字段。"
+        )
+        rewrite_messages = [
+            {"role": "system", "content": keyword_prompt},
+            {"role": "user", "content": normalized_query},
+        ]
+        log_llm_prompt("keyword rewrite", rewrite_messages)
+        rewrite_response = self._client_instance().chat.completions.create(
+            model=self.model,
+            temperature=0,
+            messages=rewrite_messages,
+        )
+        rewrite_content = str(rewrite_response.choices[0].message.content or "").strip()
+        log_multiline("keyword rewrite raw", rewrite_content)
+        keywords: list[str] = []
+        try:
+            payload = json.loads(rewrite_content)
+            raw_keywords = payload.get("keywords", []) if isinstance(payload, dict) else []
+            keywords = [str(item).strip() for item in raw_keywords if str(item).strip()]
+        except Exception:
+            pass
+        log("keyword rewrite parsed: " + json.dumps(keywords, ensure_ascii=False))
+        cleaned_keywords = _sanitize_rewritten_keywords(keywords, normalized_query)
+        if not cleaned_keywords:
+            return _quote_match_token(normalized_query)
         rewritten_query = " OR ".join(
             _quote_match_token(keyword) for keyword in cleaned_keywords if keyword
         )
@@ -573,13 +286,7 @@ class LLMKeywordRewriter:
 
 
 class LLMMemoryTranslator:
-    def __init__(
-        self,
-        *,
-        api_key: str,
-        llm_model: str,
-        base_url: str = "",
-    ) -> None:
+    def __init__(self, *, api_key: str, llm_model: str, base_url: str = "") -> None:
         self.api_key = api_key.strip()
         self.model = llm_model.strip()
         self.base_url = base_url.strip()
@@ -610,10 +317,7 @@ class LLMMemoryTranslator:
                 "workflow config missing required section: prompts.memory_translate.system_prompt"
             )
         messages = [
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": cleaned_text},
         ]
         log_llm_prompt("memory translate", messages)
@@ -624,707 +328,36 @@ class LLMMemoryTranslator:
         )
         content = str(response.choices[0].message.content or "").strip()
         log_multiline("memory translate raw", content)
-        translated_text = re.sub(
-            r"(?is)<think>.*?</think>",
-            "",
-            content,
-        ).strip() or cleaned_text
+        translated_text = re.sub(r"(?is)<think>.*?</think>", "", content).strip() or cleaned_text
         log(f"memory translate parsed: {translated_text}")
         return translated_text
 
 
-class Mem0RememberStore(BaseRememberStore):
-    def __init__(
-        self,
-        *,
-        api_key: str = "",
-        user_id: str = "soj",
-        app_id: str = "voice-assistant",
-        client: Any | None = None,
-    ) -> None:
-        if client is None and not api_key.strip():
-            raise RuntimeError("mem0 配置缺失：MEM0_API_KEY")
-        self.client = client if client is not None else create_mem0_client(api_key)
-        self.user_id = user_id.strip() or "soj"
-        self.app_id = app_id.strip()
-
-    def _write_scope_kwargs(self) -> dict[str, Any]:
-        kwargs = {"user_id": self.user_id, "async_mode": False}
-        if self.app_id:
-            kwargs["app_id"] = self.app_id
-        return kwargs
-
-    def _read_scope_kwargs(self) -> dict[str, Any]:
-        return {
-            "filters": {
-                "OR": [
-                    {"AND": [{"user_id": self.user_id}]},
-                    {
-                        "AND": [
-                            {"user_id": self.user_id},
-                            {"OR": [{"app_id": "*"}, {"agent_id": "*"}]},
-                        ]
-                    },
-                ]
-            }
-        }
-
-    def add(self, *, memory: str, original_text: str = "") -> str:
-        messages = [{"role": "user", "content": memory}]
-        kwargs = self._write_scope_kwargs()
-        if original_text.strip():
-            kwargs["metadata"] = {"original_text": original_text.strip()}
-        try:
-            response = self.client.add(messages, **kwargs)
-        except TypeError:
-            kwargs.pop("metadata", None)
-            response = self.client.add(messages, **kwargs)
-        stored_memory = memory
-        if isinstance(response, list) and response:
-            first = response[0]
-            if isinstance(first, dict):
-                stored_memory = str(
-                    first.get("memory") or first.get("data", {}).get("memory") or memory
-                )
-        return f"✅ 已记录：{stored_memory}"
-
-    def find(self, *, query: str) -> str:
-        response = self.client.search(query, **self._read_scope_kwargs())
-        return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
-
-    def delete(self, *, memory_id: str) -> None:
-        self.client.delete(memory_id)
-
-    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
-        kwargs = self._read_scope_kwargs()
-        # Mem0 API may not support limit directly in get_all, 
-        # but we can try passing it if it supports pagination parameters,
-        # or just truncate the result from get_all.
-        # Based on existing migrate code, it uses page and page_size.
-        response = self.client.get_all(**kwargs)
-        items = _extract_mem0_results(response)
-        
-        records = []
-        for item in items[:limit]:
-            metadata = item.get("metadata", {})
-            if not isinstance(metadata, dict):
-                metadata = {}
-            records.append(
-                RememberItemRecord(
-                    id=str(item.get("id", "")),
-                    source_memory_id=str(item.get("id", "")),
-                    memory=str(item.get("memory") or item.get("text") or ""),
-                    original_text=str(metadata.get("original_text") or ""),
-                    created_at=str(item.get("created_at") or ""),
-                )
-            )
-        return records
-
-    def get_all(self) -> list[dict[str, Any]]:
-        response = self.client.get_all(**self._read_scope_kwargs())
-        return _extract_mem0_results(response)
-
-
-class SQLiteFTS5RememberStore(BaseRememberStore):
-    def __init__(
-        self,
-        *,
-        db_path: str | Path,
-        max_results: int = 3,
-        keyword_rewriter: KeywordRewriter | None = None,
-    ) -> None:
-        self.db_path = Path(db_path).expanduser()
-        self.max_results = max(1, int(max_results))
-        self.keyword_rewriter = keyword_rewriter
-        self.table_name = "remember_entries"
-        self.fts_table_name = "remember_entries_simple_fts"
-        self.use_simple_query = False
-
-    def _load_simple_extension(self, conn: sqlite3.Connection) -> bool:
-        extension_path = SIMPLE_EXTENSION_PATH.expanduser()
-        if not extension_path.is_file():
-            return False
-        conn.enable_load_extension(True)
-        try:
-            conn.load_extension(str(extension_path))
-        finally:
-            conn.enable_load_extension(False)
-        return True
-
-    def _connect(self) -> sqlite3.Connection:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        self.use_simple_query = self._load_simple_extension(conn)
-        fts_tokenizer_clause = ",\n                tokenize='simple'" if self.use_simple_query else ""
-        conn.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS {self.table_name} (
-                id TEXT PRIMARY KEY,
-                source_memory_id TEXT NOT NULL DEFAULT '',
-                memory TEXT NOT NULL,
-                original_text TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            """
-        )
-        columns = {
-            str(row["name"])
-            for row in conn.execute(f"PRAGMA table_info({self.table_name})").fetchall()
-        }
-        if "source_memory_id" not in columns:
-            conn.execute(
-                f"""
-                ALTER TABLE {self.table_name}
-                ADD COLUMN source_memory_id TEXT NOT NULL DEFAULT ''
-                """
-            )
-        conn.execute(
-            f"""
-            CREATE VIRTUAL TABLE IF NOT EXISTS {self.fts_table_name}
-            USING fts5(
-                memory,
-                original_text,
-                item_id UNINDEXED
-                -- NOTE: tokenize='simple' requires libsimple.dylib; fall back to default tokenizer if absent.
-                {fts_tokenizer_clause}
-            )
-            """
-        )
-        conn.execute(
-            f"""
-            CREATE INDEX IF NOT EXISTS idx_{self.table_name}_updated_at
-            ON {self.table_name}(updated_at DESC)
-            """
-        )
-        conn.execute(
-            f"""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_{self.table_name}_source_memory_id
-            ON {self.table_name}(source_memory_id)
-            WHERE source_memory_id != ''
-            """
-        )
-        conn.execute(f"DELETE FROM {self.fts_table_name}")
-        conn.execute(
-            f"""
-            INSERT INTO {self.fts_table_name} (
-                memory,
-                original_text,
-                item_id
-            )
-            SELECT
-                memory,
-                original_text,
-                id
-            FROM {self.table_name}
-            """
-        )
-        return conn
-
-    def add(
-        self,
-        *,
-        memory: str,
-        original_text: str = "",
-        source_memory_id: str = "",
-    ) -> str:
-        item_id = uuid.uuid4().hex
-        timestamp = _now_iso()
-        stored_memory = str(memory or "").strip()
-        stored_original_text = str(original_text or "").strip()
-        stored_source_memory_id = str(source_memory_id or "").strip()
-        with contextlib.closing(self._connect()) as conn:
-            with conn:
-                if stored_source_memory_id:
-                    conn.execute(
-                        f"DELETE FROM {self.fts_table_name} WHERE item_id IN (SELECT id FROM {self.table_name} WHERE source_memory_id = ?)",
-                        (stored_source_memory_id,),
-                    )
-                    conn.execute(
-                        f"DELETE FROM {self.table_name} WHERE source_memory_id = ?",
-                        (stored_source_memory_id,),
-                    )
-                conn.execute(
-                    f"""
-                    INSERT INTO {self.table_name} (
-                        id,
-                        source_memory_id,
-                        memory,
-                        original_text,
-                        created_at,
-                        updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        item_id,
-                        stored_source_memory_id,
-                        stored_memory,
-                        stored_original_text,
-                        timestamp,
-                        timestamp,
-                    ),
-                )
-                conn.execute(
-                    f"""
-                    INSERT INTO {self.fts_table_name} (
-                        memory,
-                        original_text,
-                        item_id
-                    ) VALUES (?, ?, ?)
-                    """,
-                    (stored_memory, stored_original_text, item_id),
-                )
-        return f"✅ 已记录：{stored_memory}"
-
-    def upsert(
-        self,
-        *,
-        source_memory_id: str,
-        memory: str,
-        original_text: str = "",
-    ) -> str:
-        return self.add(
-            source_memory_id=source_memory_id,
-            memory=memory,
-            original_text=original_text,
-        )
-
-    def has_any_rows(self) -> bool:
-        with contextlib.closing(self._connect()) as conn:
-            row = conn.execute(
-                f"SELECT 1 FROM {self.table_name} LIMIT 1"
-            ).fetchone()
-        return row is not None
-
-    def _match_query(self, query: str) -> str:
-        cleaned_query = str(query or "").strip()
-        if not cleaned_query:
-            return ""
-
-        # 1. 尝试获取重写后的关键词（如果有 rewriter）
-        rewritten_query = ""
-        keywords: list[str] = []
-        if self.keyword_rewriter:
-            try:
-                # 这里的 rewrite 应该已经返回了 "word1 OR word2" 格式
-                rewritten_query = str(
-                    self.keyword_rewriter.rewrite(cleaned_query)
-                ).strip()
-                keywords = _sanitize_rewritten_keywords(
-                    _keywords_from_match_query(rewritten_query, cleaned_query),
-                    cleaned_query,
-                )
-            except Exception as e:
-                log(f"Keyword rewrite failed: {e}")
-
-        # 2. 如果重写失败或没有 rewriter，使用默认分词
-        if not rewritten_query:
-            # 移除所有引号，直接用原始词构造 OR 逻辑
-            raw_tokens = _tokenize_for_match(cleaned_query)
-            rewritten_query = " OR ".join(f'"{t}"' for t in raw_tokens if t)
-            keywords = raw_tokens
-
-        # 3. 根据是否使用 libsimple 构造最终的 MATCH 语法
-        if self.use_simple_query:
-            # libsimple 的 simple_query() 函数接受以空格分隔的关键词
-            match_query = " ".join(keywords).strip() or cleaned_query
-            log_info = {
-                "query": cleaned_query,
-                "match_query": match_query,
-                "keywords": keywords,
-                "rewrite": bool(self.keyword_rewriter),
-                "fts": "simple_query",
-            }
-        else:
-            match_query = rewritten_query
-            log_info = {
-                "query": cleaned_query,
-                "match_query": match_query,
-                "keywords": keywords,
-                "rewrite": bool(self.keyword_rewriter),
-                "fts": "standard",
-            }
-
-        log("remember search input: " + json.dumps(log_info, ensure_ascii=False))
-        return match_query
-
-    def find(self, *, query: str) -> str:
-        match_query = self._match_query(query)
-        if not match_query:
-            return json.dumps({"results": []}, ensure_ascii=False)
-        keywords = _sanitize_rewritten_keywords(
-            _keywords_from_match_query(match_query, query),
-            query,
-        ) or _tokenize_for_match(query)
-        with contextlib.closing(self._connect()) as conn:
-            match_sql = (
-                "simple_query(?)" if self.use_simple_query else "?"
-            )
-            log(
-                "remember search sql: fts5 match="
-                + (f"simple_query({match_query})" if self.use_simple_query else match_query)
-            )
-            rows = conn.execute(
-                f"""
-                SELECT
-                    items.id,
-                    items.memory,
-                    items.original_text,
-                    items.created_at,
-                    items.updated_at
-                FROM {self.fts_table_name} fts
-                JOIN {self.table_name} items ON items.id = fts.item_id
-                WHERE {self.fts_table_name} MATCH {match_sql}
-                ORDER BY bm25({self.fts_table_name}), items.updated_at DESC
-                LIMIT ?
-                """,
-                (match_query, self.max_results),
-            ).fetchall()
-            if not rows:
-                # Fallback: 使用原始查询词的分词进行 LIKE 搜索，确保没有引号干扰
-                if keywords:
-                    log(
-                        "remember search fallback: "
-                        + json.dumps(
-                            {
-                                "strategy": "like",
-                                "keywords": keywords,
-                            },
-                            ensure_ascii=False,
-                        )
-                    )
-                    like_clauses = " OR ".join(
-                        "(memory LIKE ? OR original_text LIKE ?)"
-                        for _ in keywords
-                    )
-                    params: list[Any] = []
-                    for keyword in keywords:
-                        pattern = f"%{keyword}%"
-                        params.extend([pattern, pattern])
-                        log(
-                            "remember search like keyword: "
-                            + json.dumps(
-                                {"keyword": keyword, "pattern": pattern},
-                                ensure_ascii=False,
-                            )
-                        )
-                    params.append(self.max_results)
-                    rows = conn.execute(
-                        f"""
-                        SELECT
-                            id,
-                            memory,
-                            original_text,
-                            created_at,
-                            updated_at
-                        FROM {self.table_name}
-                        WHERE {like_clauses}
-                        ORDER BY updated_at DESC
-                        LIMIT ?
-                        """,
-                        params,
-                    ).fetchall()
-        filtered_rows = rows
-        primary_keywords = _reduce_filter_keywords(
-            _sanitize_rewritten_keywords(keywords, query)
-        )
-        if primary_keywords:
-            filtered_rows = [
-                row
-                for row in rows
-                if all(
-                    _normalize_match_text(keyword)
-                    in _normalize_match_text(
-                        str(row["memory"])
-                    )
-                    for keyword in primary_keywords
-                )
-            ]
-        results = [
-            {
-                "id": str(row["id"]),
-                "memory": str(row["memory"]),
-                "original_text": str(row["original_text"]),
-                "created_at": format_local_datetime(str(row["created_at"])),
-                "updated_at": format_local_datetime(str(row["updated_at"])),
-                "score": round(0.99 - (index * 0.01), 2),
-                "metadata": {"original_text": str(row["original_text"])},
-            }
-            for index, row in enumerate(filtered_rows)
-        ]
-        return json.dumps({"results": results}, ensure_ascii=False)
-
-    def delete(self, *, memory_id: str) -> None:
-        with contextlib.closing(self._connect()) as conn:
-            with conn:
-                conn.execute(
-                    f"DELETE FROM {self.fts_table_name} WHERE item_id = ?",
-                    (memory_id,),
-                )
-                conn.execute(
-                    f"DELETE FROM {self.table_name} WHERE id = ?",
-                    (memory_id,),
-                )
-
-    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
-        with contextlib.closing(self._connect()) as conn:
-            rows = conn.execute(
-                f"""
-                SELECT
-                    id,
-                    source_memory_id,
-                    memory,
-                    original_text,
-                    created_at
-                FROM {self.table_name}
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (max(1, limit),),
-            ).fetchall()
-        return [
-            RememberItemRecord(
-                id=str(row["id"]),
-                source_memory_id=str(row["source_memory_id"]),
-                memory=str(row["memory"]),
-                original_text=str(row["original_text"]),
-                created_at=str(row["created_at"]),
-            )
-            for row in rows
-        ]
-
-
-def migrate_mem0_memories_to_sqlite(
-    *,
-    source_store: Mem0RememberStore,
-    target_store: SQLiteFTS5RememberStore,
-    translator: MemoryTranslator,
-    page_size: int = 100,
-) -> int:
-    copied = 0
-    page = 1
-    effective_page_size = max(1, int(page_size))
-    while True:
-        payload = source_store.client.get_all(
-            **source_store._read_scope_kwargs(),
-            page=page,
-            page_size=effective_page_size,
-        )
-        items = _extract_mem0_results(payload)
-        if not items:
-            break
-        for item in items:
-            source_memory_id = str(item.get("id", "")).strip()
-            source_memory = str(item.get("memory") or item.get("text") or "").strip()
-            if not source_memory:
-                continue
-            raw_metadata = item.get("metadata")
-            metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
-            original_text = str(
-                metadata.get("original_text")
-                or metadata.get("source_text")
-                or item.get("original_text")
-                or source_memory
-            ).strip()
-            translated_memory = translator.translate(source_memory) or source_memory
-            target_store.upsert(
-                source_memory_id=source_memory_id,
-                memory=translated_memory,
-                original_text=original_text,
-            )
-            copied += 1
-        if len(items) < effective_page_size:
-            break
-        page += 1
-    return copied
-
-
-class NullHistoryStore(BaseHistoryStore):
-    def persist(self, entry: SessionHistoryRecord) -> None:
-        return None
-
-    def list_recent(
-        self, *, limit: int = 10, query: str = ""
-    ) -> list[SessionHistoryRecord]:
-        return []
-
-    def delete(self, *, session_id: str) -> None:
-        return None
-
-
-class SQLiteHistoryStore(BaseHistoryStore):
-    def __init__(self, db_path: str | Path) -> None:
-        self.db_path = Path(db_path).expanduser()
-
-    def _connect(self) -> sqlite3.Connection:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS session_histories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL UNIQUE,
-                started_at TEXT NOT NULL,
-                ended_at TEXT NOT NULL,
-                transcript TEXT NOT NULL,
-                reply TEXT NOT NULL,
-                peak_level REAL NOT NULL,
-                mean_level REAL NOT NULL,
-                auto_closed INTEGER NOT NULL,
-                reopened_by_click INTEGER NOT NULL,
-                mode TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_session_histories_started_at
-            ON session_histories(started_at DESC)
-            """
-        )
-        return conn
-
-    def persist(self, entry: SessionHistoryRecord) -> None:
-        with contextlib.closing(self._connect()) as conn:
-            with conn:
-                conn.execute(
-                    """
-                    INSERT INTO session_histories (
-                        session_id,
-                        started_at,
-                        ended_at,
-                        transcript,
-                        reply,
-                        peak_level,
-                        mean_level,
-                        auto_closed,
-                        reopened_by_click,
-                        mode,
-                        created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(session_id) DO UPDATE SET
-                        started_at = excluded.started_at,
-                        ended_at = excluded.ended_at,
-                        transcript = excluded.transcript,
-                        reply = excluded.reply,
-                        peak_level = excluded.peak_level,
-                        mean_level = excluded.mean_level,
-                        auto_closed = excluded.auto_closed,
-                        reopened_by_click = excluded.reopened_by_click,
-                        mode = excluded.mode
-                    """,
-                    (
-                        entry.session_id,
-                        entry.started_at,
-                        entry.ended_at,
-                        entry.transcript,
-                        entry.reply,
-                        entry.peak_level,
-                        entry.mean_level,
-                        int(entry.auto_closed),
-                        int(entry.reopened_by_click),
-                        entry.mode,
-                        entry.started_at,
-                    ),
-                )
-
-    def list_recent(
-        self, *, limit: int = 10, query: str = ""
-    ) -> list[SessionHistoryRecord]:
-        sql = """
-            SELECT
-                session_id,
-                started_at,
-                ended_at,
-                transcript,
-                reply,
-                peak_level,
-                mean_level,
-                auto_closed,
-                reopened_by_click,
-                mode
-            FROM session_histories
-        """
-        params: list[Any] = []
-        trimmed_query = query.strip()
-        if trimmed_query:
-            sql += " WHERE transcript LIKE ? OR reply LIKE ?"
-            pattern = f"%{trimmed_query}%"
-            params.extend([pattern, pattern])
-        sql += " ORDER BY started_at DESC LIMIT ?"
-        params.append(max(1, limit))
-        with contextlib.closing(self._connect()) as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [
-            SessionHistoryRecord(
-                session_id=str(row["session_id"]),
-                started_at=str(row["started_at"]),
-                ended_at=str(row["ended_at"]),
-                transcript=str(row["transcript"]),
-                reply=str(row["reply"]),
-                peak_level=float(row["peak_level"]),
-                mean_level=float(row["mean_level"]),
-                auto_closed=bool(row["auto_closed"]),
-                reopened_by_click=bool(row["reopened_by_click"]),
-                mode=str(row["mode"]),
-            )
-            for row in rows
-        ]
-
-    def delete(self, *, session_id: str) -> None:
-        with contextlib.closing(self._connect()) as conn:
-            with conn:
-                conn.execute(
-                    "DELETE FROM session_histories WHERE session_id = ?",
-                    (session_id.strip(),),
-                )
-
-
-from .cli_wrapper import CLIHistoryStore, CLIRememberStore
-
-
 class StorageService:
     def __init__(self, config: StorageConfig, use_cli: bool = True) -> None:
-        self.config = StorageConfig(
-            backend=config.backend,
-            mem0_api_key=config.mem0_api_key,
-            mem0_user_id=config.mem0_user_id,
-            mem0_app_id=config.mem0_app_id,
-            mem0_min_score=config.mem0_min_score,
-            mem0_max_items=config.mem0_max_items,
-            history_db_path=config.history_db_path,
-            remember_db_path=config.remember_db_path,
-            remember_max_results=config.remember_max_results,
-            query_rewrite_enabled=config.query_rewrite_enabled,
-            llm_api_key=config.llm_api_key,
-            llm_base_url=config.llm_base_url,
-            llm_model=config.llm_model,
-        )
+        normalized = StorageConfig(**config.__dict__)
+        if not str(normalized.history_db_path).strip():
+            normalized.history_db_path = str(DEFAULT_HISTORY_DB_PATH)
+        if not str(normalized.remember_db_path).strip():
+            normalized.remember_db_path = str(DEFAULT_REMEMBER_DB_PATH)
+        self.config = normalized
         if use_cli:
-            from .cli_wrapper import CLIHistoryStore, CLIRememberStore
-
             self._history_store = CLIHistoryStore()
             self._remember_store = CLIRememberStore()
+            return
+        self._history_store = SQLiteHistoryStore(self.config.history_db_path)
+        if self.config.backend == "sqlite_fts5":
+            self._remember_store = SQLiteFTS5RememberStore(
+                db_path=self.config.remember_db_path,
+                max_results=self.config.remember_max_results,
+                keyword_rewriter=self.keyword_rewriter(),
+            )
         else:
-            # History
-            self._history_store = SQLiteHistoryStore(self.config.history_db_path)
-
-            # Remember
-            if self.config.backend == "sqlite_fts5":
-                self._remember_store = SQLiteFTS5RememberStore(
-                    db_path=self.config.remember_db_path,
-                    max_results=self.config.remember_max_results,
-                    keyword_rewriter=self.keyword_rewriter(),
-                )
-            else:
-                self._remember_store = Mem0RememberStore(
-                    api_key=self.config.mem0_api_key,
-                    user_id=self.config.mem0_user_id,
-                    app_id=self.config.mem0_app_id,
-                )
+            self._remember_store = Mem0RememberStore(
+                api_key=self.config.mem0_api_key,
+                user_id=self.config.mem0_user_id,
+                app_id=self.config.mem0_app_id,
+            )
 
     @classmethod
     def from_env(cls, use_cli: bool = True) -> "StorageService":
@@ -1334,9 +367,7 @@ class StorageService:
         return None
 
     def keyword_rewriter(self) -> KeywordRewriter | None:
-        if not self.config.query_rewrite_enabled:
-            return None
-        if not self.config.llm_api_key.strip():
+        if not self.config.query_rewrite_enabled or not self.config.llm_api_key.strip():
             return None
         return LLMKeywordRewriter(
             api_key=self.config.llm_api_key,

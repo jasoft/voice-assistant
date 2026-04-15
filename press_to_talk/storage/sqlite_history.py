@@ -1,0 +1,261 @@
+from __future__ import annotations
+
+import contextlib
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+from .models import BaseHistoryStore, SessionHistoryRecord
+
+
+class NullHistoryStore(BaseHistoryStore):
+    def persist(self, entry: SessionHistoryRecord) -> None:
+        return None
+
+    def list_recent(
+        self, *, limit: int = 10, query: str = ""
+    ) -> list[SessionHistoryRecord]:
+        return []
+
+    def delete(self, *, session_id: str) -> None:
+        return None
+
+
+class SQLiteHistoryStore(BaseHistoryStore):
+    def __init__(self, db_path: str | Path) -> None:
+        self.db_path = Path(db_path).expanduser()
+
+    def _connect(self) -> sqlite3.Connection:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_histories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL UNIQUE,
+                started_at TEXT NOT NULL,
+                ended_at TEXT NOT NULL,
+                transcript TEXT NOT NULL,
+                reply TEXT NOT NULL,
+                peak_level REAL NOT NULL,
+                mean_level REAL NOT NULL,
+                auto_closed INTEGER NOT NULL,
+                reopened_by_click INTEGER NOT NULL,
+                mode TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_session_histories_started_at
+            ON session_histories(started_at DESC)
+            """
+        )
+        return conn
+
+    def persist(self, entry: SessionHistoryRecord) -> None:
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO session_histories (
+                        session_id,
+                        started_at,
+                        ended_at,
+                        transcript,
+                        reply,
+                        peak_level,
+                        mean_level,
+                        auto_closed,
+                        reopened_by_click,
+                        mode,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        started_at = excluded.started_at,
+                        ended_at = excluded.ended_at,
+                        transcript = excluded.transcript,
+                        reply = excluded.reply,
+                        peak_level = excluded.peak_level,
+                        mean_level = excluded.mean_level,
+                        auto_closed = excluded.auto_closed,
+                        reopened_by_click = excluded.reopened_by_click,
+                        mode = excluded.mode
+                    """,
+                    (
+                        entry.session_id,
+                        entry.started_at,
+                        entry.ended_at,
+                        entry.transcript,
+                        entry.reply,
+                        entry.peak_level,
+                        entry.mean_level,
+                        int(entry.auto_closed),
+                        int(entry.reopened_by_click),
+                        entry.mode,
+                        entry.started_at,
+                    ),
+                )
+
+    def list_recent(
+        self, *, limit: int = 10, query: str = ""
+    ) -> list[SessionHistoryRecord]:
+        sql = """
+            SELECT
+                session_id,
+                started_at,
+                ended_at,
+                transcript,
+                reply,
+                peak_level,
+                mean_level,
+                auto_closed,
+                reopened_by_click,
+                mode
+            FROM session_histories
+        """
+        params: list[Any] = []
+        trimmed_query = query.strip()
+        if trimmed_query:
+            sql += " WHERE transcript LIKE ? OR reply LIKE ?"
+            pattern = f"%{trimmed_query}%"
+            params.extend([pattern, pattern])
+        sql += " ORDER BY started_at DESC LIMIT ?"
+        params.append(max(1, limit))
+        with contextlib.closing(self._connect()) as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [
+            SessionHistoryRecord(
+                session_id=str(row["session_id"]),
+                started_at=str(row["started_at"]),
+                ended_at=str(row["ended_at"]),
+                transcript=str(row["transcript"]),
+                reply=str(row["reply"]),
+                peak_level=float(row["peak_level"]),
+                mean_level=float(row["mean_level"]),
+                auto_closed=bool(row["auto_closed"]),
+                reopened_by_click=bool(row["reopened_by_click"]),
+                mode=str(row["mode"]),
+            )
+            for row in rows
+        ]
+
+    def delete(self, *, session_id: str) -> None:
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(
+                    "DELETE FROM session_histories WHERE session_id = ?",
+                    (session_id.strip(),),
+                )
+
+
+def migrate_history_table(
+    source_db_path: str | Path,
+    target_db_path: str | Path,
+) -> int:
+    source = Path(source_db_path).expanduser()
+    target = Path(target_db_path).expanduser()
+    if not source.exists():
+        return 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source_conn = sqlite3.connect(source)
+    source_conn.row_factory = sqlite3.Row
+    try:
+        rows = source_conn.execute(
+            """
+            SELECT
+                session_id,
+                started_at,
+                ended_at,
+                transcript,
+                reply,
+                peak_level,
+                mean_level,
+                auto_closed,
+                reopened_by_click,
+                mode,
+                created_at
+            FROM session_histories
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    except sqlite3.OperationalError:
+        source_conn.close()
+        return 0
+    finally:
+        source_conn.close()
+
+    target_conn = sqlite3.connect(target)
+    try:
+        target_conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_histories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL UNIQUE,
+                started_at TEXT NOT NULL,
+                ended_at TEXT NOT NULL,
+                transcript TEXT NOT NULL,
+                reply TEXT NOT NULL,
+                peak_level REAL NOT NULL,
+                mean_level REAL NOT NULL,
+                auto_closed INTEGER NOT NULL,
+                reopened_by_click INTEGER NOT NULL,
+                mode TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        target_conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_session_histories_started_at
+            ON session_histories(started_at DESC)
+            """
+        )
+        with target_conn:
+            for row in rows:
+                target_conn.execute(
+                    """
+                    INSERT INTO session_histories (
+                        session_id,
+                        started_at,
+                        ended_at,
+                        transcript,
+                        reply,
+                        peak_level,
+                        mean_level,
+                        auto_closed,
+                        reopened_by_click,
+                        mode,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        started_at = excluded.started_at,
+                        ended_at = excluded.ended_at,
+                        transcript = excluded.transcript,
+                        reply = excluded.reply,
+                        peak_level = excluded.peak_level,
+                        mean_level = excluded.mean_level,
+                        auto_closed = excluded.auto_closed,
+                        reopened_by_click = excluded.reopened_by_click,
+                        mode = excluded.mode,
+                        created_at = excluded.created_at
+                    """,
+                    (
+                        str(row["session_id"]),
+                        str(row["started_at"]),
+                        str(row["ended_at"]),
+                        str(row["transcript"]),
+                        str(row["reply"]),
+                        float(row["peak_level"]),
+                        float(row["mean_level"]),
+                        int(row["auto_closed"]),
+                        int(row["reopened_by_click"]),
+                        str(row["mode"]),
+                        str(row["created_at"]),
+                    ),
+                )
+    finally:
+        target_conn.close()
+    return len(rows)

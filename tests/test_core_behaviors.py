@@ -12,6 +12,7 @@ import numpy as np
 from press_to_talk import core
 from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageService
 from press_to_talk.storage.cli_wrapper import CLIRememberStore
+from press_to_talk.storage import memory_backends as memory_backends_module
 from press_to_talk.storage import service as storage_service_module
 
 
@@ -1413,7 +1414,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
                 original_text="帮我记住护照在书房第二层抽屉里",
             )
 
-            with patch.object(storage_service_module, "log", capture):
+            with patch.object(memory_backends_module, "log", capture):
                 found = store.find(query="我的护照放哪了")
 
         self.assertIn('"memory": "护照在书房第二层抽屉里"', found)

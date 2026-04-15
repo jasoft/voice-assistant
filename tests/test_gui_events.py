@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from press_to_talk import core
 from press_to_talk import storage_cli
+from press_to_talk.storage import cli_app as storage_cli_app
 
 
 @contextmanager
@@ -106,12 +107,8 @@ class StorageCliTests(unittest.TestCase):
 
             stderr = io.StringIO()
             stdout = io.StringIO()
-            with chdir(tmp_path), patch.object(
-                storage_cli.sys,
-                "argv",
-                ["press_to_talk.storage_cli", "history", "list", "--limit", "5"],
-            ), patch.dict(os.environ, {}, clear=True), redirect_stdout(stdout), redirect_stderr(stderr):
-                code = storage_cli.main()
+            with chdir(tmp_path), patch.dict(os.environ, {}, clear=True), redirect_stdout(stdout), redirect_stderr(stderr):
+                code = storage_cli.main(["history", "list", "--limit", "5"])
 
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(stdout.getvalue().strip()), [])
@@ -134,17 +131,12 @@ class StorageCliTests(unittest.TestCase):
         stderr = io.StringIO()
         with (
             patch("press_to_talk.core.load_env_files"),
-            patch("press_to_talk.storage.service.load_storage_config", return_value=fake_config),
-            patch.object(storage_cli, "StorageService", return_value=fake_service),
-            patch.object(
-                storage_cli.sys,
-                "argv",
-                ["press_to_talk.storage_cli", "memory", "search", "--query", "壮壮"],
-            ),
+            patch.object(storage_cli_app, "load_storage_config", return_value=fake_config),
+            patch.object(storage_cli_app, "StorageService", return_value=fake_service),
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
-            code = storage_cli.main()
+            code = storage_cli.main(["memory", "search", "--query", "壮壮"])
 
         self.assertEqual(code, 0)
         self.assertEqual(stdout.getvalue().splitlines(), ["茶长壮壮的", "壮壮去打篮球"])
@@ -170,18 +162,13 @@ class StorageCliTests(unittest.TestCase):
         stderr = FakeTTY()
         with (
             patch("press_to_talk.core.load_env_files"),
-            patch("press_to_talk.storage.service.load_storage_config", return_value=fake_config),
-            patch.object(storage_cli, "StorageService", return_value=fake_service),
-            patch.object(
-                storage_cli.sys,
-                "argv",
-                ["press_to_talk.storage_cli", "memory", "search", "--query", "壮壮"],
-            ),
+            patch.object(storage_cli_app, "load_storage_config", return_value=fake_config),
+            patch.object(storage_cli_app, "StorageService", return_value=fake_service),
             patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=False),
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
-            code = storage_cli.main()
+            code = storage_cli.main(["memory", "search", "--query", "壮壮"])
 
         self.assertEqual(code, 0)
         self.assertIn("茶长壮壮的", stdout.getvalue())

@@ -1,0 +1,648 @@
+from __future__ import annotations
+
+import contextlib
+import json
+import re
+import sqlite3
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from press_to_talk.utils.logging import log
+from press_to_talk.utils.text import format_local_datetime
+
+from .models import (
+    BaseRememberStore,
+    KeywordRewriter,
+    MemoryTranslator,
+    RememberItemRecord,
+)
+
+APP_ROOT = Path(__file__).resolve().parents[2]
+SIMPLE_EXTENSION_PATH = APP_ROOT / "third_party" / "simple" / "libsimple.dylib"
+
+
+def _now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _tokenize_for_match(query: str) -> list[str]:
+    raw = str(query or "").strip()
+    if not raw:
+        return []
+    tokens = [token.strip() for token in re.split(r"[\s,，。！？；:：/|]+", raw) if token.strip()]
+    return tokens or [raw]
+
+
+def _normalize_match_text(text: str) -> str:
+    return re.sub(r"[\s,，。！？；:：/|\"'`]+", "", str(text or "").strip()).lower()
+
+
+def _sanitize_rewritten_keywords(
+    keywords: list[str],
+    raw_query: str,
+) -> list[str]:
+    invalid_terms = {
+        "在哪",
+        "哪里",
+        "哪儿",
+        "在哪儿",
+        "位置",
+        "地方",
+        "同义词",
+        "同义词:",
+        "同义词：",
+        "扩展",
+        "同义词扩展",
+        "同义词扩展:",
+        "同义词扩展：",
+        "->",
+        "=>",
+    }
+    normalized_query = _normalize_match_text(raw_query)
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for keyword in keywords:
+        candidate = str(keyword or "").strip().strip("\"'`")
+        if not candidate:
+            continue
+        lowered = candidate.lower()
+        if lowered in invalid_terms:
+            continue
+        normalized_candidate = _normalize_match_text(candidate)
+        if (
+            not normalized_candidate
+            or normalized_candidate in invalid_terms
+            or normalized_candidate in seen
+        ):
+            continue
+        if normalized_query and normalized_candidate not in normalized_query:
+            continue
+        seen.add(normalized_candidate)
+        cleaned.append(candidate)
+    return cleaned
+
+
+def _reduce_filter_keywords(keywords: list[str]) -> list[str]:
+    normalized_pairs = [
+        (str(keyword or "").strip(), _normalize_match_text(keyword))
+        for keyword in keywords
+        if str(keyword or "").strip()
+    ]
+    reduced: list[str] = []
+    for keyword, normalized_keyword in normalized_pairs:
+        if not normalized_keyword:
+            continue
+        covered_by_parts = [
+            other_normalized
+            for other_keyword, other_normalized in normalized_pairs
+            if other_keyword != keyword
+            and other_normalized
+            and other_normalized in normalized_keyword
+        ]
+        if len(covered_by_parts) >= 2:
+            continue
+        reduced.append(keyword)
+    return reduced
+
+
+def _quote_match_token(token: str) -> str:
+    escaped = token.replace('"', '""').strip()
+    return f'"{escaped}"' if escaped else ""
+
+
+def _default_match_query(query: str) -> str:
+    tokens = _tokenize_for_match(query)
+    if not tokens:
+        return ""
+    return " OR ".join(tokens)
+
+
+def _keywords_from_match_query(match_query: str, raw_query: str) -> list[str]:
+    quoted = re.findall(r'"([^"]+)"', str(match_query or ""))
+    cleaned = [item.strip() for item in quoted if item.strip()]
+    if cleaned:
+        return cleaned
+    tokens = [t.strip() for t in str(match_query or "").split(" OR ") if t.strip()]
+    if tokens:
+        if len(tokens) == 1 and " " in tokens[0]:
+            return [t.strip() for t in tokens[0].split() if t.strip()]
+        return tokens
+    return _tokenize_for_match(raw_query)
+
+
+def create_mem0_client(api_key: str) -> Any:
+    from mem0 import MemoryClient
+
+    return MemoryClient(api_key=api_key)
+
+
+def _localize_timestamp_fields(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        localized: dict[str, Any] = {}
+        for key, value in payload.items():
+            if (
+                key in {"created_at", "updated_at"}
+                and isinstance(value, str)
+                and value.strip()
+            ):
+                localized[key] = format_local_datetime(value)
+            else:
+                localized[key] = _localize_timestamp_fields(value)
+        return localized
+    if isinstance(payload, list):
+        return [_localize_timestamp_fields(item) for item in payload]
+    return payload
+
+
+def _extract_mem0_results(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, dict):
+        results = payload.get("results", [])
+        if isinstance(results, list):
+            return [item for item in results if isinstance(item, dict)]
+        return []
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return []
+
+
+class Mem0RememberStore(BaseRememberStore):
+    def __init__(
+        self,
+        *,
+        api_key: str = "",
+        user_id: str = "soj",
+        app_id: str = "voice-assistant",
+        client: Any | None = None,
+    ) -> None:
+        if client is None and not api_key.strip():
+            raise RuntimeError("mem0 配置缺失：MEM0_API_KEY")
+        self.client = client if client is not None else create_mem0_client(api_key)
+        self.user_id = user_id.strip() or "soj"
+        self.app_id = app_id.strip()
+
+    def _write_scope_kwargs(self) -> dict[str, Any]:
+        kwargs = {"user_id": self.user_id, "async_mode": False}
+        if self.app_id:
+            kwargs["app_id"] = self.app_id
+        return kwargs
+
+    def _read_scope_kwargs(self) -> dict[str, Any]:
+        return {
+            "filters": {
+                "OR": [
+                    {"AND": [{"user_id": self.user_id}]},
+                    {
+                        "AND": [
+                            {"user_id": self.user_id},
+                            {"OR": [{"app_id": "*"}, {"agent_id": "*"}]},
+                        ]
+                    },
+                ]
+            }
+        }
+
+    def add(self, *, memory: str, original_text: str = "") -> str:
+        messages = [{"role": "user", "content": memory}]
+        kwargs = self._write_scope_kwargs()
+        if original_text.strip():
+            kwargs["metadata"] = {"original_text": original_text.strip()}
+        try:
+            response = self.client.add(messages, **kwargs)
+        except TypeError:
+            kwargs.pop("metadata", None)
+            response = self.client.add(messages, **kwargs)
+        stored_memory = memory
+        if isinstance(response, list) and response:
+            first = response[0]
+            if isinstance(first, dict):
+                stored_memory = str(
+                    first.get("memory") or first.get("data", {}).get("memory") or memory
+                )
+        return f"✅ 已记录：{stored_memory}"
+
+    def find(self, *, query: str) -> str:
+        response = self.client.search(query, **self._read_scope_kwargs())
+        return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
+
+    def delete(self, *, memory_id: str) -> None:
+        self.client.delete(memory_id)
+
+    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
+        response = self.client.get_all(**self._read_scope_kwargs())
+        items = _extract_mem0_results(response)
+        records = []
+        for item in items[:limit]:
+            metadata = item.get("metadata", {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            records.append(
+                RememberItemRecord(
+                    id=str(item.get("id", "")),
+                    source_memory_id=str(item.get("id", "")),
+                    memory=str(item.get("memory") or item.get("text") or ""),
+                    original_text=str(metadata.get("original_text") or ""),
+                    created_at=str(item.get("created_at") or ""),
+                )
+            )
+        return records
+
+    def get_all(self) -> list[dict[str, Any]]:
+        response = self.client.get_all(**self._read_scope_kwargs())
+        return _extract_mem0_results(response)
+
+
+class SQLiteFTS5RememberStore(BaseRememberStore):
+    def __init__(
+        self,
+        *,
+        db_path: str | Path,
+        max_results: int = 3,
+        keyword_rewriter: KeywordRewriter | None = None,
+    ) -> None:
+        self.db_path = Path(db_path).expanduser()
+        self.max_results = max(1, int(max_results))
+        self.keyword_rewriter = keyword_rewriter
+        self.table_name = "remember_entries"
+        self.fts_table_name = "remember_entries_simple_fts"
+        self.use_simple_query = False
+
+    def _load_simple_extension(self, conn: sqlite3.Connection) -> bool:
+        extension_path = SIMPLE_EXTENSION_PATH.expanduser()
+        if not extension_path.is_file():
+            return False
+        conn.enable_load_extension(True)
+        try:
+            conn.load_extension(str(extension_path))
+        finally:
+            conn.enable_load_extension(False)
+        return True
+
+    def _connect(self) -> sqlite3.Connection:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        self.use_simple_query = self._load_simple_extension(conn)
+        fts_tokenizer_clause = ",\n                tokenize='simple'" if self.use_simple_query else ""
+        conn.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} (
+                id TEXT PRIMARY KEY,
+                source_memory_id TEXT NOT NULL DEFAULT '',
+                memory TEXT NOT NULL,
+                original_text TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        columns = {
+            str(row["name"])
+            for row in conn.execute(f"PRAGMA table_info({self.table_name})").fetchall()
+        }
+        if "source_memory_id" not in columns:
+            conn.execute(
+                f"""
+                ALTER TABLE {self.table_name}
+                ADD COLUMN source_memory_id TEXT NOT NULL DEFAULT ''
+                """
+            )
+        conn.execute(
+            f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS {self.fts_table_name}
+            USING fts5(
+                memory,
+                original_text,
+                item_id UNINDEXED
+                {fts_tokenizer_clause}
+            )
+            """
+        )
+        conn.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.table_name}_updated_at
+            ON {self.table_name}(updated_at DESC)
+            """
+        )
+        conn.execute(
+            f"""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_{self.table_name}_source_memory_id
+            ON {self.table_name}(source_memory_id)
+            WHERE source_memory_id != ''
+            """
+        )
+        conn.execute(f"DELETE FROM {self.fts_table_name}")
+        conn.execute(
+            f"""
+            INSERT INTO {self.fts_table_name} (
+                memory,
+                original_text,
+                item_id
+            )
+            SELECT
+                memory,
+                original_text,
+                id
+            FROM {self.table_name}
+            """
+        )
+        return conn
+
+    def add(
+        self,
+        *,
+        memory: str,
+        original_text: str = "",
+        source_memory_id: str = "",
+    ) -> str:
+        item_id = uuid.uuid4().hex
+        timestamp = _now_iso()
+        stored_memory = str(memory or "").strip()
+        stored_original_text = str(original_text or "").strip()
+        stored_source_memory_id = str(source_memory_id or "").strip()
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                if stored_source_memory_id:
+                    conn.execute(
+                        f"DELETE FROM {self.fts_table_name} WHERE item_id IN (SELECT id FROM {self.table_name} WHERE source_memory_id = ?)",
+                        (stored_source_memory_id,),
+                    )
+                    conn.execute(
+                        f"DELETE FROM {self.table_name} WHERE source_memory_id = ?",
+                        (stored_source_memory_id,),
+                    )
+                conn.execute(
+                    f"""
+                    INSERT INTO {self.table_name} (
+                        id,
+                        source_memory_id,
+                        memory,
+                        original_text,
+                        created_at,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item_id,
+                        stored_source_memory_id,
+                        stored_memory,
+                        stored_original_text,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+                conn.execute(
+                    f"""
+                    INSERT INTO {self.fts_table_name} (
+                        memory,
+                        original_text,
+                        item_id
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (stored_memory, stored_original_text, item_id),
+                )
+        return f"✅ 已记录：{stored_memory}"
+
+    def upsert(
+        self,
+        *,
+        source_memory_id: str,
+        memory: str,
+        original_text: str = "",
+    ) -> str:
+        return self.add(
+            source_memory_id=source_memory_id,
+            memory=memory,
+            original_text=original_text,
+        )
+
+    def has_any_rows(self) -> bool:
+        with contextlib.closing(self._connect()) as conn:
+            row = conn.execute(
+                f"SELECT 1 FROM {self.table_name} LIMIT 1"
+            ).fetchone()
+        return row is not None
+
+    def _match_query(self, query: str) -> str:
+        cleaned_query = str(query or "").strip()
+        if not cleaned_query:
+            return ""
+
+        rewritten_query = ""
+        keywords: list[str] = []
+        if self.keyword_rewriter:
+            try:
+                rewritten_query = str(self.keyword_rewriter.rewrite(cleaned_query)).strip()
+                keywords = _sanitize_rewritten_keywords(
+                    _keywords_from_match_query(rewritten_query, cleaned_query),
+                    cleaned_query,
+                )
+            except Exception as exc:
+                log(f"Keyword rewrite failed: {exc}")
+
+        if not rewritten_query:
+            raw_tokens = _tokenize_for_match(cleaned_query)
+            rewritten_query = " OR ".join(f'"{token}"' for token in raw_tokens if token)
+            keywords = raw_tokens
+
+        if self.use_simple_query:
+            match_query = " ".join(keywords).strip() or cleaned_query
+            log_info = {
+                "query": cleaned_query,
+                "match_query": match_query,
+                "keywords": keywords,
+                "rewrite": bool(self.keyword_rewriter),
+                "fts": "simple_query",
+            }
+        else:
+            match_query = rewritten_query
+            log_info = {
+                "query": cleaned_query,
+                "match_query": match_query,
+                "keywords": keywords,
+                "rewrite": bool(self.keyword_rewriter),
+                "fts": "standard",
+            }
+
+        log("remember search input: " + json.dumps(log_info, ensure_ascii=False))
+        return match_query
+
+    def find(self, *, query: str) -> str:
+        match_query = self._match_query(query)
+        if not match_query:
+            return json.dumps({"results": []}, ensure_ascii=False)
+        keywords = _sanitize_rewritten_keywords(
+            _keywords_from_match_query(match_query, query),
+            query,
+        ) or _tokenize_for_match(query)
+        with contextlib.closing(self._connect()) as conn:
+            match_sql = "simple_query(?)" if self.use_simple_query else "?"
+            log(
+                "remember search sql: fts5 match="
+                + (f"simple_query({match_query})" if self.use_simple_query else match_query)
+            )
+            rows = conn.execute(
+                f"""
+                SELECT
+                    items.id,
+                    items.memory,
+                    items.original_text,
+                    items.created_at,
+                    items.updated_at
+                FROM {self.fts_table_name} fts
+                JOIN {self.table_name} items ON items.id = fts.item_id
+                WHERE {self.fts_table_name} MATCH {match_sql}
+                ORDER BY bm25({self.fts_table_name}), items.updated_at DESC
+                LIMIT ?
+                """,
+                (match_query, self.max_results),
+            ).fetchall()
+            if not rows and keywords:
+                log(
+                    "remember search fallback: "
+                    + json.dumps(
+                        {"strategy": "like", "keywords": keywords},
+                        ensure_ascii=False,
+                    )
+                )
+                like_clauses = " OR ".join(
+                    "(memory LIKE ? OR original_text LIKE ?)" for _ in keywords
+                )
+                params: list[Any] = []
+                for keyword in keywords:
+                    pattern = f"%{keyword}%"
+                    params.extend([pattern, pattern])
+                    log(
+                        "remember search like keyword: "
+                        + json.dumps(
+                            {"keyword": keyword, "pattern": pattern},
+                            ensure_ascii=False,
+                        )
+                    )
+                params.append(self.max_results)
+                rows = conn.execute(
+                    f"""
+                    SELECT
+                        id,
+                        memory,
+                        original_text,
+                        created_at,
+                        updated_at
+                    FROM {self.table_name}
+                    WHERE {like_clauses}
+                    ORDER BY updated_at DESC
+                    LIMIT ?
+                    """,
+                    params,
+                ).fetchall()
+        primary_keywords = _reduce_filter_keywords(
+            _sanitize_rewritten_keywords(keywords, query)
+        )
+        filtered_rows = rows
+        if primary_keywords:
+            filtered_rows = [
+                row
+                for row in rows
+                if all(
+                    _normalize_match_text(keyword) in _normalize_match_text(str(row["memory"]))
+                    for keyword in primary_keywords
+                )
+            ]
+        results = [
+            {
+                "id": str(row["id"]),
+                "memory": str(row["memory"]),
+                "original_text": str(row["original_text"]),
+                "created_at": format_local_datetime(str(row["created_at"])),
+                "updated_at": format_local_datetime(str(row["updated_at"])),
+                "score": round(0.99 - (index * 0.01), 2),
+                "metadata": {"original_text": str(row["original_text"])},
+            }
+            for index, row in enumerate(filtered_rows)
+        ]
+        return json.dumps({"results": results}, ensure_ascii=False)
+
+    def delete(self, *, memory_id: str) -> None:
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(
+                    f"DELETE FROM {self.fts_table_name} WHERE item_id = ?",
+                    (memory_id,),
+                )
+                conn.execute(
+                    f"DELETE FROM {self.table_name} WHERE id = ?",
+                    (memory_id,),
+                )
+
+    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
+        with contextlib.closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    id,
+                    source_memory_id,
+                    memory,
+                    original_text,
+                    created_at
+                FROM {self.table_name}
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (max(1, limit),),
+            ).fetchall()
+        return [
+            RememberItemRecord(
+                id=str(row["id"]),
+                source_memory_id=str(row["source_memory_id"]),
+                memory=str(row["memory"]),
+                original_text=str(row["original_text"]),
+                created_at=str(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+
+def migrate_mem0_memories_to_sqlite(
+    *,
+    source_store: Mem0RememberStore,
+    target_store: SQLiteFTS5RememberStore,
+    translator: MemoryTranslator,
+    page_size: int = 100,
+) -> int:
+    copied = 0
+    page = 1
+    effective_page_size = max(1, int(page_size))
+    while True:
+        payload = source_store.client.get_all(
+            **source_store._read_scope_kwargs(),
+            page=page,
+            page_size=effective_page_size,
+        )
+        items = _extract_mem0_results(payload)
+        if not items:
+            break
+        for item in items:
+            source_memory_id = str(item.get("id", "")).strip()
+            source_memory = str(item.get("memory") or item.get("text") or "").strip()
+            if not source_memory:
+                continue
+            raw_metadata = item.get("metadata")
+            metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+            original_text = str(
+                metadata.get("original_text")
+                or metadata.get("source_text")
+                or item.get("original_text")
+                or source_memory
+            ).strip()
+            translated_memory = translator.translate(source_memory) or source_memory
+            target_store.upsert(
+                source_memory_id=source_memory_id,
+                memory=translated_memory,
+                original_text=original_text,
+            )
+            copied += 1
+        if len(items) < effective_page_size:
+            break
+        page += 1
+    return copied
