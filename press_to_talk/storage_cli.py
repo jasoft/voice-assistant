@@ -12,13 +12,20 @@ def _emit_memory_search_output(raw_payload: str) -> None:
     results = payload.get("results", []) if isinstance(payload, dict) else []
     if not isinstance(results, list):
         results = []
+    stdout_is_tty = getattr(sys.stdout, "isatty", lambda: False)()
+    stderr_is_tty = getattr(sys.stderr, "isatty", lambda: False)()
+    memory_color = "\x1b[36m"
+    ansi_reset = "\x1b[0m"
     for item in results:
         if not isinstance(item, dict):
             continue
         memory = str(item.get("memory", "")).strip()
         if memory:
+            if stdout_is_tty:
+                memory = f"{memory_color}{memory}{ansi_reset}"
             print(memory)
-    print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
+    if not stderr_is_tty:
+        print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
 
 def main() -> int:
     parser = argparse.ArgumentParser(

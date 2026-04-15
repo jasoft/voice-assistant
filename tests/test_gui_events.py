@@ -150,6 +150,44 @@ class StorageCliTests(unittest.TestCase):
         self.assertEqual(stdout.getvalue().splitlines(), ["茶长壮壮的", "壮壮去打篮球"])
         self.assertEqual(json.loads(stderr.getvalue().strip()), fake_results)
 
+    def test_memory_search_hides_stderr_json_on_tty_and_colors_stdout(self) -> None:
+        fake_results = {
+            "results": [
+                {"id": "m1", "memory": "茶长壮壮的", "original_text": "茶长壮壮的。"},
+            ]
+        }
+        fake_store = SimpleNamespace(
+            find=lambda **_: json.dumps(fake_results, ensure_ascii=False)
+        )
+        fake_service = SimpleNamespace(remember_store=lambda: fake_store)
+        fake_config = SimpleNamespace(query_rewrite_enabled=True)
+
+        class FakeTTY(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        stdout = FakeTTY()
+        stderr = FakeTTY()
+        with (
+            patch("press_to_talk.core.load_env_files"),
+            patch("press_to_talk.storage.service.load_storage_config", return_value=fake_config),
+            patch.object(storage_cli, "StorageService", return_value=fake_service),
+            patch.object(
+                storage_cli.sys,
+                "argv",
+                ["press_to_talk.storage_cli", "memory", "search", "--query", "壮壮"],
+            ),
+            patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=False),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = storage_cli.main()
+
+        self.assertEqual(code, 0)
+        self.assertIn("茶长壮壮的", stdout.getvalue())
+        self.assertIn("\x1b[", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
+
 
 if __name__ == "__main__":
     unittest.main()
