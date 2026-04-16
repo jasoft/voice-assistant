@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:voice-assistant}/mac_gui",
+            "name": "Debug VoiceAssistantGUI (mac_gui)",
+            "target": "VoiceAssistantGUI",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug VoiceAssistantGUI (mac_gui)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:voice-assistant}/mac_gui",
+            "name": "Release VoiceAssistantGUI (mac_gui)",
+            "target": "VoiceAssistantGUI",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release VoiceAssistantGUI (mac_gui)"
+        }
+    ]
+}

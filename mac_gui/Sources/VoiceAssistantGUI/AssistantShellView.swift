@@ -108,6 +108,7 @@ struct AssistantShellView: View {
                                 .foregroundStyle(primaryBodyColor)
                                 .lineSpacing(3)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
                                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         }
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -171,6 +172,7 @@ struct AssistantShellView: View {
                         Text(error)
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(Color.red)
+                            .textSelection(.enabled)
                     }
                 }
 
@@ -179,6 +181,7 @@ struct AssistantShellView: View {
                         Text(model.historyQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "还没有历史记录。" : "没有找到匹配的历史记录。")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(Color(red: 0.38, green: 0.44, blue: 0.56))
+                            .textSelection(.enabled)
                     }
                 }
 
@@ -464,6 +467,7 @@ struct AssistantShellView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(red: 0.34, green: 0.12, blue: 0.16))
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
             Spacer(minLength: 0)
         }
@@ -1281,12 +1285,14 @@ private struct HistoryEntryCard: View {
             Text(entry.transcript.isEmpty ? "无识别文本" : entry.transcript)
                 .font(.system(size: 17, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color(nsColor: .labelColor).opacity(0.9))
+                .textSelection(.enabled)
 
             if entry.reply.isEmpty {
                 Text("无回复")
                     .font(.system(size: 13, weight: .regular, design: .rounded))
                     .foregroundStyle(Color(nsColor: .secondaryLabelColor).opacity(0.95))
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             } else {
                 MarkdownBodyText(
                     text: entry.reply,
