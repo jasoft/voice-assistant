@@ -549,7 +549,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             filtered_rows = [
                 row
                 for row in rows
-                if all(
+                if any(
                     _normalize_match_text(keyword) in _normalize_match_text(str(row["memory"]))
                     for keyword in primary_keywords
                 )

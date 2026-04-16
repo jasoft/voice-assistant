@@ -1329,8 +1329,8 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             found = store.find(query='"usb" OR "测试版"')
 
         self.assertIn("USB测试版在书房柜子第二层", found)
+        self.assertIn("USB 集线器在客厅电视柜", found)
         self.assertNotIn("这是一个普通测试记录", found)
-        self.assertNotIn("USB 集线器在客厅电视柜", found)
 
     def test_sqlite_store_treats_pre_rewritten_or_query_as_simple_keywords(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
