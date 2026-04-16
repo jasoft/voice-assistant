@@ -1,4 +1,7 @@
 {
+    "execution": {
+        "default_mode": "intent"
+    },
     "intents": {
         "record": {
             "description": "记录或更新个人物品、日期、特征、事件等相关信息。",

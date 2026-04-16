@@ -33,6 +33,7 @@ from .audio.tts import speak_text, consume_tts_stop_request, TTS_STOP_SIGNAL_FIL
 from .agent.agent import OpenAICompatibleAgent
 from .agent.memory import extract_mem0_summary_payload
 from .agent.intent import salvage_truncated_intent_payload
+from .execution import classify_intent, execute_transcript
 from .regression import run_intent_regression
 from .utils import env as env_module
 
@@ -174,11 +175,9 @@ def main() -> int:
         else:
             log("tts command: qwen-tts --play --speaker serena --stream")
 
-        agent = OpenAICompatibleAgent(cfg)
-
         if cfg.classify_only:
             events.emit("status", phase="thinking")
-            intent = asyncio.run(agent.classify_intent(transcript))
+            intent = classify_intent(cfg, transcript)
             events.emit("intent", value=intent)
             events.emit(
                 "status",
@@ -190,7 +189,7 @@ def main() -> int:
             return 0
 
         events.emit("status", phase="thinking")
-        reply = asyncio.run(agent.chat(transcript))
+        reply = execute_transcript(cfg, transcript)
 
         if not reply:
             log("LLM returned empty reply")

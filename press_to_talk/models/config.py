@@ -7,8 +7,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from ..utils.env import (
-    load_env_files, env_int, env_float, env_str, env_path, 
-    PROJECT_ROOT
+    load_env_files, env_int, env_float, env_str, env_path,
+    PROJECT_ROOT, WORKFLOW_CONFIG_PATH, load_json_file
 )
 
 @dataclass
@@ -34,6 +34,7 @@ class Config:
     llm_model: str
     workspace_root: Path
     remember_script: Path
+    execution_mode: str
 
 @dataclass
 class SessionHistory:
@@ -84,7 +85,24 @@ def load_intent_samples(path: Path) -> list[dict[str, str]]:
         raise ValueError("intent samples file is empty")
     return samples
 
-def parse_args() -> Config:
+
+def _workflow_default_execution_mode() -> str:
+    try:
+        workflow = load_json_file(WORKFLOW_CONFIG_PATH)
+    except Exception:
+        return "intent"
+
+    execution = workflow.get("execution") if isinstance(workflow, dict) else None
+    if not isinstance(execution, dict):
+        return "intent"
+
+    mode = str(execution.get("default_mode", "")).strip().lower()
+    if mode in {"intent", "hermes"}:
+        return mode
+    return "intent"
+
+
+def parse_args(argv: list[str] | None = None) -> Config:
     load_env_files()
 
     parser = argparse.ArgumentParser(
@@ -129,6 +147,12 @@ def parse_args() -> Config:
         "--classify-only",
         action="store_true",
         help="只输出意图分类结果，不继续执行工具链路",
+    )
+    parser.add_argument(
+        "--execution-mode",
+        choices=("intent", "hermes"),
+        default=None,
+        help="执行模式：intent 走本地意图链路，hermes 走 hermes chat 单轮执行",
     )
     parser.add_argument(
         "--intent-samples-file",
@@ -182,8 +206,9 @@ def parse_args() -> Config:
         ),
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     text_input = resolve_text_input(args)
+    execution_mode = str(args.execution_mode or _workflow_default_execution_mode()).strip()
     if not text_input and not args.intent_samples_file and not args.stt_url:
         parser.error("missing STT url; set PTT_STT_URL in .env or pass --stt-url")
     if not text_input and not args.intent_samples_file and not args.stt_token:
@@ -192,6 +217,8 @@ def parse_args() -> Config:
         parser.error(
             "missing API key; set OPENAI_API_KEY in .env, or pass --api-key"
         )
+    if args.classify_only and execution_mode == "hermes":
+        parser.error("--classify-only is only available in intent execution mode")
 
     return Config(
         sample_rate=args.sample_rate,
@@ -215,4 +242,5 @@ def parse_args() -> Config:
         llm_model=args.model,
         workspace_root=args.workspace_root,
         remember_script=args.remember_script,
+        execution_mode=execution_mode,
     )
