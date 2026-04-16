@@ -313,7 +313,7 @@ class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CLIWrapperTests(unittest.TestCase):
-    def test_cli_remember_store_reads_json_from_stderr(self) -> None:
+    def test_cli_remember_store_reads_json_from_stdout(self) -> None:
         store = CLIRememberStore()
         payload = {"results": [{"id": "m1", "memory": "茶长壮壮的"}]}
 
@@ -321,8 +321,8 @@ class CLIWrapperTests(unittest.TestCase):
             "press_to_talk.storage.cli_wrapper.subprocess.run",
             return_value=SimpleNamespace(
                 returncode=0,
-                stdout="茶长壮壮的\n",
-                stderr=json.dumps(payload, ensure_ascii=False),
+                stdout=json.dumps(payload, ensure_ascii=False),
+                stderr="",
             ),
         ):
             result = store.find(query="壮壮")

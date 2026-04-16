@@ -4,33 +4,10 @@ import argparse
 import contextlib
 import io
 import json
-import sys
 from dataclasses import asdict
 
 from .models import SessionHistoryRecord
 from .service import StorageService, load_storage_config
-
-
-def _emit_memory_search_output(raw_payload: str) -> None:
-    payload = json.loads(raw_payload)
-    results = payload.get("results", []) if isinstance(payload, dict) else []
-    if not isinstance(results, list):
-        results = []
-    stdout_is_tty = getattr(sys.stdout, "isatty", lambda: False)()
-    stderr_is_tty = getattr(sys.stderr, "isatty", lambda: False)()
-    memory_color = "\x1b[36m"
-    ansi_reset = "\x1b[0m"
-    for item in results:
-        if not isinstance(item, dict):
-            continue
-        memory = str(item.get("memory", "")).strip()
-        if not memory:
-            continue
-        if stdout_is_tty:
-            memory = f"{memory_color}{memory}{ansi_reset}"
-        print(memory)
-    if not stderr_is_tty:
-        print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -79,40 +56,38 @@ def main(argv: list[str] | None = None) -> int:
     load_env_files()
 
     try:
-        if args.category == "memory" and args.command == "search":
-            with contextlib.redirect_stderr(io.StringIO()):
-                service = _build_local_service()
-                payload = service.remember_store().find(query=args.query)
-            _emit_memory_search_output(payload)
-            return 0
+        with contextlib.redirect_stderr(io.StringIO()):
+            service = _build_local_service()
+            if args.category == "memory" and args.command == "search":
+                print(service.remember_store().find(query=args.query))
+                return 0
 
-        service = _build_local_service()
-        if args.category == "history":
-            store = service.history_store()
-            if args.command == "list":
-                records = store.list_recent(limit=args.limit, query=args.query)
-                print(json.dumps([asdict(record) for record in records], ensure_ascii=False))
-            elif args.command == "add":
-                data = json.loads(args.json)
-                store.persist(SessionHistoryRecord(**data))
-                print(json.dumps({"status": "ok"}))
-            elif args.command == "delete":
-                store.delete(session_id=args.session_id)
-                print(json.dumps({"deleted": args.session_id}))
-        elif args.category == "memory":
-            store = service.remember_store()
-            if args.command == "add":
-                print(
-                    json.dumps(
-                        {"result": store.add(memory=args.memory, original_text=args.original_text)}
+            if args.category == "history":
+                store = service.history_store()
+                if args.command == "list":
+                    records = store.list_recent(limit=args.limit, query=args.query)
+                    print(json.dumps([asdict(record) for record in records], ensure_ascii=False))
+                elif args.command == "add":
+                    data = json.loads(args.json)
+                    store.persist(SessionHistoryRecord(**data))
+                    print(json.dumps({"status": "ok"}))
+                elif args.command == "delete":
+                    store.delete(session_id=args.session_id)
+                    print(json.dumps({"deleted": args.session_id}))
+            elif args.category == "memory":
+                store = service.remember_store()
+                if args.command == "add":
+                    print(
+                        json.dumps(
+                            {"result": store.add(memory=args.memory, original_text=args.original_text)}
+                        )
                     )
-                )
-            elif args.command == "delete":
-                store.delete(memory_id=args.id)
-                print(json.dumps({"deleted": args.id}))
-            elif args.command == "list":
-                records = store.list_all(limit=args.limit)
-                print(json.dumps([asdict(record) for record in records], ensure_ascii=False))
+                elif args.command == "delete":
+                    store.delete(memory_id=args.id)
+                    print(json.dumps({"deleted": args.id}))
+                elif args.command == "list":
+                    records = store.list_all(limit=args.limit)
+                    print(json.dumps([asdict(record) for record in records], ensure_ascii=False))
         return 0
     except Exception as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)

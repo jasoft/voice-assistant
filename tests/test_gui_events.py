@@ -114,7 +114,7 @@ class StorageCliTests(unittest.TestCase):
             self.assertEqual(json.loads(stdout.getvalue().strip()), [])
             self.assertIn("Storage configuration loaded", stderr.getvalue())
 
-    def test_memory_search_writes_lines_to_stdout_and_json_to_stderr(self) -> None:
+    def test_memory_search_writes_json_to_stdout(self) -> None:
         fake_results = {
             "results": [
                 {"id": "m1", "memory": "茶长壮壮的", "original_text": "茶长壮壮的。"},
@@ -139,10 +139,10 @@ class StorageCliTests(unittest.TestCase):
             code = storage_cli.main(["memory", "search", "--query", "壮壮"])
 
         self.assertEqual(code, 0)
-        self.assertEqual(stdout.getvalue().splitlines(), ["茶长壮壮的", "壮壮去打篮球"])
-        self.assertEqual(json.loads(stderr.getvalue().strip()), fake_results)
+        self.assertEqual(json.loads(stdout.getvalue().strip()), fake_results)
+        self.assertEqual(stderr.getvalue(), "")
 
-    def test_memory_search_hides_stderr_json_on_tty_and_colors_stdout(self) -> None:
+    def test_memory_search_keeps_json_output_on_tty(self) -> None:
         fake_results = {
             "results": [
                 {"id": "m1", "memory": "茶长壮壮的", "original_text": "茶长壮壮的。"},
@@ -171,8 +171,7 @@ class StorageCliTests(unittest.TestCase):
             code = storage_cli.main(["memory", "search", "--query", "壮壮"])
 
         self.assertEqual(code, 0)
-        self.assertIn("茶长壮壮的", stdout.getvalue())
-        self.assertIn("\x1b[", stdout.getvalue())
+        self.assertEqual(json.loads(stdout.getvalue().strip()), fake_results)
         self.assertEqual(stderr.getvalue(), "")
 
 
