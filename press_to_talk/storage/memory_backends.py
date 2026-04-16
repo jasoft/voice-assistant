@@ -59,6 +59,9 @@ def _sanitize_rewritten_keywords(
         "同义词扩展：",
         "->",
         "=>",
+        "or",
+        "and",
+        "not",
     }
     normalized_query = _normalize_match_text(raw_query)
     cleaned: list[str] = []
@@ -442,9 +445,11 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 log(f"Keyword rewrite failed: {exc}")
 
         if not rewritten_query:
-            raw_tokens = _tokenize_for_match(cleaned_query)
-            rewritten_query = " OR ".join(f'"{token}"' for token in raw_tokens if token)
-            keywords = raw_tokens
+            keywords = _sanitize_rewritten_keywords(
+                _keywords_from_match_query(cleaned_query, cleaned_query),
+                cleaned_query,
+            ) or _tokenize_for_match(cleaned_query)
+            rewritten_query = " OR ".join(f'"{token}"' for token in keywords if token)
 
         if self.use_simple_query:
             match_query = " ".join(keywords).strip() or cleaned_query

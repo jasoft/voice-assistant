@@ -1332,6 +1332,16 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         self.assertNotIn("这是一个普通测试记录", found)
         self.assertNotIn("USB 集线器在客厅电视柜", found)
 
+    def test_sqlite_store_treats_pre_rewritten_or_query_as_simple_keywords(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path)
+            store.use_simple_query = True
+
+            match_query = store._match_query('"usb" OR "测试版"')
+
+        self.assertEqual(match_query, "usb 测试版")
+
     def test_groq_keyword_rewriter_logs_prompt_and_raw_response(self) -> None:
         capture = LogCapture()
         rewriter = storage_service_module.GroqKeywordRewriter(
