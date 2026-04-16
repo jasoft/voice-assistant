@@ -95,6 +95,30 @@ class LoggingTests(unittest.TestCase):
 
 
 class StorageCliTests(unittest.TestCase):
+    def test_no_args_prints_help_and_returns_zero(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            code = storage_cli.main([])
+
+        self.assertEqual(code, 0)
+        self.assertIn("Standalone Storage CLI", stdout.getvalue())
+        self.assertIn("Examples", stdout.getvalue())
+        self.assertIn("memory search", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_invalid_command_suggests_possible_match(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as exc:
+                storage_cli.main(["memory", "serch"])
+
+        self.assertEqual(exc.exception.code, 2)
+        self.assertIn("Did you mean 'search'?", stderr.getvalue())
+
     def test_list_history_loads_backend_from_env_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
