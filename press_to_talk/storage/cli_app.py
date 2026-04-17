@@ -203,14 +203,15 @@ def main(argv: list[str] | None = None) -> int:
 
     load_env_files()
 
+    stderr_buffer = io.StringIO()
     try:
-        with contextlib.redirect_stderr(io.StringIO()):
+        exit_code = 0
+        with contextlib.redirect_stderr(stderr_buffer):
             service = _build_local_service()
             if args.category == "memory" and args.command == "search":
                 print(service.remember_store().find(query=args.query))
-                return 0
-
-            if args.category == "history":
+                exit_code = 0
+            elif args.category == "history":
                 store = service.history_store()
                 if args.command == "list":
                     records = store.list_recent(limit=args.limit, query=args.query)
@@ -236,7 +237,11 @@ def main(argv: list[str] | None = None) -> int:
                 elif args.command == "list":
                     records = store.list_all(limit=args.limit)
                     print(json.dumps([asdict(record) for record in records], ensure_ascii=False))
-        return 0
+
+        buffered = stderr_buffer.getvalue()
+        if buffered:
+            print(buffered, file=sys.stderr, end="")
+        return exit_code
     except Exception as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 1

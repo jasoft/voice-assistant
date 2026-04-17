@@ -7,12 +7,16 @@ from dataclasses import asdict
 from typing import Any
 
 from .models import BaseHistoryStore, BaseRememberStore, RememberItemRecord, SessionHistoryRecord
+from ..utils.logging import log, log_multiline
 
 
 class CLIStoreBase:
     def _run_process(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         cmd = [sys.executable, "-m", "press_to_talk.storage_cli", *args]
+        log("storage cli exec: " + json.dumps(cmd, ensure_ascii=False))
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+        if result.stderr.strip():
+            log_multiline("storage cli stderr", result.stderr.strip())
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error"
             raise RuntimeError(f"Storage CLI error: {error_msg}")
@@ -47,7 +51,7 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
 
     def find(self, *, query: str) -> str:
         result = self._run_process(["memory", "search", "--query", query])
-        return result.stderr.strip() or result.stdout.strip()
+        return result.stdout.strip()
 
     def delete(self, *, memory_id: str) -> None:
         self._run_json(["memory", "delete", "--id", memory_id])

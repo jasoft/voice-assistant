@@ -149,7 +149,7 @@ class StorageCliTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(stdout.getvalue().strip()), [])
-            self.assertEqual(stderr.getvalue(), "")
+            self.assertIn("Storage configuration loaded", stderr.getvalue())
 
     def test_memory_search_writes_json_to_stdout(self) -> None:
         fake_results = {
