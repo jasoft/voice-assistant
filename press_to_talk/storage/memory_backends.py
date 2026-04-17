@@ -22,6 +22,7 @@ from .models import (
 APP_ROOT = Path(__file__).resolve().parents[2]
 SIMPLE_EXTENSION_PATH = APP_ROOT / "third_party" / "simple" / "libsimple.dylib"
 MAX_REWRITE_KEYWORD_LENGTH = 12
+MAX_REWRITE_KEYWORD_COUNT = 7
 
 
 def _now_iso() -> str:
@@ -83,10 +84,10 @@ def _sanitize_rewritten_keywords(
             continue
         if len(normalized_candidate) > MAX_REWRITE_KEYWORD_LENGTH:
             continue
-        if normalized_query and normalized_candidate not in normalized_query:
-            continue
         seen.add(normalized_candidate)
         cleaned.append(candidate)
+        if len(cleaned) >= MAX_REWRITE_KEYWORD_COUNT:
+            break
     return cleaned
 
 

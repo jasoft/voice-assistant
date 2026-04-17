@@ -56,7 +56,7 @@ def workflow_with_prompts(
                 "system_prompt": "你是一个查询纠错改写器。请在保持原意不变的前提下，修正语音转文字或听写造成的明显错字、错词、同音词错误。同时去掉没有检索价值的提问前缀，例如“查询”“查找”“搜索”“帮我找下”“帮我找一下”“关于”“有关”。不要扩写，不要解释，只返回 JSON：{\"query\":\"纠正后的问句\"}。如果原句无需修正，也原样返回。"
             },
             "keyword_rewrite": {
-                "system_prompt": "你是一个 SQLite FTS5 查询改写器。把用户原始问题拆成 1 到 4 个最可能命中的短关键词或短语。每个关键词都必须尽量短，优先保留实体词，通常 2 到 8 个字，最长不要超过 12 个字。关键词应该是名词、专有名词、地点、物品或动作，不要把“在哪里”“哪儿呢”“在哪儿”“哪里有”这类纯查询尾巴当成关键词。只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。不要解释，不要补充其它字段。"
+                "system_prompt": "你是一个 SQLite FTS5 查询改写器。把用户原始问题拆成 2 到 7 个最可能命中的短关键词或短语。先保留原句里的核心实体词，再补充少量与原意高度接近、最可能出现在记忆里的常见别称或近义词。每个关键词都必须尽量短，优先保留实体词，通常 2 到 8 个字，最长不要超过 12 个字。关键词应该是名词、专有名词、地点、物品或动作，不要把“在哪里”“哪儿呢”“在哪儿”“哪里有”这类纯查询尾巴当成关键词。只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。不要解释，不要补充其它字段。"
             },
             "memory_translate": {
                 "system_prompt": "你是一个中文翻译器。把输入内容翻译成自然、简洁、适合记忆检索的中文。保持原意，不要扩写，不要解释，只返回翻译结果原文。"
@@ -1253,17 +1253,16 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             [
                 "USB测试版",
                 "在哪",
-                "壮壮",
                 "同义词:",
                 "->",
                 "USB",
                 "测试版",
-                "测试版本",
+                "电源适配器",
             ],
             "usb测试版在哪",
         )
 
-        self.assertEqual(sanitized, ["USB测试版", "USB", "测试版"])
+        self.assertEqual(sanitized, ["USB测试版", "USB", "测试版", "电源适配器"])
 
     def test_sanitize_rewritten_keywords_discards_overlong_phrases(self) -> None:
         sanitized = storage_service_module._sanitize_rewritten_keywords(
@@ -1276,6 +1275,34 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         )
 
         self.assertEqual(sanitized, ["苹果笔记本充电器", "蓝色布包"])
+
+    def test_sanitize_rewritten_keywords_keeps_close_synonyms(self) -> None:
+        sanitized = storage_service_module._sanitize_rewritten_keywords(
+            ["苹果笔记本", "充电器", "电脑", "电源适配器"],
+            "我的苹果笔记本的充电器在哪里",
+        )
+
+        self.assertEqual(sanitized, ["苹果笔记本", "充电器", "电脑", "电源适配器"])
+
+    def test_sanitize_rewritten_keywords_limits_total_count_to_seven(self) -> None:
+        sanitized = storage_service_module._sanitize_rewritten_keywords(
+            [
+                "苹果笔记本",
+                "充电器",
+                "电脑",
+                "电源适配器",
+                "笔记本",
+                "MacBook",
+                "适配器",
+                "电源线",
+            ],
+            "我的苹果笔记本的充电器在哪里",
+        )
+
+        self.assertEqual(
+            sanitized,
+            ["苹果笔记本", "充电器", "电脑", "电源适配器", "笔记本", "MacBook", "适配器"],
+        )
 
     def test_load_storage_config_reads_workflow_sqlite_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1460,6 +1487,8 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         self.assertIn("不要把“在哪里”", prompt_text)
         self.assertIn("关键词应该是名词", prompt_text)
         self.assertIn("最长不要超过 12 个字", prompt_text)
+        self.assertIn("近义词", prompt_text)
+        self.assertIn("2 到 7 个", prompt_text)
 
     def test_sqlite_store_logs_search_keywords_and_queries(self) -> None:
         capture = LogCapture()
