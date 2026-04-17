@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import re
 import sqlite3
 import uuid
@@ -14,6 +15,7 @@ from press_to_talk.utils.text import format_local_datetime
 
 from .models import (
     BaseRememberStore,
+    EmbeddingClient,
     KeywordRewriter,
     MemoryTranslator,
     RememberItemRecord,
@@ -267,12 +269,21 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         db_path: str | Path,
         max_results: int = 3,
         keyword_rewriter: KeywordRewriter | None = None,
+        embedding_client: EmbeddingClient | None = None,
+        embedding_model: str = "",
+        embedding_max_results: int = 5,
+        embedding_min_score: float = 0.45,
     ) -> None:
         self.db_path = Path(db_path).expanduser()
         self.max_results = max(1, int(max_results))
         self.keyword_rewriter = keyword_rewriter
+        self.embedding_client = embedding_client
+        self.embedding_model = str(embedding_model or "").strip()
+        self.embedding_max_results = max(1, int(embedding_max_results))
+        self.embedding_min_score = float(embedding_min_score)
         self.table_name = "remember_entries"
         self.fts_table_name = "remember_entries_simple_fts"
+        self.embedding_table_name = "remember_entry_embeddings"
         self.use_simple_query = False
 
     def _load_simple_extension(self, conn: sqlite3.Connection) -> bool:
@@ -334,6 +345,17 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         )
         conn.execute(
             f"""
+            CREATE TABLE IF NOT EXISTS {self.embedding_table_name} (
+                item_id TEXT PRIMARY KEY,
+                source_text TEXT NOT NULL,
+                embedding_model TEXT NOT NULL,
+                embedding_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            f"""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_{self.table_name}_source_memory_id
             ON {self.table_name}(source_memory_id)
             WHERE source_memory_id != ''
@@ -356,6 +378,194 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         )
         return conn
 
+    def _embedding_enabled(self) -> bool:
+        return self.embedding_client is not None and bool(self.embedding_model)
+
+    def _embedding_source_text(self, *, memory: str, original_text: str) -> str:
+        parts = [str(memory or "").strip()]
+        raw_original = str(original_text or "").strip()
+        if raw_original and raw_original not in parts:
+            parts.append(raw_original)
+        return "\n".join(part for part in parts if part)
+
+    def _upsert_embedding_row(
+        self,
+        *,
+        item_id: str,
+        source_text: str,
+        embedding: list[float],
+    ) -> None:
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(
+                    f"""
+                    INSERT INTO {self.embedding_table_name} (
+                        item_id,
+                        source_text,
+                        embedding_model,
+                        embedding_json,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(item_id) DO UPDATE SET
+                        source_text = excluded.source_text,
+                        embedding_model = excluded.embedding_model,
+                        embedding_json = excluded.embedding_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        item_id,
+                        source_text,
+                        self.embedding_model,
+                        json.dumps(embedding),
+                        _now_iso(),
+                    ),
+                )
+
+    def _delete_embedding_rows(self, *, item_ids: list[str]) -> None:
+        if not item_ids:
+            return
+        placeholders = ", ".join("?" for _ in item_ids)
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                conn.execute(
+                    f"DELETE FROM {self.embedding_table_name} WHERE item_id IN ({placeholders})",
+                    item_ids,
+                )
+
+    def _sync_embedding_for_item(
+        self,
+        *,
+        item_id: str,
+        memory: str,
+        original_text: str,
+    ) -> None:
+        if not self._embedding_enabled():
+            return
+        source_text = self._embedding_source_text(memory=memory, original_text=original_text)
+        if not source_text:
+            return
+        embeddings = self.embedding_client.embed_many([source_text])
+        if not embeddings:
+            return
+        self._upsert_embedding_row(item_id=item_id, source_text=source_text, embedding=embeddings[0])
+
+    def _sync_missing_embeddings(self) -> None:
+        if not self._embedding_enabled():
+            return
+        with contextlib.closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    items.id,
+                    items.memory,
+                    items.original_text
+                FROM {self.table_name} items
+                LEFT JOIN {self.embedding_table_name} embeds
+                    ON embeds.item_id = items.id
+                    AND embeds.embedding_model = ?
+                WHERE embeds.item_id IS NULL
+                ORDER BY items.updated_at DESC
+                """,
+                (self.embedding_model,),
+            ).fetchall()
+        if not rows:
+            return
+        log(
+            "remember embedding backfill: "
+            + json.dumps({"count": len(rows), "model": self.embedding_model}, ensure_ascii=False)
+        )
+        texts = [
+            self._embedding_source_text(
+                memory=str(row["memory"]),
+                original_text=str(row["original_text"]),
+            )
+            for row in rows
+        ]
+        embeddings = self.embedding_client.embed_many(texts)
+        for row, embedding in zip(rows, embeddings):
+            self._upsert_embedding_row(
+                item_id=str(row["id"]),
+                source_text=self._embedding_source_text(
+                    memory=str(row["memory"]),
+                    original_text=str(row["original_text"]),
+                ),
+                embedding=embedding,
+            )
+
+    def _embedding_search(self, *, query: str) -> list[dict[str, Any]]:
+        if not self._embedding_enabled():
+            return []
+        self._sync_missing_embeddings()
+        query_embeddings = self.embedding_client.embed_many([query])
+        if not query_embeddings:
+            return []
+        query_vector = query_embeddings[0]
+        log(
+            "remember embedding input: "
+            + json.dumps(
+                {
+                    "query": query,
+                    "model": self.embedding_model,
+                    "max_results": self.embedding_max_results,
+                    "min_score": self.embedding_min_score,
+                },
+                ensure_ascii=False,
+            )
+        )
+        with contextlib.closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    items.id,
+                    items.memory,
+                    items.original_text,
+                    items.created_at,
+                    items.updated_at,
+                    embeds.embedding_json
+                FROM {self.embedding_table_name} embeds
+                JOIN {self.table_name} items ON items.id = embeds.item_id
+                WHERE embeds.embedding_model = ?
+                ORDER BY items.updated_at DESC
+                """,
+                (self.embedding_model,),
+            ).fetchall()
+        scored_rows: list[tuple[float, sqlite3.Row]] = []
+        for row in rows:
+            try:
+                candidate_vector = json.loads(str(row["embedding_json"]))
+                score = _cosine_similarity(query_vector, candidate_vector)
+            except Exception:
+                continue
+            if score >= self.embedding_min_score:
+                scored_rows.append((score, row))
+        scored_rows.sort(key=lambda item: (item[0], str(item[1]["updated_at"])), reverse=True)
+        limited_rows = scored_rows[: self.embedding_max_results]
+        log(
+            "remember embedding results: "
+            + json.dumps(
+                [
+                    {
+                        "id": str(row["id"]),
+                        "memory": str(row["memory"]),
+                        "score": round(score, 4),
+                    }
+                    for score, row in limited_rows
+                ],
+                ensure_ascii=False,
+            )
+        )
+        return [
+            {
+                "id": str(row["id"]),
+                "memory": str(row["memory"]),
+                "original_text": str(row["original_text"]),
+                "created_at": str(row["created_at"]),
+                "updated_at": str(row["updated_at"]),
+                "embedding_score": round(score, 4),
+            }
+            for score, row in limited_rows
+        ]
+
     def add(
         self,
         *,
@@ -368,9 +578,17 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         stored_memory = str(memory or "").strip()
         stored_original_text = str(original_text or "").strip()
         stored_source_memory_id = str(source_memory_id or "").strip()
+        deleted_item_ids: list[str] = []
         with contextlib.closing(self._connect()) as conn:
             with conn:
                 if stored_source_memory_id:
+                    deleted_item_ids = [
+                        str(row["id"])
+                        for row in conn.execute(
+                            f"SELECT id FROM {self.table_name} WHERE source_memory_id = ?",
+                            (stored_source_memory_id,),
+                        ).fetchall()
+                    ]
                     conn.execute(
                         f"DELETE FROM {self.fts_table_name} WHERE item_id IN (SELECT id FROM {self.table_name} WHERE source_memory_id = ?)",
                         (stored_source_memory_id,),
@@ -409,6 +627,17 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     """,
                     (stored_memory, stored_original_text, item_id),
                 )
+        if deleted_item_ids:
+            self._delete_embedding_rows(item_ids=deleted_item_ids)
+        if self._embedding_enabled():
+            try:
+                self._sync_embedding_for_item(
+                    item_id=item_id,
+                    memory=stored_memory,
+                    original_text=stored_original_text,
+                )
+            except Exception as exc:
+                log(f"remember embedding sync failed: {exc}")
         return f"✅ 已记录：{stored_memory}"
 
     def upsert(
@@ -482,7 +711,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
     def find(self, *, query: str) -> str:
         match_query = self._match_query(query)
         if not match_query:
-            return json.dumps({"results": []}, ensure_ascii=False)
+            return json.dumps({"results": self._embedding_search(query=query)}, ensure_ascii=False)
         keywords = _sanitize_rewritten_keywords(
             _keywords_from_match_query(match_query, query),
             query,
@@ -576,11 +805,44 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             }
             for index, row in enumerate(filtered_rows)
         ]
+        if self._embedding_enabled():
+            try:
+                seen_ids = {str(item["id"]) for item in results}
+                for semantic_row in self._embedding_search(query=query):
+                    semantic_id = str(semantic_row["id"])
+                    if semantic_id in seen_ids:
+                        for item in results:
+                            if str(item["id"]) == semantic_id:
+                                item.setdefault("metadata", {})["embedding_score"] = semantic_row[
+                                    "embedding_score"
+                                ]
+                        continue
+                    results.append(
+                        {
+                            "id": semantic_id,
+                            "memory": str(semantic_row["memory"]),
+                            "original_text": str(semantic_row["original_text"]),
+                            "created_at": format_local_datetime(str(semantic_row["created_at"])),
+                            "updated_at": format_local_datetime(str(semantic_row["updated_at"])),
+                            "score": float(semantic_row["embedding_score"]),
+                            "metadata": {
+                                "original_text": str(semantic_row["original_text"]),
+                                "embedding_score": float(semantic_row["embedding_score"]),
+                            },
+                        }
+                    )
+                    seen_ids.add(semantic_id)
+            except Exception as exc:
+                log(f"remember embedding search failed: {exc}")
         return json.dumps({"results": results}, ensure_ascii=False)
 
     def delete(self, *, memory_id: str) -> None:
         with contextlib.closing(self._connect()) as conn:
             with conn:
+                conn.execute(
+                    f"DELETE FROM {self.embedding_table_name} WHERE item_id = ?",
+                    (memory_id,),
+                )
                 conn.execute(
                     f"DELETE FROM {self.fts_table_name} WHERE item_id = ?",
                     (memory_id,),
@@ -616,6 +878,17 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             )
             for row in rows
         ]
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    numerator = sum(float(a) * float(b) for a, b in zip(left, right))
+    left_norm = math.sqrt(sum(float(value) * float(value) for value in left))
+    right_norm = math.sqrt(sum(float(value) * float(value) for value in right))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return numerator / (left_norm * right_norm)
 
 
 def migrate_mem0_memories_to_sqlite(

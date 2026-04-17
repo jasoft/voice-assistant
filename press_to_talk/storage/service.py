@@ -28,6 +28,7 @@ from .memory_backends import (
 from .models import (
     BaseHistoryStore,
     BaseRememberStore,
+    EmbeddingClient,
     KeywordRewriter,
     MemoryTranslator,
     RememberItemRecord,
@@ -106,6 +107,8 @@ def load_storage_config() -> StorageConfig:
     mem0_cfg = mem0_cfg if isinstance(mem0_cfg, dict) else {}
     rewrite_cfg = sqlite_cfg.get("query_rewrite", sqlite_cfg.get("groq_query_rewrite", {}))
     rewrite_cfg = rewrite_cfg if isinstance(rewrite_cfg, dict) else {}
+    embedding_cfg = sqlite_cfg.get("embedding_search", {})
+    embedding_cfg = embedding_cfg if isinstance(embedding_cfg, dict) else {}
     global_max_results = int(storage_cfg.get("max_results", 20))
     raw_app_id = os.environ.get("MEM0_APP_ID")
     app_id = "voice-assistant" if raw_app_id is None else str(raw_app_id).strip()
@@ -143,6 +146,30 @@ def load_storage_config() -> StorageConfig:
             bool(rewrite_cfg.get("enabled", False)),
         ),
         groq_rewrite_model=str(rewrite_cfg.get("model", "")).strip(),
+        embedding_search_enabled=env_bool(
+            "PTT_EMBEDDING_SEARCH_ENABLED",
+            bool(embedding_cfg.get("enabled", False)),
+        ),
+        embedding_base_url=env_str(
+            "PTT_EMBEDDING_BASE_URL",
+            str(embedding_cfg.get("base_url", "http://127.0.0.1:1234/v1")),
+        ).strip(),
+        embedding_api_key=env_str(
+            "PTT_EMBEDDING_API_KEY",
+            str(embedding_cfg.get("api_key", "lm-studio")),
+        ).strip(),
+        embedding_model=env_str(
+            "PTT_EMBEDDING_MODEL",
+            str(embedding_cfg.get("model", "remember-bge-m3")),
+        ).strip(),
+        embedding_max_results=max(
+            1,
+            env_int("PTT_EMBEDDING_MAX_RESULTS", int(embedding_cfg.get("max_results", 5))),
+        ),
+        embedding_min_score=env_float(
+            "PTT_EMBEDDING_MIN_SCORE",
+            float(embedding_cfg.get("min_score", 0.45)),
+        ),
     )
     safe_config = {
         key: (value if "api_key" not in key else ("***" if value else "None"))
@@ -335,6 +362,34 @@ class LLMMemoryTranslator:
         return translated_text
 
 
+class OpenAIEmbeddingClient:
+    def __init__(self, *, api_key: str, model: str, base_url: str) -> None:
+        self.api_key = api_key.strip() or "lm-studio"
+        self.model = model.strip()
+        self.base_url = base_url.strip()
+        self._client: Any | None = None
+
+    def _client_instance(self) -> Any:
+        if self._client is None:
+            from openai import OpenAI
+
+            client_kwargs: dict[str, Any] = {"api_key": self.api_key}
+            if self.base_url:
+                client_kwargs["base_url"] = self.base_url
+            self._client = OpenAI(**client_kwargs)
+        return self._client
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        cleaned_texts = [str(text or "").strip() for text in texts if str(text or "").strip()]
+        if not cleaned_texts:
+            return []
+        response = self._client_instance().embeddings.create(
+            model=self.model,
+            input=cleaned_texts,
+        )
+        return [list(item.embedding) for item in response.data]
+
+
 class StorageService:
     def __init__(self, config: StorageConfig, use_cli: bool = True) -> None:
         normalized = StorageConfig(**config.__dict__)
@@ -353,6 +408,10 @@ class StorageService:
                 db_path=self.config.remember_db_path,
                 max_results=self.config.remember_max_results,
                 keyword_rewriter=self.keyword_rewriter(),
+                embedding_client=self.embedding_client(),
+                embedding_model=self.config.embedding_model,
+                embedding_max_results=self.config.embedding_max_results,
+                embedding_min_score=self.config.embedding_min_score,
             )
         else:
             self._remember_store = Mem0RememberStore(
@@ -384,6 +443,17 @@ class StorageService:
             api_key=self.config.llm_api_key,
             llm_model=self.config.llm_model,
             base_url=self.config.llm_base_url,
+        )
+
+    def embedding_client(self) -> EmbeddingClient | None:
+        if not self.config.embedding_search_enabled:
+            return None
+        if not self.config.embedding_model.strip() or not self.config.embedding_base_url.strip():
+            return None
+        return OpenAIEmbeddingClient(
+            api_key=self.config.embedding_api_key,
+            model=self.config.embedding_model,
+            base_url=self.config.embedding_base_url,
         )
 
     def remember_store(self) -> BaseRememberStore:

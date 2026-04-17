@@ -278,6 +278,16 @@ class FakeMemoryTranslator:
         return f"中文:{text}"
 
 
+class FakeEmbeddingClient:
+    def __init__(self, mapping: dict[str, list[float]]) -> None:
+        self.mapping = {str(key): list(value) for key, value in mapping.items()}
+        self.calls: list[list[str]] = []
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        return [list(self.mapping[str(text)]) for text in texts]
+
+
 class LogCapture:
     def __init__(self) -> None:
         self.messages: list[str] = []
@@ -1025,6 +1035,11 @@ class HistoryWriterTests(unittest.TestCase):
             config.remember_db_path.endswith("data/voice_assistant_store.sqlite3")
         )
         self.assertTrue(config.groq_rewrite_enabled)
+        self.assertTrue(config.embedding_search_enabled)
+        self.assertEqual(config.embedding_model, "remember-bge-m3")
+        self.assertEqual(config.embedding_base_url, "http://127.0.0.1:1234/v1")
+        self.assertEqual(config.embedding_max_results, 5)
+        self.assertEqual(config.embedding_min_score, 0.45)
 
     def test_load_storage_config_reads_mem0_credentials(self) -> None:
         with patch.dict(
@@ -1532,6 +1547,42 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             found = store.find(query="办公桌")
 
         self.assertIn('"memory": "AirPods 在办公桌左边抽屉"', found)
+
+    def test_sqlite_store_appends_embedding_matches_when_fts_misses(self) -> None:
+        capture = LogCapture()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            embedding_client = FakeEmbeddingClient(
+                {
+                    "苹果笔记本的充电器放在书柜下面的蓝色布包里\n苹果笔记本充电器在蓝色布包里": [1.0, 0.0],
+                    "我的电脑电源适配器在哪": [0.98, 0.02],
+                }
+            )
+            store = storage_service_module.SQLiteFTS5RememberStore(
+                db_path=db_path,
+                keyword_rewriter=FakeKeywordRewriter('"完全不相关的词"'),
+                embedding_client=embedding_client,
+                embedding_model="remember-bge-m3",
+                embedding_max_results=3,
+                embedding_min_score=0.7,
+            )
+            store.add(
+                memory="苹果笔记本的充电器放在书柜下面的蓝色布包里",
+                original_text="苹果笔记本充电器在蓝色布包里",
+            )
+
+            with patch.object(memory_backends_module, "log", capture):
+                found = store.find(query="我的电脑电源适配器在哪")
+
+        payload = json.loads(found)
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(
+            payload["results"][0]["memory"],
+            "苹果笔记本的充电器放在书柜下面的蓝色布包里",
+        )
+        self.assertGreater(payload["results"][0]["metadata"]["embedding_score"], 0.9)
+        self.assertTrue(any("remember embedding input:" in message for message in capture.messages))
+        self.assertTrue(any("remember embedding results:" in message for message in capture.messages))
 
     def test_migrate_mem0_memories_to_sqlite_translates_and_inserts(self) -> None:
         source_client = FakeMem0Client()

@@ -21,6 +21,12 @@ class StorageConfig:
     llm_model: str = "qwen/qwen3-32b"
     groq_rewrite_enabled: bool = False
     groq_rewrite_model: str = ""
+    embedding_search_enabled: bool = False
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""
+    embedding_model: str = ""
+    embedding_max_results: int = 5
+    embedding_min_score: float = 0.45
 
 
 @dataclass
@@ -52,6 +58,10 @@ class KeywordRewriter(Protocol):
 
 class MemoryTranslator(Protocol):
     def translate(self, text: str) -> str: ...
+
+
+class EmbeddingClient(Protocol):
+    def embed_many(self, texts: list[str]) -> list[list[float]]: ...
 
 
 class BaseRememberStore:
