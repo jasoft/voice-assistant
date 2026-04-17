@@ -223,7 +223,6 @@ class OpenAICompatibleAgent:
             args = payload["args"] if isinstance(payload["args"], dict) else {}
             args.setdefault("memory", "")
             args.setdefault("query", "")
-            args.setdefault("note", "")
             if payload.get("intent") == "find":
                 args["query"] = user_input.strip()
             payload["args"] = args
@@ -233,23 +232,20 @@ class OpenAICompatibleAgent:
                 task = payload.get("task", {})
                 record_task = task.get("record", {}) if isinstance(task, dict) else {}
                 if isinstance(record_task, dict):
-                    args["memory"] = str(
-                        args.get("memory", "")
-                        or record_task.get("memory", "")
-                        or record_task.get("content", "")
+                    args_memory = str(args.get("memory", "")).strip()
+                    task_memory = str(
+                        record_task.get("memory", "") or record_task.get("content", "")
                     ).strip()
-                    args["note"] = str(
-                        args.get("note", "")
-                        or args.get("notes", "")
-                        or record_task.get("note", "")
-                        or record_task.get("notes", "")
-                    ).strip()
-                else:
-                    args["note"] = str(
-                        args.get("note", "") or args.get("notes", "")
-                    ).strip()
+                    if task_memory and (
+                        not args_memory or args_memory in task_memory
+                    ):
+                        args["memory"] = task_memory
+                    else:
+                        args["memory"] = args_memory
                 args.setdefault("query", "")
                 args.setdefault("memory", "")
+                args.pop("note", None)
+                args.pop("notes", None)
                 payload["args"] = args
             return payload
         except Exception as e:
@@ -257,7 +253,7 @@ class OpenAICompatibleAgent:
         return {
             "intent": "find",
             "tool": "remember_find",
-            "args": {"query": user_input.strip(), "note": "结构化提取失败，回退本地查询"},
+            "args": {"query": user_input.strip()},
             "confidence": 0.0,
         }
 
@@ -274,17 +270,17 @@ class OpenAICompatibleAgent:
                 "type": "function",
                 "function": {
                     "name": "remember_add",
-                    "description": "Save one concise remembered sentence distilled from the user's statement.",
+                    "description": "Save the user's original words plus one polished memory sentence that preserves every detail.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "memory": {
                                 "type": "string",
-                                "description": "One concise remembered sentence in Chinese, such as 用户安装了显示器的增高板 or 伊朗和美国停战两周",
+                                "description": "One polished Chinese memory sentence based on the user's words. It may reorder phrasing or fix obvious transcription errors, but it must not lose or add any detail.",
                             },
                             "original_text": {
                                 "type": "string",
-                                "description": "Original user utterance before summarization",
+                                "description": "The user's original utterance before polishing",
                             },
                         },
                         "required": ["memory"],
@@ -344,15 +340,6 @@ class OpenAICompatibleAgent:
                 )
             elif name == "remember_find":
                 query = str(args.get("query", ""))
-                rewriter = self.storage.keyword_rewriter()
-                if rewriter:
-                    try:
-                        rewritten_query = rewriter.rewrite(query)
-                        if rewritten_query:
-                            log(f"Query rewritten: '{query}' -> '{rewritten_query}'")
-                            query = rewritten_query
-                    except Exception as e:
-                        log(f"Query rewrite failed in agent: {e}")
                 output = remember_store.find(query=query)
             else:
                 return f"Error: Unknown tool {name}"

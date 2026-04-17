@@ -3,16 +3,15 @@
     "intent": "record|find",
     "tool": "remember_add|remember_find|history_find",
     "args": {
-      "memory": "仅用于 record：要存入的一句完整中文事实",
-      "query": "仅用于 find：用户的原始问句",
-      "note": "可选备注"
+      "memory": "仅用于 record：根据用户原话整理出的一句完整中文记忆，只能顺句和纠正明显错字，不能丢失或新增任何细节",
+      "query": "仅用于 find：用户的原始问句"
     },
     "confidence": 0.99,
     "notes": "简短说明"
   },
   "instructions": [
     "你只有两个动作：record (记录新信息) 和 find (查询已有信息)。",
-    "record：当用户想要你“记住”、“记录”、“保存”某些事实时。args.memory 必须是一句完整的、适合长期检索的中文。",
+    "record：当用户想要你“记住”、“记录”、“保存”某些事实时。args.memory 必须是一句完整的、适合长期检索的中文；它可以把用户原话整理得更通顺，但绝不能丢失任何细节，也不要把细节拆到其它字段。",
     "find：所有非记录类请求（询问、寒暄、查找、列出记录、问日期/地点等）都必须判为 find。args.query 必须直接复制用户的原始问句，不要做任何精简或改写。",
     "如果用户明确在查‘记录、历史、刚才/之前说过什么、会话内容’，tool 用 history_find；其它数据库事实查询用 remember_find。",
     "禁止输出 chat, search, web_search, null 或任何其它意图。",

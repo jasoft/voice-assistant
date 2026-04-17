@@ -188,7 +188,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _build_local_service() -> StorageService:
     config = load_storage_config()
-    config.query_rewrite_enabled = False
     return StorageService(config, use_cli=False)
 
 

@@ -21,6 +21,7 @@ from .models import (
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 SIMPLE_EXTENSION_PATH = APP_ROOT / "third_party" / "simple" / "libsimple.dylib"
+MAX_REWRITE_KEYWORD_LENGTH = 12
 
 
 def _now_iso() -> str:
@@ -79,6 +80,8 @@ def _sanitize_rewritten_keywords(
             or normalized_candidate in invalid_terms
             or normalized_candidate in seen
         ):
+            continue
+        if len(normalized_candidate) > MAX_REWRITE_KEYWORD_LENGTH:
             continue
         if normalized_query and normalized_candidate not in normalized_query:
             continue
@@ -436,11 +439,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         keywords: list[str] = []
         if self.keyword_rewriter:
             try:
-                rewritten_query = str(self.keyword_rewriter.rewrite(cleaned_query)).strip()
+                candidate_query = str(self.keyword_rewriter.rewrite(cleaned_query)).strip()
                 keywords = _sanitize_rewritten_keywords(
-                    _keywords_from_match_query(rewritten_query, cleaned_query),
+                    _keywords_from_match_query(candidate_query, cleaned_query),
                     cleaned_query,
                 )
+                if keywords:
+                    rewritten_query = candidate_query
             except Exception as exc:
                 log(f"Keyword rewrite failed: {exc}")
 
@@ -550,7 +555,11 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 row
                 for row in rows
                 if any(
-                    _normalize_match_text(keyword) in _normalize_match_text(str(row["memory"]))
+                    _normalize_match_text(keyword)
+                    in (
+                        _normalize_match_text(str(row["memory"]))
+                        + _normalize_match_text(str(row["original_text"]))
+                    )
                     for keyword in primary_keywords
                 )
             ]

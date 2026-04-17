@@ -38,16 +38,16 @@ def workflow_with_prompts(
                 "schema": {
                     "intent": "record|find",
                     "task": {
-                        "record": {"memory": "", "notes": ""},
+                        "record": {"memory": ""},
                         "find": {"query": "", "mode": "item|list|property"},
                     },
                     "tool": "remember_add|remember_find",
-                    "args": {"memory": "", "query": "", "note": ""},
+                    "args": {"memory": "", "query": ""},
                     "confidence": 0.0,
                     "notes": "简短中文说明",
                 },
                 "instructions": [
-                    "record 表示要记录或更新信息，task.record.memory 和 args.memory 要写成一句适合长期保存和检索的中文记忆，不要拆成 item、content、type。",
+                    "record 表示要记录或更新信息，task.record.memory 和 args.memory 要把用户原话整理成一句更通顺、适合长期保存和检索的中文记忆，只能整理语序和明显错字，绝不能丢失任何细节，也不要新增细节。",
                     "find 表示要查询数据库里可能已经存在的信息。若是找某个具体主题，task.find.mode 用 item；若是按属性或维度追问，mode 用 property。",
                 ],
                 "examples": [],
@@ -56,7 +56,7 @@ def workflow_with_prompts(
                 "system_prompt": "你是一个查询纠错改写器。请在保持原意不变的前提下，修正语音转文字或听写造成的明显错字、错词、同音词错误。同时去掉没有检索价值的提问前缀，例如“查询”“查找”“搜索”“帮我找下”“帮我找一下”“关于”“有关”。不要扩写，不要解释，只返回 JSON：{\"query\":\"纠正后的问句\"}。如果原句无需修正，也原样返回。"
             },
             "keyword_rewrite": {
-                "system_prompt": "你是一个 SQLite FTS5 查询改写器。把用户原始问题拆成 2 到 5 个最可能命中的短关键词或短语。关键词应该是名词、专有名词、地点、物品或动作，不要把“在哪里”“哪儿呢”“在哪儿”“哪里有”这类纯查询尾巴当成关键词。只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。不要解释，不要补充其它字段。"
+                "system_prompt": "你是一个 SQLite FTS5 查询改写器。把用户原始问题拆成 1 到 4 个最可能命中的短关键词或短语。每个关键词都必须尽量短，优先保留实体词，通常 2 到 8 个字，最长不要超过 12 个字。关键词应该是名词、专有名词、地点、物品或动作，不要把“在哪里”“哪儿呢”“在哪儿”“哪里有”这类纯查询尾巴当成关键词。只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。不要解释，不要补充其它字段。"
             },
             "memory_translate": {
                 "system_prompt": "你是一个中文翻译器。把输入内容翻译成自然、简洁、适合记忆检索的中文。保持原意，不要扩写，不要解释，只返回翻译结果原文。"
@@ -298,6 +298,21 @@ class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, "FIND:护照")
+
+    async def test_remember_find_passes_raw_query_without_agent_side_rewrite(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.storage = FakeStorageService()
+        rewriter = FakeKeywordRewriter('"苹果笔记本充电器" OR "蓝色布包"')
+        agent.storage.keyword_rewriter = lambda: rewriter
+
+        result = await core.OpenAICompatibleAgent._execute_remember_tool(
+            agent,
+            "remember_find",
+            {"query": "我的苹果笔记本充电器在哪里"},
+        )
+
+        self.assertEqual(result, "FIND:我的苹果笔记本充电器在哪里")
+        self.assertEqual(rewriter.calls, [])
 
     async def test_remember_unknown_tool_returns_error(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
@@ -626,7 +641,8 @@ class ThinkTagFilterTests(unittest.TestCase):
         )
 
         with patch(
-            "press_to_talk.core.current_time_text", return_value="2026-04-11 09:30:00"
+            "press_to_talk.agent.agent._runtime_current_time_text",
+            return_value="2026-04-11 09:30:00",
         ):
             agent._summarize_remember_output(
                 "remember_find",
@@ -853,7 +869,7 @@ class ThinkTagFilterTests(unittest.TestCase):
     def test_record_intent_follows_llm_output(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient(
-            '{"intent":"record","tool":"remember_add","args":{"memory":"用户安装了显示器的增高板","query":"","note":""},"confidence":0.98,"notes":"用户在记录安装信息"}'
+            '{"intent":"record","tool":"remember_add","args":{"memory":"用户安装了显示器的增高板","query":""},"confidence":0.98,"notes":"用户在记录安装信息"}'
         )
         agent.model = "test-model"
         agent.workflow = workflow_with_prompts()
@@ -865,6 +881,28 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertEqual(payload["intent"], "record")
         self.assertEqual(payload["tool"], "remember_add")
         self.assertEqual(payload["args"]["memory"], "用户安装了显示器的增高板")
+        self.assertNotIn("note", payload["args"])
+
+    def test_record_intent_ignores_note_and_keeps_all_details(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient(
+            '{"intent":"record","tool":"remember_add","task":{"record":{"memory":"我的苹果笔记本的充电器放在书柜下面的蓝色布包里"}},"args":{"memory":"我的苹果笔记本的充电器放在书柜下面","query":"","note":"蓝色布包里"},"confidence":0.99,"notes":"用户在记录位置信息"}'
+        )
+        agent.model = "test-model"
+        agent.workflow = workflow_with_prompts()
+
+        payload = self.async_run(
+            agent._extract_intent_payload(
+                "记录一下，我的苹果笔记本的充电器放在书柜下面的蓝色布包里。"
+            )
+        )
+
+        self.assertEqual(payload["intent"], "record")
+        self.assertEqual(
+            payload["args"]["memory"],
+            "我的苹果笔记本的充电器放在书柜下面的蓝色布包里",
+        )
+        self.assertNotIn("note", payload["args"])
 
     def async_run(self, coroutine):
         import asyncio
@@ -1227,6 +1265,18 @@ class SQLiteRememberStoreTests(unittest.TestCase):
 
         self.assertEqual(sanitized, ["USB测试版", "USB", "测试版"])
 
+    def test_sanitize_rewritten_keywords_discards_overlong_phrases(self) -> None:
+        sanitized = storage_service_module._sanitize_rewritten_keywords(
+            [
+                "我的苹果笔记本的充电器放在书柜下面的蓝色布包里",
+                "苹果笔记本充电器",
+                "蓝色布包",
+            ],
+            "我的苹果笔记本充电器是不是在蓝色布包里",
+        )
+
+        self.assertEqual(sanitized, ["苹果笔记本充电器", "蓝色布包"])
+
     def test_load_storage_config_reads_workflow_sqlite_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             workflow_path = Path(tmpdir) / "workflow_config.json"
@@ -1409,6 +1459,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         prompt_text = json.dumps(captured_messages[0], ensure_ascii=False)
         self.assertIn("不要把“在哪里”", prompt_text)
         self.assertIn("关键词应该是名词", prompt_text)
+        self.assertIn("最长不要超过 12 个字", prompt_text)
 
     def test_sqlite_store_logs_search_keywords_and_queries(self) -> None:
         capture = LogCapture()

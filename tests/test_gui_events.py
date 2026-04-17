@@ -95,6 +95,19 @@ class LoggingTests(unittest.TestCase):
 
 
 class StorageCliTests(unittest.TestCase):
+    def test_build_local_service_keeps_query_rewrite_enabled(self) -> None:
+        fake_config = SimpleNamespace(query_rewrite_enabled=True)
+
+        with (
+            patch.object(storage_cli_app, "load_storage_config", return_value=fake_config),
+            patch.object(storage_cli_app, "StorageService", return_value="service") as service_mock,
+        ):
+            service = storage_cli_app._build_local_service()
+
+        self.assertEqual(service, "service")
+        self.assertTrue(fake_config.query_rewrite_enabled)
+        service_mock.assert_called_once_with(fake_config, use_cli=False)
+
     def test_no_args_prints_help_and_returns_zero(self) -> None:
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -136,7 +149,7 @@ class StorageCliTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(stdout.getvalue().strip()), [])
-            self.assertIn("Storage configuration loaded", stderr.getvalue())
+            self.assertEqual(stderr.getvalue(), "")
 
     def test_memory_search_writes_json_to_stdout(self) -> None:
         fake_results = {

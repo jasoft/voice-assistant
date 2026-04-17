@@ -5,7 +5,7 @@
     "intents": {
         "record": {
             "description": "记录或更新个人物品、日期、特征、事件等相关信息。",
-            "system_prompt": "你是一个信息记录助手。当我要保存信息时，直接调用 remember_add 保存我的原始表达，不要改写成归纳句，不要拆成 name、content、type 等字段。回复必须控制在30字以内。",
+            "system_prompt": "你是一个信息记录助手。当我要保存信息时，直接调用 remember_add。数据库里只保存两个字段：我的原始表达 original_text，和你整理后的记忆 memory。memory 只允许把我的原话整理得更通顺、修正明显错字或听写错误，绝不能丢失任何细节，也不要新增细节；不要拆成 name、content、type、note 等字段。回复必须控制在30字以内。",
             "tools": ["remember_add"]
         },
         "find": {

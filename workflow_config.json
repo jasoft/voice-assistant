@@ -6,7 +6,7 @@
         "record": {
             "description": "记录或更新个人物品、日期、特征、事件等相关信息。当用户想要‘记住’、'记录'、'保存'、'更新'某个东西的信息（如放哪了、什么时候买的、生日、特征等）时使用。",
             "keywords": ["记", "存", "保存", "记录", "更新"],
-            "system_prompt": "你是一个信息记录助手。当我要保存信息时，直接调用 remember_add 保存我的原始表达，不要改写成归纳句，不要拆成 name、content、type 等字段。回复必须控制在30字以内。",
+            "system_prompt": "你是一个信息记录助手。当我要保存信息时，直接调用 remember_add。数据库里只保存两个字段：我的原始表达 original_text，和你整理后的记忆 memory。memory 只允许把我的原话整理得更通顺、修正明显错字或听写错误，绝不能丢失任何细节，也不要新增细节；不要拆成 name、content、type、note 等字段。回复必须控制在30字以内。",
             "tools": ["remember_add"]
         },
         "find": {
@@ -50,7 +50,7 @@
     },
     "prompts": {
         "record": {
-            "system_prompt": "你是一个信息记录助手。当我要保存信息时，直接调用 remember_add 保存我的原始表达，不要改写成归纳句，不要拆成 name、content、type 等字段。回复必须控制在30字以内。"
+            "system_prompt": "你是一个信息记录助手。当我要保存信息时，直接调用 remember_add。数据库里只保存两个字段：我的原始表达 original_text，和你整理后的记忆 memory。memory 只允许把我的原话整理得更通顺、修正明显错字或听写错误，绝不能丢失任何细节，也不要新增细节；不要拆成 name、content、type、note 等字段。回复必须控制在30字以内。"
         },
         "find": {
             "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询本地数据库。查询长期事实时使用 remember_find；查询之前的对话、历史记录、刚才说过什么时使用 history_find。回复必须控制在30字以内。"
@@ -64,8 +64,7 @@
                 "intent": "record|find",
                 "task": {
                     "record": {
-                        "memory": "",
-                        "notes": ""
+                        "memory": ""
                     },
                     "find": {
                         "query": "",
@@ -75,14 +74,13 @@
                 "tool": "remember_add|remember_find|history_find",
                 "args": {
                     "memory": "",
-                    "query": "",
-                    "note": ""
+                    "query": ""
                 },
                 "confidence": 0.0,
                 "notes": "简短中文说明"
             },
             "instructions": [
-                "record 表示要记录或更新信息，task.record.memory 和 args.memory 要写成一句适合长期保存 and 检索的中文记忆，不要拆成 item、content、type。",
+                "record 表示要记录或更新信息，task.record.memory 和 args.memory 要把用户原话整理成一句更通顺、适合长期保存和检索的中文记忆，只能整理语序和明显错字，绝不能丢失任何细节，也不要新增细节。",
                 "find 表示要查询数据库里可能已经存在的信息。若是找某个具体主题，task.find.mode 用 item；若是按属性或维度追问，mode 用 property。",
                 "这是一个通用的个人生活数据库，不限于物品。人物、宠物、事件、地点、日期、偏好、状态、经历、提醒、安排、关系、健康、消费、账号、内容都可以属于记忆查询范围。",
                 "凡是用户在个人场景中问 What、When、Which、Who、Where、Why、How many、How much 这类问题，本质上都是在问数据库里是否记过相关事实，通常判成 find，不要缩窄成‘必须明确说之前记过’才算。",
@@ -93,7 +91,7 @@
                 "不要输出 chat、search 或 null；如果不是 record，就优先按 find 处理，并给出 remember_find 或 history_find。",
                 "不要过度解释，不要自行补充复杂推理；只做最小必要判断与抽取。",
                 "tool 必须给出后续应执行的工具名。",
-                "args 要与 tool 对齐，尽量填全；record 时至少填 memory，如有备注要填 args.note；find 时至少填 query。",
+                "args 要与 tool 对齐，尽量填全；record 时至少填 memory；find 时至少填 query。",
                 "输出必须是单个 JSON 对象，不能加 markdown，不能加解释，不能加额外文本。"
             ],
             "examples": [
@@ -142,12 +140,11 @@
                         "intent": "record",
                         "tool": "remember_add",
                         "args": {
-                            "memory": "护照在书房抽屉里",
-                            "query": "",
-                            "note": "蓝色封皮"
+                            "memory": "护照在书房抽屉里，蓝色封皮",
+                            "query": ""
                         },
                         "confidence": 0.98,
-                        "notes": "用户在记录位置并附带备注"
+                        "notes": "用户在记录位置，附带细节必须并入 memory"
                     }
                 },
                 {
@@ -234,7 +231,7 @@
             "system_prompt": "你是一个查询纠错改写器。请在保持原意不变的前提下，修正语音转文字或听写造成的明显错字、错词、同音词错误。同时去掉没有检索价值的提问前缀，例如“查询”“查找”“搜索”“帮我找下”“帮我找一下”“关于”“有关”。不要扩写，不要解释，只返回 JSON：{\"query\":\"纠正后的问句\"}。如果原句无需修正，也原样返回。"
         },
         "query_rewrite": {
-            "system_prompt": "你是一个检索词提炼器。请从用户原问句中提炼 1 到 5 个最核心、最可能命中的实体词或短语，只能保留原问句中真实出现过的内容，不要新增热词，不要扩写同义词，不要解释。像“在哪”“哪里”“哪儿”“位置”“查询”“查找”“帮我”等没有检索价值的尾巴和前缀不要输出。只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。"
+            "system_prompt": "你是一个检索词提炼器。请从用户原问句中提炼 1 到 4 个最核心、最可能命中的实体词或短语，只能保留原问句中真实出现过的内容，不要新增热词，不要扩写同义词，不要解释。每个关键词都必须尽量短，优先保留实体词，通常 2 到 8 个字，最长不要超过 12 个字。像“在哪”“哪里”“哪儿”“位置”“查询”“查找”“帮我”等没有检索价值的尾巴和前缀不要输出。只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。"
         },
         "memory_translate": {
             "system_prompt": "你是一个中文翻译器。把输入内容翻译成自然、简洁、适合记忆检索的中文。保持原意，不要扩写，不要解释，只返回翻译结果原文。"
