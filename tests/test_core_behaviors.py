@@ -1040,6 +1040,7 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(config.embedding_base_url, "http://127.0.0.1:1234/v1")
         self.assertEqual(config.embedding_max_results, 5)
         self.assertEqual(config.embedding_min_score, 0.45)
+        self.assertEqual(config.embedding_context_min_score, 0.55)
 
     def test_load_storage_config_reads_mem0_credentials(self) -> None:
         with patch.dict(
@@ -1527,6 +1528,8 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         self.assertTrue(any("match_query" in message for message in capture.messages))
         self.assertTrue(any("keywords" in message for message in capture.messages))
         self.assertTrue(any("fts5" in message for message in capture.messages))
+        payload = json.loads(found)
+        self.assertEqual(payload["results"][0]["score"], 0.99)
 
     def test_sqlite_store_falls_back_to_raw_query_when_rewriter_fails(self) -> None:
         class RaisingKeywordRewriter:
@@ -1564,7 +1567,8 @@ class SQLiteRememberStoreTests(unittest.TestCase):
                 embedding_client=embedding_client,
                 embedding_model="remember-bge-m3",
                 embedding_max_results=3,
-                embedding_min_score=0.7,
+                embedding_min_score=0.45,
+                embedding_context_min_score=0.55,
             )
             store.add(
                 memory="苹果笔记本的充电器放在书柜下面的蓝色布包里",
@@ -1581,8 +1585,41 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             "苹果笔记本的充电器放在书柜下面的蓝色布包里",
         )
         self.assertGreater(payload["results"][0]["metadata"]["embedding_score"], 0.9)
+        self.assertLess(payload["results"][0]["score"], 0.9)
+        self.assertGreaterEqual(payload["results"][0]["score"], 0.6)
         self.assertTrue(any("remember embedding input:" in message for message in capture.messages))
         self.assertTrue(any("remember embedding results:" in message for message in capture.messages))
+
+    def test_sqlite_store_filters_low_confidence_embedding_results_from_context(self) -> None:
+        capture = LogCapture()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            embedding_client = FakeEmbeddingClient(
+                {
+                    "USB数据线测试板\nUSB测试板在书房白色柜子透明盒里": [1.0, 0.0],
+                    "usb测试版在哪": [0.5, 0.5],
+                }
+            )
+            store = storage_service_module.SQLiteFTS5RememberStore(
+                db_path=db_path,
+                keyword_rewriter=FakeKeywordRewriter('"完全不相关的词"'),
+                embedding_client=embedding_client,
+                embedding_model="remember-bge-m3",
+                embedding_max_results=3,
+                embedding_min_score=0.45,
+                embedding_context_min_score=0.8,
+            )
+            store.add(
+                memory="USB数据线测试板",
+                original_text="USB测试板在书房白色柜子透明盒里",
+            )
+
+            with patch.object(memory_backends_module, "log", capture):
+                found = store.find(query="usb测试版在哪")
+
+        payload = json.loads(found)
+        self.assertEqual(payload["results"], [])
+        self.assertTrue(any("remember embedding filtered:" in message for message in capture.messages))
 
     def test_migrate_mem0_memories_to_sqlite_translates_and_inserts(self) -> None:
         source_client = FakeMem0Client()

@@ -170,6 +170,10 @@ def load_storage_config() -> StorageConfig:
             "PTT_EMBEDDING_MIN_SCORE",
             float(embedding_cfg.get("min_score", 0.45)),
         ),
+        embedding_context_min_score=env_float(
+            "PTT_EMBEDDING_CONTEXT_MIN_SCORE",
+            float(embedding_cfg.get("context_min_score", 0.55)),
+        ),
     )
     safe_config = {
         key: (value if "api_key" not in key else ("***" if value else "None"))
@@ -412,6 +416,7 @@ class StorageService:
                 embedding_model=self.config.embedding_model,
                 embedding_max_results=self.config.embedding_max_results,
                 embedding_min_score=self.config.embedding_min_score,
+                embedding_context_min_score=self.config.embedding_context_min_score,
             )
         else:
             self._remember_store = Mem0RememberStore(

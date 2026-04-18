@@ -176,6 +176,22 @@ def _extract_mem0_results(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _fts_confidence(index: int) -> float:
+    return round(max(0.9, 0.99 - (max(0, index) * 0.01)), 2)
+
+
+def _embedding_confidence(raw_score: float, context_min_score: float) -> float:
+    lower_bound = 0.6
+    upper_bound = 0.89
+    if raw_score <= context_min_score:
+        return lower_bound
+    normalized = min(
+        1.0,
+        max(0.0, (float(raw_score) - float(context_min_score)) / (1.0 - float(context_min_score))),
+    )
+    return round(lower_bound + ((upper_bound - lower_bound) * normalized), 2)
+
+
 class Mem0RememberStore(BaseRememberStore):
     def __init__(
         self,
@@ -273,6 +289,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         embedding_model: str = "",
         embedding_max_results: int = 5,
         embedding_min_score: float = 0.45,
+        embedding_context_min_score: float = 0.55,
     ) -> None:
         self.db_path = Path(db_path).expanduser()
         self.max_results = max(1, int(max_results))
@@ -281,6 +298,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         self.embedding_model = str(embedding_model or "").strip()
         self.embedding_max_results = max(1, int(embedding_max_results))
         self.embedding_min_score = float(embedding_min_score)
+        self.embedding_context_min_score = float(embedding_context_min_score)
         self.table_name = "remember_entries"
         self.fts_table_name = "remember_entries_simple_fts"
         self.embedding_table_name = "remember_entry_embeddings"
@@ -566,6 +584,42 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             for score, row in limited_rows
         ]
 
+    def _embedding_results_for_context(
+        self,
+        *,
+        query: str,
+    ) -> list[dict[str, Any]]:
+        semantic_rows = self._embedding_search(query=query)
+        if not semantic_rows:
+            return []
+        accepted = [
+            row
+            for row in semantic_rows
+            if float(row["embedding_score"]) >= self.embedding_context_min_score
+        ]
+        filtered_out = [
+            {
+                "id": str(row["id"]),
+                "memory": str(row["memory"]),
+                "embedding_score": round(float(row["embedding_score"]), 4),
+            }
+            for row in semantic_rows
+            if float(row["embedding_score"]) < self.embedding_context_min_score
+        ]
+        if filtered_out:
+            log(
+                "remember embedding filtered: "
+                + json.dumps(
+                    {
+                        "query": query,
+                        "context_min_score": self.embedding_context_min_score,
+                        "filtered": filtered_out,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        return accepted
+
     def add(
         self,
         *,
@@ -711,7 +765,27 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
     def find(self, *, query: str) -> str:
         match_query = self._match_query(query)
         if not match_query:
-            return json.dumps({"results": self._embedding_search(query=query)}, ensure_ascii=False)
+            semantic_results = []
+            if self._embedding_enabled():
+                semantic_results = [
+                    {
+                        "id": str(row["id"]),
+                        "memory": str(row["memory"]),
+                        "original_text": str(row["original_text"]),
+                        "created_at": format_local_datetime(str(row["created_at"])),
+                        "updated_at": format_local_datetime(str(row["updated_at"])),
+                        "score": _embedding_confidence(
+                            float(row["embedding_score"]),
+                            self.embedding_context_min_score,
+                        ),
+                        "metadata": {
+                            "original_text": str(row["original_text"]),
+                            "embedding_score": float(row["embedding_score"]),
+                        },
+                    }
+                    for row in self._embedding_results_for_context(query=query)
+                ]
+            return json.dumps({"results": semantic_results}, ensure_ascii=False)
         keywords = _sanitize_rewritten_keywords(
             _keywords_from_match_query(match_query, query),
             query,
@@ -800,7 +874,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 "original_text": str(row["original_text"]),
                 "created_at": format_local_datetime(str(row["created_at"])),
                 "updated_at": format_local_datetime(str(row["updated_at"])),
-                "score": round(0.99 - (index * 0.01), 2),
+                "score": _fts_confidence(index),
                 "metadata": {"original_text": str(row["original_text"])},
             }
             for index, row in enumerate(filtered_rows)
@@ -808,7 +882,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if self._embedding_enabled():
             try:
                 seen_ids = {str(item["id"]) for item in results}
-                for semantic_row in self._embedding_search(query=query):
+                for semantic_row in self._embedding_results_for_context(query=query):
                     semantic_id = str(semantic_row["id"])
                     if semantic_id in seen_ids:
                         for item in results:
@@ -824,7 +898,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                             "original_text": str(semantic_row["original_text"]),
                             "created_at": format_local_datetime(str(semantic_row["created_at"])),
                             "updated_at": format_local_datetime(str(semantic_row["updated_at"])),
-                            "score": float(semantic_row["embedding_score"]),
+                            "score": _embedding_confidence(
+                                float(semantic_row["embedding_score"]),
+                                self.embedding_context_min_score,
+                            ),
                             "metadata": {
                                 "original_text": str(semantic_row["original_text"]),
                                 "embedding_score": float(semantic_row["embedding_score"]),
