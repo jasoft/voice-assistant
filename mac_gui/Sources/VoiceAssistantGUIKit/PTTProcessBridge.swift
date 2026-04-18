@@ -22,6 +22,17 @@ public final class PTTProcessBridge {
         self.viewModel = viewModel
     }
 
+    nonisolated static func launchArguments(additionalArgs: [String]) -> [String] {
+        var args = ["uv", "run", "press-to-talk", "--gui-events"]
+        let filtered = additionalArgs.filter { $0 != "--gui-events" && $0 != "--chat-mode" }
+        let hasExplicitExecutionMode = filtered.contains("--execution-mode")
+        args.append(contentsOf: filtered)
+        if additionalArgs.contains("--chat-mode") && !hasExplicitExecutionMode {
+            args.append(contentsOf: ["--execution-mode", "memory-chat"])
+        }
+        return args
+    }
+
     public func start(additionalArgs: [String], workingDirectory: URL) {
         generation += 1
         let currentGeneration = generation
@@ -37,10 +48,7 @@ public final class PTTProcessBridge {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
 
-        var args = ["uv", "run", "press-to-talk", "--gui-events"]
-        let filtered = additionalArgs.filter { $0 != "--gui-events" }
-        args.append(contentsOf: filtered)
-        process.arguments = args
+        process.arguments = Self.launchArguments(additionalArgs: additionalArgs)
         process.currentDirectoryURL = resolvedWorkingDirectory
         var environment = ProcessInfo.processInfo.environment
         environment["PTT_GUI_CONTROL_DIR"] = controlDirectory.path
