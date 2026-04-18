@@ -152,7 +152,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         "--execution-mode",
         choices=("intent", "hermes", "memory-chat"),
         default=None,
-        help="执行模式：intent 走本地意图链路，hermes 走 hermes chat 单轮执行，memory-chat 先查记忆再联网聊天",
+        help="执行模式：intent 走本地意图链路，hermes 显式调用 hermes chat，memory-chat 先查记忆再走本地 OpenAI-compatible 聊天链路",
     )
     parser.add_argument(
         "--intent-samples-file",

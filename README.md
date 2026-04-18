@@ -20,7 +20,7 @@ uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 
 默认会直接调用系统里可用的 `qwen-tts` 命令，并使用 `--play --speaker serena --stream` 播报回复。
 
-`memory-chat` 模式会先按当前问题检索相关记忆，把命中的记忆作为上下文，再进入 `hermes chat`。需要联网时会优先提示使用 `brave-search___search`，必要时再用 `fetch___fetch` 抓取网页正文。
+`memory-chat` 模式会先按当前问题检索相关记忆，把命中的记忆作为上下文，再直接调用当前配置的 OpenAI-compatible 模型回答，不再经过 `hermes chat`，这样语音助手的响应更快。`hermes` 模式仍然保留为单独链路，只有显式指定 `--execution-mode hermes` 时才会调用外部 `hermes chat`。
 
 ## 记忆功能
 
