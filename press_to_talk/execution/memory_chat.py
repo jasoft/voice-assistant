@@ -5,6 +5,7 @@ from typing import Any
 
 from openai import OpenAI
 
+from .intent import IntentExecutionRunner
 from ..models.history import build_storage_config
 from ..storage import StorageService
 from ..utils.logging import log, log_llm_prompt, log_multiline
@@ -138,6 +139,10 @@ class MemoryChatExecutionRunner:
 
     def run(self, transcript: str) -> str:
         intent = self._analyze_intent(transcript)
+        if intent.get("intent") == "record":
+            log("memory-chat routing record intent to structured record flow")
+            return IntentExecutionRunner(self.cfg).run(transcript)
+
         memory_context = self._memory_context(transcript) or "没有命中相关记忆。"
         messages = self._build_messages(
             transcript,

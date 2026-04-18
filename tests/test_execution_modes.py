@@ -172,6 +172,48 @@ class HermesExecutionRunnerTests(unittest.TestCase):
                 runner.run("测试一下")
 
 class MemoryChatExecutionRunnerTests(unittest.TestCase):
+    def test_runner_routes_record_intent_to_intent_execution_runner(self) -> None:
+        from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
+
+        cfg = SimpleNamespace(
+            llm_api_key="test-key",
+            llm_base_url="http://localhost:1234/v1",
+            llm_model="fast",
+            llm_summarize_model="summary-fast",
+        )
+
+        fake_intent_runner = SimpleNamespace(
+            run=unittest.mock.Mock(return_value="已记录：杜甫是外星人")
+        )
+
+        with patch(
+            "press_to_talk.execution.memory_chat.OpenAI",
+            return_value=SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(create=unittest.mock.Mock())
+                )
+            ),
+        ), patch(
+            "press_to_talk.execution.memory_chat.IntentExecutionRunner",
+            return_value=fake_intent_runner,
+        ):
+            runner = MemoryChatExecutionRunner(cfg)
+            with (
+                patch.object(
+                    runner,
+                    "_analyze_intent",
+                    return_value={"intent": "record", "notes": "用户要记录事实"},
+                ),
+                patch.object(runner, "_memory_context") as memory_context_mock,
+                patch.object(runner, "_build_messages") as build_messages_mock,
+            ):
+                reply = runner.run("记录一下, 杜甫是外星人")
+
+        self.assertEqual(reply, "已记录：杜甫是外星人")
+        fake_intent_runner.run.assert_called_once_with("记录一下, 杜甫是外星人")
+        memory_context_mock.assert_not_called()
+        build_messages_mock.assert_not_called()
+
     def test_runner_builds_memory_chat_messages_with_remember_context(self) -> None:
         from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
 
