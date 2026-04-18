@@ -32,6 +32,7 @@ class Config:
     llm_api_key: str
     llm_base_url: str
     llm_model: str
+    llm_summarize_model: str
     workspace_root: Path
     remember_script: Path
     execution_mode: str
@@ -191,6 +192,10 @@ def parse_args(argv: list[str] | None = None) -> Config:
     )
     parser.add_argument("--model", default=env_str("PTT_MODEL", "qwen/qwen3-32b"))
     parser.add_argument(
+        "--summarize-model",
+        default=env_str("PTT_SUMMERIZE_MODEL", env_str("PTT_MODEL", "qwen/qwen3-32b")),
+    )
+    parser.add_argument(
         "--workspace-root",
         type=Path,
         default=env_path("PTT_WORKSPACE_ROOT", PROJECT_ROOT),
@@ -240,6 +245,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         llm_api_key=args.api_key,
         llm_base_url=args.base_url,
         llm_model=args.model,
+        llm_summarize_model=args.summarize_model,
         workspace_root=args.workspace_root,
         remember_script=args.remember_script,
         execution_mode=execution_mode,

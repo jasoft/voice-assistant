@@ -35,6 +35,7 @@ class MemoryChatExecutionRunner:
         self.client = OpenAI(**client_kwargs)
         self.cfg = cfg
         self.model = str(cfg.llm_model)
+        self.summary_model = str(getattr(cfg, "llm_summarize_model", "") or self.model)
         self._storage_service: StorageService | None = None
 
     def _storage(self) -> StorageService:
@@ -145,7 +146,7 @@ class MemoryChatExecutionRunner:
         )
         log_llm_prompt("memory-chat summary", messages)
         response = self.client.chat.completions.create(
-            model=self.model,
+            model=self.summary_model,
             messages=messages,
             temperature=0.2,
         )

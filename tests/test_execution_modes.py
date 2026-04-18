@@ -75,6 +75,32 @@ class ExecutionModeConfigTests(unittest.TestCase):
 
         self.assertEqual(config.execution_mode, "memory-chat")
 
+    def test_parse_args_reads_summarize_model_from_env(self) -> None:
+        with (
+            patch.object(config_module, "load_env_files"),
+            patch.object(
+                config_module,
+                "resolve_remember_script_path",
+                return_value=Path("/tmp/remember.py"),
+            ),
+            patch.object(config_module, "load_json_file", return_value={}),
+            patch.dict(
+                "os.environ",
+                {
+                    "OPENAI_API_KEY": "test-key",
+                    "PTT_STT_URL": "http://localhost:8000/stt",
+                    "PTT_STT_TOKEN": "test-token",
+                    "PTT_MODEL": "intent-model",
+                    "PTT_SUMMERIZE_MODEL": "summary-model",
+                },
+                clear=True,
+            ),
+        ):
+            config = config_module.parse_args(["--text-input", "你好"])
+
+        self.assertEqual(config.llm_model, "intent-model")
+        self.assertEqual(config.llm_summarize_model, "summary-model")
+
 
 class HermesExecutionRunnerTests(unittest.TestCase):
     def test_runner_returns_reply_without_session_id_trailer(self) -> None:
@@ -197,6 +223,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             llm_api_key="test-key",
             llm_base_url="http://localhost:1234/v1",
             llm_model="fast",
+            llm_summarize_model="summary-fast",
         )
 
         with patch(
@@ -252,6 +279,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             llm_api_key="test-key",
             llm_base_url="http://localhost:1234/v1",
             llm_model="fast",
+            llm_summarize_model="summary-fast",
         )
 
         fake_store = SimpleNamespace(
@@ -283,6 +311,8 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
         )
         create = openai_mock.return_value.chat.completions.create
         self.assertEqual(create.call_count, 2)
+        self.assertEqual(create.call_args_list[0].kwargs["model"], "fast")
+        self.assertEqual(create.call_args_list[1].kwargs["model"], "summary-fast")
         self.assertEqual(prompt_log.call_count, 2)
         self.assertEqual(prompt_log.call_args_list[0].args[0], "memory-chat intent")
         self.assertEqual(prompt_log.call_args_list[1].args[0], "memory-chat summary")
@@ -362,6 +392,7 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             stt_url="http://localhost:8000/stt",
             stt_token="token",
             llm_model="test-model",
+            llm_summarize_model="summary-model",
             llm_base_url="",
             execution_mode="hermes",
             workspace_root=Path("/tmp"),

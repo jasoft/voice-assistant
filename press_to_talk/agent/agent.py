@@ -106,6 +106,7 @@ class OpenAICompatibleAgent:
         self.client = OpenAI(**client_kwargs)
         self.cfg = cfg
         self.model = cfg.llm_model
+        self.summary_model = getattr(cfg, "llm_summarize_model", cfg.llm_model)
         self.remember_script = cfg.remember_script
         self.storage = StorageService(build_storage_config(cfg))
         self.messages: list[Any] = []
@@ -524,6 +525,7 @@ class OpenAICompatibleAgent:
         )
 
         try:
+            summary_model = str(getattr(self, "summary_model", self.model))
             log_llm_prompt(
                 "remember summary",
                 [
@@ -532,7 +534,7 @@ class OpenAICompatibleAgent:
                 ],
             )
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=summary_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},

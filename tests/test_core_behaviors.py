@@ -612,6 +612,7 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.client = FakeClient("护照在书房抽屉里。")
         agent.model = "test-model"
+        agent.summary_model = "summary-model"
         agent.workflow = workflow_with_prompts()
 
         summary = agent._summarize_remember_output(
@@ -622,6 +623,26 @@ class ThinkTagFilterTests(unittest.TestCase):
 
         self.assertEqual(summary, "护照在书房抽屉里。")
         self.assertNotIn("max_tokens", agent.client.chat.completions.calls[0])
+
+    def test_remember_summary_uses_summary_model(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient("护照在书房抽屉里。")
+        agent.model = "test-model"
+        agent.summary_model = "summary-model"
+        agent.workflow = workflow_with_prompts()
+        agent.storage = FakeStorageService()
+
+        summary = agent._summarize_remember_output(
+            "remember_find",
+            "**护照**\n📌 内容: 书房抽屉里",
+            user_question="护照在哪",
+        )
+
+        self.assertEqual(summary, "护照在书房抽屉里。")
+        self.assertEqual(
+            agent.client.chat.completions.calls[0]["model"],
+            "summary-model",
+        )
 
     def test_remember_summary_logs_raw_and_cleaned_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

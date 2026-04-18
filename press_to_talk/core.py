@@ -115,6 +115,7 @@ def main() -> int:
     try:
         if cfg.intent_samples_file:
             log(f"llm model: {cfg.llm_model}")
+            log(f"llm summarize model: {cfg.llm_summarize_model}")
             if cfg.llm_base_url:
                 log(f"llm base_url: {cfg.llm_base_url}")
             agent = OpenAICompatibleAgent(cfg)
@@ -168,6 +169,7 @@ def main() -> int:
         session_transcript = transcript
         should_record_history = True
         log(f"llm model: {cfg.llm_model}")
+        log(f"llm summarize model: {cfg.llm_summarize_model}")
         if cfg.llm_base_url:
             log(f"llm base_url: {cfg.llm_base_url}")
         if cfg.no_tts:
