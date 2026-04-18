@@ -53,10 +53,9 @@ class ExecuteSearchAction(Action):
             query = args.get("query") or bb.transcript
             
             if intent_key == "find" or bb.mode == "memory-chat":
-                # Reuse logic from OpenAICompatibleAgent._execute_history_tool or _execute_remember_tool
-                # For simplicity, we can use a combined search or just remember_find for now
                 remember_store = agent.storage.remember_store()
                 raw = remember_store.find(query=query)
+                bb.memories_raw = raw
                 extracted = remember_store.extract_summary_items(raw)
                 bb.memories = extracted.get("items", [])
             return Status.SUCCESS
@@ -69,8 +68,8 @@ class LLMSummarizeAction(Action):
         from ...agent.agent import OpenAICompatibleAgent
         agent = OpenAICompatibleAgent(bb.cfg)
         try:
-            # Reconstruct raw output for summarize_remember_output
-            raw_output = json.dumps({"items": bb.memories}, ensure_ascii=False)
+            # Use raw memories for summarization
+            raw_output = bb.memories_raw or json.dumps({"results": bb.memories}, ensure_ascii=False)
             bb.reply = asyncio.run(asyncio.to_thread(
                 agent._summarize_remember_output,
                 "remember_find",
@@ -88,6 +87,17 @@ class LLMChatFallbackAction(Action):
         runner = MemoryChatExecutionRunner(bb.cfg)
         try:
             # Reuse fallback chat logic
+            bb.reply = runner.run(bb.transcript)
+            return Status.SUCCESS
+        except Exception as e:
+            bb.error = str(e)
+            return Status.FAILURE
+
+class ExecuteHermesAction(Action):
+    def tick(self, bb: Blackboard) -> Status:
+        from ...execution.hermes import HermesExecutionRunner
+        runner = HermesExecutionRunner(bb.cfg)
+        try:
             bb.reply = runner.run(bb.transcript)
             return Status.SUCCESS
         except Exception as e:

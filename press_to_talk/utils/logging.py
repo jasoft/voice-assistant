@@ -5,62 +5,106 @@ import re
 import sys
 import time
 import uuid
+import logging
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from typing import Any, TextIO
+from rich.console import Console
 
 _LOG_WRITE_LOCK = Lock()
 _SESSION_LOG_FILE: TextIO | None = None
 _SESSION_LOG_PATH: Path | None = None
 PROCESS_START_TS = time.perf_counter()
 
-_LEVEL_COLORS = {
-    "DEBUG": "\x1b[36m",
-    "INFO": "\x1b[32m",
-    "ERROR": "\x1b[31m",
-}
-_ANSI_RESET = "\x1b[0m"
+# Dedicated console for high-precision stderr output
+_CONSOLE = Console(stderr=True, highlight=False)
 
+# Internal log level state
+_GLOBAL_LOG_LEVEL = logging.INFO
+
+def set_global_log_level(level: str) -> None:
+    global _GLOBAL_LOG_LEVEL
+    normalized = _normalize_level(level)
+    level_map = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARN": logging.WARNING,
+        "ERROR": logging.ERROR,
+    }
+    _GLOBAL_LOG_LEVEL = level_map.get(normalized, logging.INFO)
 
 def _normalize_level(level: str) -> str:
     normalized = str(level or "INFO").strip().upper()
-    return normalized if normalized in _LEVEL_COLORS else "INFO"
-
-
-def _console_supports_color(stream: TextIO) -> bool:
-    if os.environ.get("NO_COLOR"):
-        return False
-    is_tty = getattr(stream, "isatty", lambda: False)()
-    if not is_tty:
-        return False
-    term = os.environ.get("TERM", "").strip().lower()
-    return term != "dumb"
-
-
-def _format_log_line(msg: str, *, level: str) -> str:
-    ts = time.strftime("%Y-%m-%d %H:%M:%S")
-    return f"[{ts}] [openclaw-ptt] [{level}] {msg}"
-
+    if normalized == "WARNING":
+        normalized = "WARN"
+    if normalized not in {"DEBUG", "INFO", "WARN", "ERROR"}:
+        normalized = "INFO"
+    return normalized
 
 def log(msg: str, *, level: str = "info") -> None:
     normalized_level = _normalize_level(level)
-    line = _format_log_line(msg, level=normalized_level)
-    console_line = line
-    if _console_supports_color(sys.stderr):
-        color = _LEVEL_COLORS[normalized_level]
-        console_line = f"{color}{line}{_ANSI_RESET}"
-    print(console_line, file=sys.stderr, flush=True)
+    
+    # Level numerical value check
+    level_val = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARN": logging.WARNING,
+        "ERROR": logging.ERROR,
+    }.get(normalized_level, logging.INFO)
+    
+    if level_val < _GLOBAL_LOG_LEVEL:
+        return
+
+    # High-contrast color mapping for Warp
+    level_colors = {
+        "DEBUG": "#00afff",   # Bright Sky Blue
+        "INFO": "#00ff00",    # Bright Lime Green
+        "WARN": "#ffff00",    # Bright Yellow
+        "ERROR": "#ff0000",   # Bright Red
+    }
+    
+    level_styles = {
+        "DEBUG": "bold white on #005f87",
+        "INFO": "bold white on #008700",
+        "WARN": "bold black on #d7af00",
+        "ERROR": "bold white on #af0000",
+    }
+    
+    icons = {
+        "DEBUG": "🔍",
+        "INFO": "✨",
+        "WARN": "⚠️",
+        "ERROR": "❌",
+    }
+    
+    style = level_styles.get(normalized_level, "white")
+    icon = icons.get(normalized_level, "")
+    text_color = level_colors.get(normalized_level, "white")
+    ts = time.strftime("%H:%M:%S")
+    
+    # Format: HH:MM:SS [LEVEL] ICON Message
+    # Disable highlighting to ensure text_color is strictly followed
+    _CONSOLE.print(
+        f"[dim green]{ts}[/] [{style}] {normalized_level:5} [/] {icon} [{text_color}]{msg}[/]",
+        highlight=False
+    )
+
+    # 2. File Output (Pure text)
+    ts_full = time.strftime("%Y-%m-%d %H:%M:%S")
+    file_line = f"[{ts_full}] [openclaw-ptt] [{normalized_level}] {msg}"
     with _LOG_WRITE_LOCK:
         if _SESSION_LOG_FILE is not None:
-            _SESSION_LOG_FILE.write(line + "\n")
+            _SESSION_LOG_FILE.write(file_line + "\n")
             _SESSION_LOG_FILE.flush()
 
 def log_multiline(title: str, content: str, *, level: str = "debug") -> None:
     normalized = content if content else "<empty>"
+    # Log the title line
     log(f"{title}:", level=level)
+    # Log each content line with proper indentation to keep it clean
     for line in normalized.splitlines():
-        log(f"{title} | {line}", level=level)
+        log(f"  {line}", level=level)
 
 def init_session_log(log_dir: Path, session_id: str | None = None) -> Path:
     global _SESSION_LOG_FILE, _SESSION_LOG_PATH

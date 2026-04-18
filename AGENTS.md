@@ -14,6 +14,9 @@
 - 不允许为了 UI、TTS、LLM、MCP、日志、依赖加载或其它后处理阻塞开始录音
 - 录音前路径应尽量只保留最少初始化
 - 终端里保留 `rich` 动态 UI；非 TTY 环境例如 Raycast 要自动降级成纯文本状态输出
+- 修改 Mac GUI 代码后，必须使用 `cd mac_gui && swift build -c release` 进行编译，以确保 `run-gui.sh` 脚本能秒开运行
+- 执行层必须遵循行为树（Behavior Tree）架构，严禁引入复杂的嵌套 `if-else` 链路
+- 所有日志输出必须重定向到 `stderr`，确保 `stdout` 仅用于干净的数据流（如 JSON）和事件传递
 
 ## 当前架构
 
@@ -55,7 +58,6 @@
 - 结束任务前必须运行：
   `uv run press-to-talk --text-input "usb测试版在哪" --no-tts`
 - 只有当这条命令不报错时，任务才算完成
-- 任务完成通知使用 `qwen-tts` 时必须后台执行，不要等待语音播放结束
 
 ## 文本处理约束
 

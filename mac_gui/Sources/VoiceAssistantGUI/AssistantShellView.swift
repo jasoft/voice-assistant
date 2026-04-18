@@ -121,7 +121,7 @@ struct AssistantShellView: View {
                                     HStack(spacing: 10) {
                                         ThinkingDotsView(
                                             tint: responseStatusTint,
-                                            isActive: model.session.state.phase == .thinking || model.session.state.phase == .speaking
+                                            isActive: isThinkingOrSpeaking
                                         )
                                         Text(responseStatusText)
                                             .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -145,9 +145,8 @@ struct AssistantShellView: View {
                 .padding(.horizontal, 22)
             }
             .padding(.bottom, 12)
-            .animation(.spring(response: 0.36, dampingFraction: 0.88), value: model.session.state.phase)
+            .animation(.spring(response: 0.36, dampingFraction: 0.88), value: model.session.state.status)
             .animation(.easeInOut(duration: 0.22), value: model.session.state.transcript)
-            .animation(.easeInOut(duration: 0.22), value: model.session.state.reply)
         }
     }
 
@@ -211,28 +210,65 @@ struct AssistantShellView: View {
                 }
             )
 
-            Button(action: {
-                model.keepWindowOpen()
-                model.startRecording()
-            }) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(red: 0.07, green: 0.64, blue: 0.92), Color(red: 0.11, green: 0.34, blue: 0.90)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+            if case .recording(let stage) = model.session.state.status {
+                Button(action: {
+                    model.keepWindowOpen()
+                    model.stopRecording()
+                }) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(red: 1.0, green: 0.35, blue: 0.35), Color(red: 0.9, green: 0.1, blue: 0.1)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
-                        )
-                        .frame(width: 72, height: 72)
-                        .shadow(color: Color.blue.opacity(0.35), radius: 20, x: 0, y: 10)
+                            .frame(width: 72, height: 72)
+                            .shadow(color: Color.red.opacity(0.35), radius: 20, x: 0, y: 10)
+                            .scaleEffect(stageScaling(stage))
+                            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: stage)
 
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(.white)
+                        // 呼吸动画背景
+                        Circle()
+                            .stroke(Color.red.opacity(0.3), lineWidth: 4)
+                            .frame(width: 78, height: 78)
+                            .scaleEffect(isActuallySpeaking(stage) ? 1.2 : 1.05)
+                            .opacity(isActuallySpeaking(stage) ? 0.0 : 0.6)
+                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: model.session.state.status)
+
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(.white)
+                            .frame(width: 24, height: 24)
+                    }
                 }
+                .buttonStyle(.plain)
+                .transition(.asymmetric(insertion: .scale.combined(with: .opacity), removal: .scale.combined(with: .opacity)))
+            } else {
+                Button(action: {
+                    model.keepWindowOpen()
+                    model.startRecording()
+                }) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(red: 0.07, green: 0.64, blue: 0.92), Color(red: 0.11, green: 0.34, blue: 0.90)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 72, height: 72)
+                            .shadow(color: Color.blue.opacity(0.35), radius: 20, x: 0, y: 10)
+
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .buttonStyle(.plain)
+                .transition(.scale.combined(with: .opacity))
             }
-            .buttonStyle(.plain)
 
             bottomButton(
                 title: "SETTINGS",
@@ -248,6 +284,18 @@ struct AssistantShellView: View {
                 .fill(Color.white.opacity(0.78))
                 .shadow(color: Color.black.opacity(0.05), radius: 24, x: 0, y: 10)
         )
+    }
+
+    private func stageScaling(_ stage: RecordingStage) -> Double {
+        if case .active(let level) = stage {
+            return 1.0 + (level * 0.15)
+        }
+        return 1.0
+    }
+
+    private func isActuallySpeaking(_ stage: RecordingStage) -> Bool {
+        if case .active = stage { return true }
+        return false
     }
 
     private func bottomButton(
@@ -275,44 +323,39 @@ struct AssistantShellView: View {
     }
 
     private var usesCompactOrbHeader: Bool {
-        switch model.session.state.phase {
-        case .transcribing, .thinking, .speaking, .done, .noSpeech, .transcribeEmpty, .error, .cancelled:
-            return true
+        switch model.session.state.status {
         case .idle, .recording:
             return false
+        default:
+            return true
         }
     }
 
     private var shouldShowResponseCard: Bool {
-        if !model.session.state.reply.isEmpty {
+        if !model.session.state.status.replyText.isEmpty {
             return true
         }
-        return model.session.state.phase == .thinking || model.session.state.phase == .speaking
+        return model.session.state.status == .thinking || caseSpeaking
+    }
+    
+    private var caseSpeaking: Bool {
+        if case .speaking = model.session.state.status { return true }
+        return false
     }
 
     private var responseCardBodyText: String {
-        if !model.session.state.reply.isEmpty {
-            return model.session.state.reply
-        }
-        return ""
-    }
-
-    private var responseCardBodyColor: Color {
-        if model.session.state.reply.isEmpty {
-            return secondaryBodyColor
-        }
-        return primaryBodyColor
+        model.session.state.status.replyText
     }
 
     private var responseCardBodyNSColor: NSColor {
-        if model.session.state.reply.isEmpty {
+        if responseCardBodyText.isEmpty {
             return secondaryBodyNSColor
         }
         return primaryBodyNSColor
     }
 
     private var responseStatusText: String? {
-        switch model.session.state.phase {
+        switch model.session.state.status {
         case .thinking:
             return "正在准备回答"
         case .speaking:
@@ -323,7 +366,7 @@ struct AssistantShellView: View {
     }
 
     private var responseStatusTint: Color {
-        switch model.session.state.phase {
+        switch model.session.state.status {
         case .thinking:
             return Color(red: 0.07, green: 0.64, blue: 0.92)
         case .speaking:
@@ -333,19 +376,22 @@ struct AssistantShellView: View {
         }
     }
 
+    private var isThinkingOrSpeaking: Bool {
+        switch model.session.state.status {
+        case .thinking, .speaking: return true
+        default: return false
+        }
+    }
+
     private var visibleErrorMessage: String? {
-        if !model.session.state.errorMessage.isEmpty {
-            return model.session.state.errorMessage
+        if case .error(let message) = model.session.state.status {
+            return message
         }
         return nil
     }
 
     private var primaryBodyColor: Color {
         Color(nsColor: primaryBodyNSColor)
-    }
-
-    private var secondaryBodyColor: Color {
-        Color(nsColor: secondaryBodyNSColor)
     }
 
     private var primaryBodyNSColor: NSColor {
@@ -416,31 +462,19 @@ struct AssistantShellView: View {
     }
 
     private var expandedOrbStage: some View {
-        RecordingOrbView(
-            level: model.session.state.audioLevel,
-            phase: model.session.state.phase,
-            isSpeaking: model.session.state.audioSpeaking,
-            timeoutProgress: model.session.state.timeoutProgress,
-            compact: false
-        )
-        .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
-        .frame(maxWidth: .infinity)
-        .padding(.top, 18)
-        .padding(.bottom, 4)
+        RecordingOrbView(status: model.session.state.status, compact: false)
+            .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 18)
+            .padding(.bottom, 4)
     }
 
     private var compactOrbHeader: some View {
         HStack(alignment: .center, spacing: 14) {
-            RecordingOrbView(
-                level: model.session.state.audioLevel,
-                phase: model.session.state.phase,
-                isSpeaking: model.session.state.audioSpeaking,
-                timeoutProgress: model.session.state.timeoutProgress,
-                compact: true
-            )
-            .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
+            RecordingOrbView(status: model.session.state.status, compact: true)
+                .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
 
-            if model.session.state.phase == .speaking {
+            if case .speaking = model.session.state.status {
                 stopSpeakingButton
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
@@ -479,7 +513,6 @@ struct AssistantShellView: View {
                 .fill(Color(red: 0.99, green: 0.90, blue: 0.92))
         )
     }
-
 }
 
 private struct ThinkingDotsView: View {
@@ -561,26 +594,6 @@ private struct MarkdownTextViewRepresentable: NSViewRepresentable {
 }
 
 private final class MarkdownTextView: NSTextView {
-    private struct BlockDescriptor: Equatable {
-        let kind: BlockKind
-        let identity: Int
-        let listIdentity: Int?
-    }
-
-    private struct MarkdownBlock {
-        let descriptor: BlockDescriptor
-        var content: NSMutableAttributedString
-    }
-
-    private enum BlockKind: Equatable {
-        case paragraph
-        case header(level: Int)
-        case orderedListItem(ordinal: Int, delimiter: String)
-        case unorderedListItem
-        case codeBlock(languageHint: String?)
-        case blockQuote
-    }
-
     override var intrinsicContentSize: NSSize {
         guard let textContainer, let layoutManager else {
             return super.intrinsicContentSize
@@ -600,11 +613,7 @@ private final class MarkdownTextView: NSTextView {
 
     func setMarkdownText(_ text: String, fontSize: CGFloat, textColor: NSColor) {
         let attributed = makeAttributedString(text: text, fontSize: fontSize, textColor: textColor)
-        if textStorage?.string != attributed.string || textStorage != nil && textStorage!.length != attributed.length {
-            textStorage?.setAttributedString(attributed)
-        } else {
-            textStorage?.setAttributedString(attributed)
-        }
+        textStorage?.setAttributedString(attributed)
         invalidateIntrinsicContentSize()
     }
 
@@ -616,402 +625,23 @@ private final class MarkdownTextView: NSTextView {
                 failurePolicy: .returnPartiallyParsedIfPossible
             )
         ) {
-            let rebuilt = rebuildMarkdownBlocks(
-                from: attributed,
-                fontSize: fontSize,
-                textColor: textColor
-            )
-            if rebuilt.length > 0 {
-                return rebuilt
-            }
+            return NSAttributedString(attributed)
         }
-
-        if let attributed = try? AttributedString(
-            markdown: text,
-            options: AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace,
-                failurePolicy: .returnPartiallyParsedIfPossible
-            )
-        ) {
-            let mutable = NSMutableAttributedString(attributedString: NSAttributedString(attributed))
-            styleBlock(
-                mutable,
-                kind: .paragraph,
-                fontSize: fontSize,
-                textColor: textColor
-            )
-            return mutable
-        }
-
-        let mutable = NSMutableAttributedString(string: text)
-        styleBlock(
-            mutable,
-            kind: .paragraph,
-            fontSize: fontSize,
-            textColor: textColor
-        )
-        return mutable
-    }
-
-    private func rebuildMarkdownBlocks(
-        from parsed: AttributedString,
-        fontSize: CGFloat,
-        textColor: NSColor
-    ) -> NSAttributedString {
-        var blocks: [MarkdownBlock] = []
-
-        for run in parsed.runs {
-            let fragment = AttributedString(parsed[run.range])
-            let fragmentText = String(fragment.characters)
-            if fragmentText.isEmpty {
-                continue
-            }
-
-            let descriptor = blockDescriptor(
-                for: run.presentationIntent,
-                listDelimiter: nil
-            ) ?? BlockDescriptor(
-                kind: .paragraph,
-                identity: blocks.count + 1,
-                listIdentity: nil
-            )
-
-            let attributedFragment = NSMutableAttributedString(
-                attributedString: NSAttributedString(fragment)
-            )
-
-            if let lastIndex = blocks.indices.last,
-               blocks[lastIndex].descriptor == descriptor {
-                blocks[lastIndex].content.append(attributedFragment)
-            } else {
-                blocks.append(
-                    MarkdownBlock(
-                        descriptor: descriptor,
-                        content: attributedFragment
-                    )
-                )
-            }
-        }
-
-        let output = NSMutableAttributedString()
-        var previous: BlockDescriptor?
-
-        for block in blocks {
-            if output.length > 0 {
-                output.append(NSAttributedString(string: separator(between: previous, and: block.descriptor)))
-            }
-
-            let renderedBlock = NSMutableAttributedString(attributedString: block.content)
-            trimBoundaryNewlines(in: renderedBlock)
-            styleBlock(
-                renderedBlock,
-                kind: block.descriptor.kind,
-                fontSize: fontSize,
-                textColor: textColor
-            )
-            output.append(renderedBlock)
-            previous = block.descriptor
-        }
-
-        return output
-    }
-
-    private func blockDescriptor(
-        for presentationIntent: PresentationIntent?,
-        listDelimiter: String?
-    ) -> BlockDescriptor? {
-        guard let presentationIntent else {
-            return nil
-        }
-
-        var paragraphIdentity: Int?
-        var headerIdentity: Int?
-        var headerLevel: Int?
-        var codeBlockIdentity: Int?
-        var codeBlockLanguage: String?
-        var orderedListIdentity: Int?
-        var unorderedListIdentity: Int?
-        var listItemIdentity: Int?
-        var listItemOrdinal: Int?
-        var isBlockQuote = false
-
-        for component in presentationIntent.components {
-            switch component.kind {
-            case .paragraph:
-                paragraphIdentity = component.identity
-            case .header(let level):
-                headerIdentity = component.identity
-                headerLevel = level
-            case .codeBlock(let languageHint):
-                codeBlockIdentity = component.identity
-                codeBlockLanguage = languageHint
-            case .orderedList:
-                orderedListIdentity = component.identity
-            case .unorderedList:
-                unorderedListIdentity = component.identity
-            case .listItem(let ordinal):
-                listItemIdentity = component.identity
-                listItemOrdinal = ordinal
-            case .blockQuote:
-                isBlockQuote = true
-            default:
-                continue
-            }
-        }
-
-        if let codeBlockIdentity {
-            return BlockDescriptor(
-                kind: .codeBlock(languageHint: codeBlockLanguage),
-                identity: codeBlockIdentity,
-                listIdentity: nil
-            )
-        }
-
-        if let headerIdentity {
-            return BlockDescriptor(
-                kind: .header(level: headerLevel ?? 1),
-                identity: headerIdentity,
-                listIdentity: nil
-            )
-        }
-
-        if let listItemIdentity {
-            if let orderedListIdentity {
-                return BlockDescriptor(
-                    kind: .orderedListItem(
-                        ordinal: listItemOrdinal ?? 1,
-                        delimiter: listDelimiter ?? "."
-                    ),
-                    identity: listItemIdentity,
-                    listIdentity: orderedListIdentity
-                )
-            }
-
-            return BlockDescriptor(
-                kind: .unorderedListItem,
-                identity: listItemIdentity,
-                listIdentity: unorderedListIdentity
-            )
-        }
-
-        if isBlockQuote {
-            return BlockDescriptor(
-                kind: .blockQuote,
-                identity: paragraphIdentity ?? 0,
-                listIdentity: nil
-            )
-        }
-
-        return BlockDescriptor(
-            kind: .paragraph,
-            identity: paragraphIdentity ?? 0,
-            listIdentity: nil
-        )
-    }
-
-    private func separator(
-        between previous: BlockDescriptor?,
-        and current: BlockDescriptor
-    ) -> String {
-        guard let previous else {
-            return ""
-        }
-
-        if let previousListIdentity = previous.listIdentity,
-           previousListIdentity == current.listIdentity {
-            return "\n"
-        }
-
-        return "\n\n"
-    }
-
-    private func styleBlock(
-        _ block: NSMutableAttributedString,
-        kind: BlockKind,
-        fontSize: CGFloat,
-        textColor: NSColor
-    ) {
-        switch kind {
-        case .header(let level):
-            let headerFontSize = max(fontSize + CGFloat(8 - min(level, 5) * 2), fontSize + 2)
-            let baseFont = NSFont.systemFont(ofSize: headerFontSize, weight: .bold)
-            adjustFonts(in: block, baseFont: baseFont)
-            block.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: block.length))
-            applyParagraphStyle(
-                to: block,
-                lineSpacing: 4,
-                paragraphSpacing: 10,
-                paragraphSpacingBefore: 2
-            )
-
-        case .orderedListItem(let ordinal, let delimiter):
-            let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
-            adjustFonts(in: block, baseFont: baseFont)
-            prependListPrefix(
-                "\(ordinal)\(delimiter) ",
-                to: block,
-                font: baseFont,
-                textColor: textColor
-            )
-            block.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: block.length))
-            applyParagraphStyle(
-                to: block,
-                lineSpacing: 4,
-                paragraphSpacing: 4,
-                paragraphSpacingBefore: 0,
-                headIndent: listContinuationIndent(prefix: "\(ordinal)\(delimiter) ", font: baseFont)
-            )
-
-        case .unorderedListItem:
-            let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
-            adjustFonts(in: block, baseFont: baseFont)
-            prependListPrefix(
-                "• ",
-                to: block,
-                font: baseFont,
-                textColor: textColor
-            )
-            block.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: block.length))
-            applyParagraphStyle(
-                to: block,
-                lineSpacing: 4,
-                paragraphSpacing: 4,
-                paragraphSpacingBefore: 0,
-                headIndent: listContinuationIndent(prefix: "• ", font: baseFont)
-            )
-
-        case .codeBlock:
-            let codeFont = NSFont.monospacedSystemFont(ofSize: max(fontSize - 1, 12), weight: .regular)
-            block.setAttributes([
-                .font: codeFont,
-                .foregroundColor: textColor,
-                .backgroundColor: NSColor.controlBackgroundColor
-            ], range: NSRange(location: 0, length: block.length))
-            applyParagraphStyle(
-                to: block,
-                lineSpacing: 2,
-                paragraphSpacing: 6,
-                paragraphSpacingBefore: 2,
-                headIndent: 12,
-                firstLineHeadIndent: 12
-            )
-
-        case .blockQuote:
-            let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
-            adjustFonts(in: block, baseFont: baseFont)
-            block.addAttribute(
-                .foregroundColor,
-                value: textColor.withAlphaComponent(0.82),
-                range: NSRange(location: 0, length: block.length)
-            )
-            prependListPrefix(
-                "│ ",
-                to: block,
-                font: baseFont,
-                textColor: textColor.withAlphaComponent(0.55)
-            )
-            applyParagraphStyle(
-                to: block,
-                lineSpacing: 4,
-                paragraphSpacing: 8,
-                paragraphSpacingBefore: 2,
-                headIndent: listContinuationIndent(prefix: "│ ", font: baseFont)
-            )
-
-        case .paragraph:
-            let baseFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
-            adjustFonts(in: block, baseFont: baseFont)
-            block.addAttribute(.foregroundColor, value: textColor, range: NSRange(location: 0, length: block.length))
-            applyParagraphStyle(
-                to: block,
-                lineSpacing: 4,
-                paragraphSpacing: 8,
-                paragraphSpacingBefore: 2
-            )
-        }
-    }
-
-    private func adjustFonts(in attributed: NSMutableAttributedString, baseFont: NSFont) {
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        attributed.enumerateAttribute(.font, in: fullRange) { value, range, _ in
-            guard let existingFont = value as? NSFont else {
-                attributed.addAttribute(.font, value: baseFont, range: range)
-                return
-            }
-            let descriptor = existingFont.fontDescriptor
-            let traits = descriptor.symbolicTraits
-            let adjustedDescriptor = baseFont.fontDescriptor.withSymbolicTraits(traits)
-            let adjustedFont = NSFont(descriptor: adjustedDescriptor, size: baseFont.pointSize) ?? baseFont
-            attributed.addAttribute(.font, value: adjustedFont, range: range)
-        }
-    }
-
-    private func applyParagraphStyle(
-        to attributed: NSMutableAttributedString,
-        lineSpacing: CGFloat,
-        paragraphSpacing: CGFloat,
-        paragraphSpacingBefore: CGFloat,
-        headIndent: CGFloat = 0,
-        firstLineHeadIndent: CGFloat = 0
-    ) {
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        attributed.enumerateAttribute(.paragraphStyle, in: fullRange) { value, range, _ in
-            let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle
-                ?? NSMutableParagraphStyle()
-            paragraph.lineSpacing = lineSpacing
-            paragraph.paragraphSpacing = max(paragraph.paragraphSpacing, paragraphSpacing)
-            paragraph.paragraphSpacingBefore = max(paragraph.paragraphSpacingBefore, paragraphSpacingBefore)
-            paragraph.lineBreakMode = .byWordWrapping
-            paragraph.headIndent = max(paragraph.headIndent, headIndent)
-            paragraph.firstLineHeadIndent = max(paragraph.firstLineHeadIndent, firstLineHeadIndent)
-            attributed.addAttribute(.paragraphStyle, value: paragraph, range: range)
-        }
-    }
-
-    private func prependListPrefix(
-        _ prefix: String,
-        to attributed: NSMutableAttributedString,
-        font: NSFont,
-        textColor: NSColor
-    ) {
-        let prefixAttributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: textColor
-        ]
-        let prefixAttributed = NSAttributedString(
-            string: prefix,
-            attributes: prefixAttributes
-        )
-        attributed.insert(prefixAttributed, at: 0)
-    }
-
-    private func listContinuationIndent(prefix: String, font: NSFont) -> CGFloat {
-        let prefixWidth = (prefix as NSString).size(withAttributes: [.font: font]).width
-        return ceil(prefixWidth + 4)
-    }
-
-    private func trimBoundaryNewlines(in attributed: NSMutableAttributedString) {
-        while attributed.length > 0, attributed.string.first?.isNewline == true {
-            attributed.deleteCharacters(in: NSRange(location: 0, length: 1))
-        }
-
-        while attributed.length > 0, attributed.string.last?.isNewline == true {
-            attributed.deleteCharacters(in: NSRange(location: attributed.length - 1, length: 1))
-        }
+        return NSAttributedString(string: text)
     }
 }
 
 private struct RecordingOrbView: View {
-    let level: Double
-    let phase: SessionPhase
-    let isSpeaking: Bool
-    let timeoutProgress: Double
+    let status: AssistantStatus
     let compact: Bool
 
     @State private var smoothedLevel: Double = 0.0
 
     private var active: Bool {
-        phase == .recording || phase == .transcribing || phase == .thinking || phase == .speaking || phase == .done
+        switch status {
+        case .idle, .cancelled: return false
+        default: return true
+        }
     }
 
     private var normalizedLevel: Double {
@@ -1019,31 +649,27 @@ private struct RecordingOrbView: View {
     }
 
     private var orbColor: [Color] {
-        switch phase {
-        case .recording:
-            if isSpeaking {
+        switch status {
+        case .recording(let stage):
+            switch stage {
+            case .active:
                 return [
                     Color(red: 1.0, green: 0.47, blue: 0.45),
                     Color(red: 0.92, green: 0.20, blue: 0.22),
                     Color(red: 0.63, green: 0.06, blue: 0.10)
                 ]
+            case .waiting, .ending:
+                return [
+                    Color(red: 1.0, green: 0.87, blue: 0.44),
+                    Color(red: 0.93, green: 0.70, blue: 0.10),
+                    Color(red: 0.73, green: 0.49, blue: 0.04)
+                ]
             }
-            return [
-                Color(red: 1.0, green: 0.87, blue: 0.44),
-                Color(red: 0.93, green: 0.70, blue: 0.10),
-                Color(red: 0.73, green: 0.49, blue: 0.04)
-            ]
         case .transcribing, .thinking, .speaking, .done:
             return [
                 Color(red: 0.56, green: 0.94, blue: 0.65),
                 Color(red: 0.20, green: 0.74, blue: 0.38),
                 Color(red: 0.07, green: 0.52, blue: 0.25)
-            ]
-        case .noSpeech, .transcribeEmpty:
-            return [
-                Color(red: 1.0, green: 0.87, blue: 0.44),
-                Color(red: 0.93, green: 0.70, blue: 0.10),
-                Color(red: 0.73, green: 0.49, blue: 0.04)
             ]
         case .error:
             return [
@@ -1060,176 +686,71 @@ private struct RecordingOrbView: View {
         }
     }
 
-    private var pulseScale: Double {
-        if phase == .recording && isSpeaking {
-            return 0.95 + normalizedLevel * 0.24
-        }
-        return 0.96
-    }
-
-    private var outerGlowSize: CGFloat {
-        compact ? 74 : 240
-    }
-
-    private var middleGlowSize: CGFloat {
-        compact ? 52 : 176
-    }
-
-    private var countdownRingSize: CGFloat {
-        compact ? 56 : 170
-    }
-
-    private var coreFrameSize: CGFloat {
-        compact ? 42 : 116
-    }
-
-    private var coreCircleSize: CGFloat {
-        compact ? 38 : 104
-    }
-
-    private var highlightSize: CGFloat {
-        compact ? 18 : 58
-    }
-
-    private var accentBlobSize: CGFloat {
-        compact ? 20 : 64
-    }
-
-    private var speakingRingOneSize: CGFloat {
-        compact ? 46 : 124
-    }
-
-    private var speakingRingTwoSize: CGFloat {
-        compact ? 56 : 146
-    }
-
-    private var containerHeight: CGFloat {
-        compact ? 56 : 250
-    }
-
-    private var compactCanvasSize: CGFloat {
-        compact ? 78 : containerHeight
-    }
-
     var body: some View {
         ZStack {
             TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 let breathing = 1.0 + 0.035 * sin(t * 2.1)
-                let isLiveSpeaking = phase == .recording && isSpeaking
+                
+                let isLiveSpeaking: Bool
+                let timeoutProgress: Double
+                if case .recording(let stage) = status {
+                    switch stage {
+                    case .active: 
+                        isLiveSpeaking = true
+                        timeoutProgress = 0
+                    case .ending(let p):
+                        isLiveSpeaking = false
+                        timeoutProgress = p
+                    case .waiting:
+                        isLiveSpeaking = false
+                        timeoutProgress = 0
+                    }
+                } else {
+                    isLiveSpeaking = false
+                    timeoutProgress = 0
+                }
+
                 let compactFactor = compact ? 0.32 : 1.0
                 let wobbleX = sin(t * 5.4) * (isLiveSpeaking ? (10 + normalizedLevel * 14) * compactFactor : 4 * compactFactor)
                 let wobbleY = cos(t * 4.7) * (isLiveSpeaking ? (8 + normalizedLevel * 10) * compactFactor : 3 * compactFactor)
                 let opposingX = cos(t * 3.8 + .pi / 3) * (isLiveSpeaking ? (8 + normalizedLevel * 12) * compactFactor : 3 * compactFactor)
                 let opposingY = sin(t * 4.2 + .pi / 5) * (isLiveSpeaking ? (7 + normalizedLevel * 10) * compactFactor : 3 * compactFactor)
 
-                ZStack {
+                return ZStack {
                     Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [
-                                    orbColor[0].opacity(active ? 0.28 : 0.12),
-                                    orbColor[1].opacity(active ? 0.18 : 0.07),
-                                    Color.clear
-                                ],
-                                center: .center,
-                                startRadius: 14,
-                                endRadius: 132
-                            )
-                        )
-                        .frame(width: outerGlowSize, height: outerGlowSize)
+                        .fill(RadialGradient(colors: [orbColor[0].opacity(active ? 0.28 : 0.12), orbColor[1].opacity(active ? 0.18 : 0.07), Color.clear], center: .center, startRadius: 14, endRadius: 132))
+                        .frame(width: compact ? 74 : 240, height: compact ? 74 : 240)
                         .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * (compact ? 0.04 : 0.18) : 0.94))
                         .offset(x: wobbleX * 0.12, y: wobbleY * 0.10)
                         .blur(radius: isLiveSpeaking ? (compact ? 5 : 18) : (compact ? 3 : 12))
 
-                    Circle()
-                        .fill(
-                            AngularGradient(
-                                gradient: Gradient(colors: [
-                                    orbColor[0].opacity(active ? 0.30 : 0.10),
-                                    orbColor[1].opacity(active ? 0.22 : 0.08),
-                                    orbColor[0].opacity(active ? 0.30 : 0.10)
-                                ]),
-                                center: .center
-                            )
-                        )
-                        .frame(width: middleGlowSize, height: middleGlowSize)
-                        .blur(radius: isLiveSpeaking ? (compact ? 7 : 24) : (compact ? 4 : 18))
-                        .scaleEffect(breathing * (active ? 1.0 + normalizedLevel * (compact ? 0.03 : 0.12) : 0.96))
-                        .offset(x: opposingX * 0.18, y: opposingY * 0.16)
-
-                    if phase == .recording && !isSpeaking {
+                    if timeoutProgress > 0 {
                         Circle()
                             .trim(from: 0, to: max(0.02, timeoutProgress))
-                            .stroke(
-                                orbColor[1],
-                                style: StrokeStyle(lineWidth: 8, lineCap: .round)
-                            )
+                            .stroke(orbColor[1], style: StrokeStyle(lineWidth: 8, lineCap: .round))
                             .rotationEffect(.degrees(-90))
-                            .frame(width: countdownRingSize, height: countdownRingSize)
-                            .opacity(0.95)
+                            .frame(width: compact ? 56 : 170, height: compact ? 56 : 170)
                     }
 
                     ZStack {
                         Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [
-                                        orbColor[0].opacity(0.98),
-                                        orbColor[1].opacity(0.90),
-                                        orbColor[2].opacity(0.78)
-                                    ],
-                                    center: .center,
-                                    startRadius: 4,
-                                    endRadius: 58
-                                )
-                            )
-                            .frame(width: coreCircleSize, height: coreCircleSize)
-                            .rotationEffect(.degrees(sin(t * 3.9) * (isLiveSpeaking ? 4 : 1.5) * compactFactor))
-
-                        Circle()
-                            .fill(orbColor[0].opacity(0.44))
-                            .frame(width: highlightSize, height: highlightSize)
-                            .blur(radius: compact ? 2.5 : 6)
-                            .offset(x: wobbleX * 0.34, y: (compact ? -8 : -14) + wobbleY * 0.18)
-
-                        Circle()
-                            .fill(orbColor[2].opacity(0.26))
-                            .frame(width: accentBlobSize, height: accentBlobSize)
-                            .blur(radius: compact ? 3.0 : 10)
-                            .offset(x: (compact ? -10 : -18) + opposingX * 0.24, y: (compact ? 10 : 16) + opposingY * 0.22)
+                            .fill(RadialGradient(colors: [orbColor[0].opacity(0.98), orbColor[1].opacity(0.90), orbColor[2].opacity(0.78)], center: .center, startRadius: 4, endRadius: 58))
+                            .frame(width: compact ? 38 : 104, height: compact ? 38 : 104)
                     }
-                    .frame(width: coreFrameSize, height: coreFrameSize)
-                    .scaleEffect(breathing * (compact ? (0.985 + max(0, pulseScale - 0.96) * 0.45) : pulseScale))
-                    .shadow(color: orbColor[1].opacity(active ? (compact ? 0.18 : 0.34) : 0.14), radius: compact ? 8 : 24, x: 0, y: compact ? 4 : 12)
-
-                    if isLiveSpeaking {
-                        Circle()
-                            .stroke(orbColor[0].opacity(0.24), lineWidth: 2.5)
-                            .frame(width: speakingRingOneSize, height: speakingRingOneSize)
-                            .scaleEffect(1.0 + normalizedLevel * (compact ? 0.04 : 0.14) + 0.03 * sin(t * 6.2))
-                            .blur(radius: compact ? 0.8 : 1.5)
-                            .opacity(0.95)
-
-                        Circle()
-                            .stroke(orbColor[1].opacity(0.18), lineWidth: 3.0)
-                            .frame(width: speakingRingTwoSize, height: speakingRingTwoSize)
-                            .scaleEffect(1.0 + normalizedLevel * (compact ? 0.05 : 0.18) + 0.04 * cos(t * 5.4))
-                            .blur(radius: compact ? 1.0 : 2.2)
-                            .opacity(0.72)
-                    }
+                    .frame(width: compact ? 42 : 116, height: compact ? 42 : 116)
+                    .scaleEffect(breathing * (compact ? (0.985 + normalizedLevel * 0.45) : (0.96 + normalizedLevel * 0.24)))
                 }
-                .frame(height: containerHeight)
             }
         }
-        .frame(width: compact ? compactCanvasSize : nil, height: compact ? compactCanvasSize : containerHeight, alignment: .leading)
-        .padding(.vertical, compact ? 0 : 4)
-        .onAppear {
-            smoothedLevel = level
-        }
-        .onChange(of: level) { _, newValue in
-            withAnimation(.interpolatingSpring(stiffness: 120, damping: 18)) {
-                smoothedLevel = newValue
+        .onAppear { smoothedLevel = 0 }
+        .onChange(of: status) { _, newValue in
+            if case .recording(.active(let level)) = newValue {
+                withAnimation(.interpolatingSpring(stiffness: 120, damping: 18)) {
+                    smoothedLevel = level
+                }
+            } else {
+                smoothedLevel = 0
             }
         }
     }
@@ -1251,7 +772,6 @@ private struct HistoryStyleCard<Content: View>: View {
                     .tracking(0.8)
                     .foregroundStyle(Color(red: 0.55, green: 0.63, blue: 0.77))
             }
-
             content
         }
         .padding(20)
@@ -1281,48 +801,27 @@ private struct HistoryEntryCard: View {
                     .tracking(1.2)
                     .foregroundStyle(Color(red: 0.07, green: 0.64, blue: 0.92))
             }
-
             Text(entry.transcript.isEmpty ? "无识别文本" : entry.transcript)
                 .font(.system(size: 17, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color(nsColor: .labelColor).opacity(0.9))
                 .textSelection(.enabled)
-
-            if entry.reply.isEmpty {
-                Text("无回复")
-                    .font(.system(size: 13, weight: .regular, design: .rounded))
-                    .foregroundStyle(Color(nsColor: .secondaryLabelColor).opacity(0.95))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-            } else {
-                MarkdownBodyText(
-                    text: entry.reply,
-                    fontSize: 13,
-                    textColor: NSColor.secondaryLabelColor.withAlphaComponent(0.95)
-                )
+            if !entry.reply.isEmpty {
+                MarkdownBodyText(text: entry.reply, fontSize: 13, textColor: NSColor.secondaryLabelColor.withAlphaComponent(0.95))
             }
-
             HStack {
                 Spacer()
                 Button(action: onDelete) {
                     Label("删除", systemImage: "trash")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(Color(red: 0.78, green: 0.16, blue: 0.21))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Color(red: 0.99, green: 0.92, blue: 0.93))
-                        )
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(Capsule(style: .continuous).fill(Color(red: 0.99, green: 0.92, blue: 0.93)))
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.05), radius: 18, x: 0, y: 8)
-        )
+        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color.white).shadow(color: Color.black.opacity(0.05), radius: 18, x: 0, y: 8))
     }
 }

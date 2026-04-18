@@ -180,7 +180,7 @@ def load_storage_config() -> StorageConfig:
         key: (value if "api_key" not in key else ("***" if value else "None"))
         for key, value in config.__dict__.items()
     }
-    log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}")
+    log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}", level="debug")
     return config
 
 
@@ -197,7 +197,8 @@ class LLMKeywordRewriter:
 
             client_kwargs: dict[str, Any] = {"api_key": self.api_key}
             if self.base_url:
-                client_kwargs["base_url"] = self.base_url
+                # Strip trailing slash to avoid double-slash issues with proxies
+                client_kwargs["base_url"] = self.base_url.rstrip("/")
             self._client = OpenAI(**client_kwargs)
         return self._client
 
@@ -213,6 +214,7 @@ class LLMKeywordRewriter:
             raise RuntimeError(
                 "workflow config missing required section: prompts.query_rewrite.system_prompt"
             )
+        log(f"DEBUG LLMKeywordRewriter: using base_url={self.base_url} model={self.model}", level="debug")
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": cleaned_query},
@@ -239,7 +241,7 @@ class LLMKeywordRewriter:
         if not cleaned_keywords:
             raw_tokens = re.split(r"[\n,，\s]+", text_result)
             cleaned_keywords = [token.strip() for token in raw_tokens if token.strip()]
-        log("keyword rewrite parsed: " + json.dumps(cleaned_keywords, ensure_ascii=False))
+        log("keyword rewrite parsed: " + json.dumps(cleaned_keywords, ensure_ascii=False), level="debug")
         cleaned_keywords = _sanitize_rewritten_keywords(cleaned_keywords, cleaned_query)
         if not cleaned_keywords:
             return _quote_match_token(cleaned_query)
@@ -308,7 +310,7 @@ class GroqKeywordRewriter(LLMKeywordRewriter):
             keywords = [str(item).strip() for item in raw_keywords if str(item).strip()]
         except Exception:
             pass
-        log("keyword rewrite parsed: " + json.dumps(keywords, ensure_ascii=False))
+        log("keyword rewrite parsed: " + json.dumps(keywords, ensure_ascii=False), level="debug")
         cleaned_keywords = _sanitize_rewritten_keywords(keywords, normalized_query)
         if not cleaned_keywords:
             return _quote_match_token(normalized_query)
@@ -332,7 +334,8 @@ class LLMMemoryTranslator:
 
             client_kwargs: dict[str, Any] = {"api_key": self.api_key}
             if self.base_url:
-                client_kwargs["base_url"] = self.base_url
+                # Strip trailing slash to avoid double-slash issues with proxies
+                client_kwargs["base_url"] = self.base_url.rstrip("/")
             self._client = OpenAI(**client_kwargs)
         return self._client
 
@@ -380,7 +383,8 @@ class OpenAIEmbeddingClient:
 
             client_kwargs: dict[str, Any] = {"api_key": self.api_key}
             if self.base_url:
-                client_kwargs["base_url"] = self.base_url
+                # Strip trailing slash to avoid double-slash issues with proxies
+                client_kwargs["base_url"] = self.base_url.rstrip("/")
             self._client = OpenAI(**client_kwargs)
         return self._client
 

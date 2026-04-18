@@ -77,7 +77,7 @@ public final class PTTProcessBridge {
                     wasStoppedExplicitly: self.stoppedGenerations.contains(currentGeneration),
                     receivedEvent: self.receivedEvent,
                     stderrText: stderrText,
-                    currentPhase: self.viewModel.state.phase
+                    currentStatus: self.viewModel.state.status
                 )
                 self.stoppedGenerations.remove(currentGeneration)
                 self.cleanupControlDirectory()
@@ -109,10 +109,18 @@ public final class PTTProcessBridge {
     }
 
     public func stopSpeechPlayback() {
+        sendSignal(filename: "stop_tts")
+    }
+
+    public func stopRecording() {
+        sendSignal(filename: "stop_recording")
+    }
+
+    private func sendSignal(filename: String) {
         guard let controlDirectory else {
             return
         }
-        let signalURL = controlDirectory.appendingPathComponent("stop_tts")
+        let signalURL = controlDirectory.appendingPathComponent(filename)
         FileManager.default.createFile(atPath: signalURL.path, contents: Data())
     }
 
@@ -195,7 +203,7 @@ public final class PTTProcessBridge {
         wasStoppedExplicitly: Bool,
         receivedEvent: Bool,
         stderrText: String,
-        currentPhase: SessionPhase
+        currentStatus: AssistantStatus
     ) -> TerminationDisposition {
         guard isCurrentGeneration, !wasStoppedExplicitly else {
             return TerminationDisposition(errorMessage: nil, emitDone: false)
@@ -213,7 +221,13 @@ public final class PTTProcessBridge {
             errorMessage = (firstLine?.isEmpty == false) ? firstLine : "press-to-talk 未产生任何事件输出"
         }
 
-        let emitDone = currentPhase != .done && currentPhase != .error
+        let emitDone: Bool
+        switch currentStatus {
+        case .done, .error:
+            emitDone = false
+        default:
+            emitDone = true
+        }
         return TerminationDisposition(errorMessage: errorMessage, emitDone: emitDone)
     }
 }

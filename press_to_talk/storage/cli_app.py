@@ -183,6 +183,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=100,
         help="Maximum number of memory entries to return, ordered by newest first.",
     )
+    parser.add_argument(
+        "-v", "--debug",
+        action="store_true",
+        help="Enable debug logging for storage operations.",
+    )
     return parser
 
 
@@ -200,8 +205,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(parsed_argv)
 
     from press_to_talk.core import load_env_files
+    from press_to_talk.utils.logging import set_global_log_level
 
     load_env_files()
+    if args.debug:
+        set_global_log_level("DEBUG")
+    else:
+        set_global_log_level("INFO")
 
     stderr_buffer = io.StringIO()
     try:
@@ -219,21 +229,22 @@ def main(argv: list[str] | None = None) -> int:
                 elif args.command == "add":
                     data = json.loads(args.json)
                     store.persist(SessionHistoryRecord(**data))
-                    print(json.dumps({"status": "ok"}))
+                    print(json.dumps({"status": "ok"}, ensure_ascii=False))
                 elif args.command == "delete":
                     store.delete(session_id=args.session_id)
-                    print(json.dumps({"deleted": args.session_id}))
+                    print(json.dumps({"deleted": args.session_id}, ensure_ascii=False))
             elif args.category == "memory":
                 store = service.remember_store()
                 if args.command == "add":
                     print(
                         json.dumps(
-                            {"result": store.add(memory=args.memory, original_text=args.original_text)}
+                            {"result": store.add(memory=args.memory, original_text=args.original_text)},
+                            ensure_ascii=False
                         )
                     )
                 elif args.command == "delete":
                     store.delete(memory_id=args.id)
-                    print(json.dumps({"deleted": args.id}))
+                    print(json.dumps({"deleted": args.id}, ensure_ascii=False))
                 elif args.command == "list":
                     records = store.list_all(limit=args.limit)
                     print(json.dumps([asdict(record) for record in records], ensure_ascii=False))
@@ -243,5 +254,5 @@ def main(argv: list[str] | None = None) -> int:
             print(buffered, file=sys.stderr, end="")
         return exit_code
     except Exception as exc:
-        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1

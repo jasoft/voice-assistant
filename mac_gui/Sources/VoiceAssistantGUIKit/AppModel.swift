@@ -51,7 +51,7 @@ public final class AppModel: ObservableObject {
 
     public func stopRecording() {
         session.stopCountdown()
-        bridge.stop()
+        bridge.stopRecording()
     }
 
     public func stopSpeaking() {

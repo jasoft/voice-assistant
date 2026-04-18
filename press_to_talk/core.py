@@ -3,39 +3,59 @@
 from __future__ import annotations
 
 import asyncio
-import subprocess
-import uuid
 import os
+import subprocess
 import time
+import uuid
 from pathlib import Path
-from .utils.logging import (
-    log, log_timing, init_session_log, close_session_log, log_multiline
+
+from .agent.agent import OpenAICompatibleAgent
+from .agent.intent import salvage_truncated_intent_payload
+from .audio.chimes import play_chime
+from .audio.recorder import (
+    VisualRecorder,
+    audio_visual_level,
+    open_input_stream_with_retry,
 )
-from .utils.env import (
-    load_env_files, env_path, DEFAULT_LOG_DIR, PROJECT_ROOT,
-    WORKFLOW_CONFIG_PATH, load_json_file, expand_env_placeholders,
-    _candidate_env_files
-)
-from .utils.text import (
-    preview_text, strip_think_tags, merge_reply_segments, current_time_text
-)
+from .audio.stt import run_stt
+from .audio.tts import TTS_STOP_SIGNAL_FILENAME, consume_tts_stop_request, speak_text
+from .audio.wav import write_wav
+from .events import GuiEventWriter
+from .execution import classify_intent, execute_transcript
 from .models.config import (
-    parse_args, SessionHistory, default_remember_script_path,
-    resolve_remember_script_path
+    SessionHistory,
+    default_remember_script_path,
+    parse_args,
+    resolve_remember_script_path,
 )
 from .models.history import HistoryWriter, format_history_timestamp
-from .events import GuiEventWriter
-from .audio.recorder import VisualRecorder, open_input_stream_with_retry, audio_visual_level
-from .audio.chimes import play_chime
-from .audio.wav import write_wav
-from .audio.stt import run_stt
-from .audio.tts import speak_text, consume_tts_stop_request, TTS_STOP_SIGNAL_FILENAME
-from .agent.agent import OpenAICompatibleAgent
-from .storage.providers.mem0 import extract_mem0_summary_payload
-from .agent.intent import salvage_truncated_intent_payload
-from .execution import classify_intent, execute_transcript
 from .regression import run_intent_regression
+from .storage.providers.mem0 import extract_mem0_summary_payload
 from .utils import env as env_module
+from .utils.env import (
+    DEFAULT_LOG_DIR,
+    PROJECT_ROOT,
+    WORKFLOW_CONFIG_PATH,
+    _candidate_env_files,
+    env_path,
+    expand_env_placeholders,
+    load_env_files,
+    load_json_file,
+)
+from .utils.logging import (
+    close_session_log,
+    init_session_log,
+    log,
+    log_multiline,
+    log_timing,
+    set_global_log_level,
+)
+from .utils.text import (
+    current_time_text,
+    merge_reply_segments,
+    preview_text,
+    strip_think_tags,
+)
 
 
 def load_env_files() -> None:
@@ -66,7 +86,10 @@ def load_env_files() -> None:
         if line.startswith("worktree "):
             if current:
                 entries.append(current)
-            current = {"path": line.removeprefix("worktree ").strip(), "detached": False}
+            current = {
+                "path": line.removeprefix("worktree ").strip(),
+                "detached": False,
+            }
             continue
         if current is None:
             continue
@@ -87,15 +110,22 @@ def load_env_files() -> None:
             env_module._load_env_file(env_path)
             return
 
+
 def main() -> int:
     load_env_files()
     session_id = uuid.uuid4().hex
-    log_path = init_session_log(env_path("PTT_LOG_DIR", DEFAULT_LOG_DIR), session_id=session_id)
+    log_path = init_session_log(
+        env_path("PTT_LOG_DIR", DEFAULT_LOG_DIR), session_id=session_id
+    )
     log_timing("process imported, entering main()")
     cfg = parse_args()
+    if cfg.debug:
+        set_global_log_level("DEBUG")
+    else:
+        set_global_log_level("INFO")
     events = GuiEventWriter(enabled=cfg.gui_events)
     history_writer = HistoryWriter.from_config(cfg)
-    
+
     session_started_at = format_history_timestamp()
     session_ended_at = session_started_at
     session_transcript = ""
@@ -106,12 +136,12 @@ def main() -> int:
     session_reopened_by_click = False
     session_mode = "gui" if cfg.gui_events else "cli"
     should_record_history = False
-    
+
     log_timing("parse_args() completed")
     log(f"session log file: {log_path}")
     log("ptt openai-compatible flow started")
     events.emit("session_started", auto_close_seconds=cfg.gui_auto_close_seconds)
-    
+
     try:
         if cfg.intent_samples_file:
             log(f"llm model: {cfg.llm_model}")
@@ -136,11 +166,9 @@ def main() -> int:
             log_timing("end chime dispatched")
 
             if audio is None:
-                log("recording ended with no speech detected")
+                log("录音结束，未检测到有效语音")
                 events.emit("status", phase="no_speech")
                 events.emit("error", message="没有收到任何语音")
-                if not cfg.gui_events:
-                    print("没有收到任何语音")
                 return 0
 
             write_wav(cfg.audio_file, audio, cfg.sample_rate, cfg.channels)
@@ -206,8 +234,6 @@ def main() -> int:
                 phase="done",
                 auto_close_seconds=cfg.gui_auto_close_seconds,
             )
-            if not cfg.gui_events:
-                print(reply)
         else:
             log(f"reply: {reply}")
             events.emit("status", phase="speaking")
@@ -252,6 +278,8 @@ def main() -> int:
                 log(f"history persist failed: {exc}", level="error")
         close_session_log()
 
+
 if __name__ == "__main__":
     import sys
+
     sys.exit(main())

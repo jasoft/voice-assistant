@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sys
 from dataclasses import asdict
@@ -13,7 +14,8 @@ from ..utils.logging import log, log_multiline
 class CLIStoreBase:
     def _run_process(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         cmd = [sys.executable, "-m", "press_to_talk.storage_cli", *args]
-        log("storage cli exec: " + json.dumps(cmd, ensure_ascii=False))
+        # Use shlex.join for a more readable command log that handles quoting correctly
+        log("storage cli exec: " + shlex.join(cmd), level="debug")
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
         if result.stderr.strip():
             log_multiline("storage cli stderr", result.stderr.strip())
@@ -32,7 +34,7 @@ class CLIStoreBase:
 
 class CLIHistoryStore(BaseHistoryStore, CLIStoreBase):
     def persist(self, entry: SessionHistoryRecord) -> None:
-        self._run_json(["history", "add", "--json", json.dumps(asdict(entry))])
+        self._run_json(["history", "add", "--json", json.dumps(asdict(entry), ensure_ascii=False)])
 
     def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
         data = self._run_json(["history", "list", "--limit", str(limit), "--query", query])

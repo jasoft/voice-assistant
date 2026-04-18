@@ -16,6 +16,7 @@ dependencies = [
   "pynput>=1.7.7",
   "rich>=13.7.0",
   "mcp>=1.2.1",
+  "vibe-colored-logger>=0.1.7",
 ]
 
 [project.scripts]
@@ -26,3 +27,8 @@ package = true
 
 [tool.setuptools.packages.find]
 include = ["press_to_talk*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

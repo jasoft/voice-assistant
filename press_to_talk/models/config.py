@@ -180,7 +180,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         help="GUI 模式完成后自动关闭前的倒计时秒数",
     )
     parser.add_argument(
-        "--debug",
+        "-v", "--debug",
         action="store_true",
         help="输出更详细的调试日志",
     )

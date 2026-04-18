@@ -2,11 +2,32 @@ from __future__ import annotations
 
 import sys
 import time
+import contextlib
+import os
+from pathlib import Path
 from threading import Lock
 from typing import Any
 from ..utils.logging import log, log_timing
 from ..events import GuiEventWriter
 from ..models.config import Config
+
+STOP_RECORDING_SIGNAL_FILENAME = "stop_recording"
+
+
+def stop_recording_signal_path() -> Path | None:
+    raw = os.environ.get("PTT_GUI_CONTROL_DIR", "").strip()
+    if not raw:
+        return None
+    return Path(raw).expanduser() / STOP_RECORDING_SIGNAL_FILENAME
+
+
+def consume_stop_recording_request() -> bool:
+    signal_path = stop_recording_signal_path()
+    if signal_path is None or not signal_path.exists():
+        return False
+    with contextlib.suppress(OSError):
+        signal_path.unlink()
+    return True
 
 def audio_visual_level(rms: float, threshold: float) -> float:
     floor = max(threshold * 0.55, 0.002)
@@ -374,16 +395,22 @@ class VisualRecorder:
                     with self.Live(self.get_ui(), refresh_per_second=20, transient=True) as live:
                         log_timing("rich live UI entered")
                         while stream.active and not self.should_stop:
+                            if consume_stop_recording_request():
+                                self.should_stop = True
+                                break
                             live.update(self.get_ui())
                             time.sleep(0.05)
                 else:
                     log("tty not available; using plain text recorder UI for Raycast")
                     last_snapshot = ""
                     while stream.active and not self.should_stop:
+                        if consume_stop_recording_request():
+                            self.should_stop = True
+                            break
                         if not self.events.enabled:
                             snapshot = self.get_plain_ui()
                             if snapshot != last_snapshot:
-                                print(snapshot, flush=True)
+                                print(snapshot, flush=True, file=sys.stderr)
                                 last_snapshot = snapshot
                         time.sleep(0.25)
         except Exception as e:

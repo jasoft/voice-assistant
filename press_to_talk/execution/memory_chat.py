@@ -89,23 +89,17 @@ class MemoryChatExecutionRunner:
             log(f"memory-chat intent analysis failed: {exc}")
             return {"intent": "chat", "notes": ""}
 
-    def _memory_context(self, transcript: str) -> str:
+    def _memory_context_items(self, transcript: str) -> list[dict[str, Any]]:
         try:
             remember_store = self._storage().remember_store()
             raw = remember_store.find(query=transcript)
             extracted = remember_store.extract_summary_items(raw)
         except Exception:
-            log("memory-chat memory search failed; continuing without memory context")
-            return ""
+            log("memory-chat memory search failed")
+            return []
 
         items = extracted.get("items", []) if isinstance(extracted, dict) else []
-        normalized_items = [item for item in items if isinstance(item, dict)]
-        if not normalized_items:
-            log("memory-chat memory search: no related memory hits")
-            return ""
-        memory_context = _format_memory_context_items(normalized_items)
-        log_multiline("memory-chat memory context", memory_context)
-        return memory_context
+        return [item for item in items if isinstance(item, dict)]
 
     def _build_messages(
         self,
@@ -138,12 +132,26 @@ class MemoryChatExecutionRunner:
         ]
 
     def run(self, transcript: str) -> str:
+        # 1. 首先尝试意图分析，看是否是记录请求
         intent = self._analyze_intent(transcript)
         if intent.get("intent") == "record":
             log("memory-chat routing record intent to structured record flow")
             return IntentExecutionRunner(self.cfg).run(transcript)
 
-        memory_context = self._memory_context(transcript) or "没有命中相关记忆。"
+        # 2. 如果不是记录，说明是查询类。先查数据库内容。
+        items = self._memory_context_items(transcript)
+        
+        # 3. 判断是否命中记忆
+        if not items:
+            log("memory-chat memory search: no related memory hits")
+            # 在没有命中记忆的情况下，如果用户明确处于 memory-chat 模式（意图分析结果通常也是 chat），
+            # 那么我们会进入兜底回答流程。
+            memory_context = "没有命中相关记忆。"
+        else:
+            memory_context = _format_memory_context_items(items)
+            log_multiline("memory-chat memory context", memory_context)
+
+        # 4. 调用 LLM 进行总结或兜底回答
         messages = self._build_messages(
             transcript,
             intent=intent,

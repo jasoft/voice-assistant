@@ -548,14 +548,29 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 (self.embedding_model,),
             ).fetchall()
         scored_rows: list[tuple[float, sqlite3.Row]] = []
+        all_candidates_log = []
         for row in rows:
             try:
                 candidate_vector = json.loads(str(row["embedding_json"]))
                 score = _cosine_similarity(query_vector, candidate_vector)
+                all_candidates_log.append({
+                    "memory": str(row["memory"]),
+                    "score": round(score, 4)
+                })
             except Exception:
                 continue
             if score >= self.embedding_min_score:
                 scored_rows.append((score, row))
+        
+        log(
+            "remember embedding candidates (all): "
+            + json.dumps(
+                sorted(all_candidates_log, key=lambda x: x["score"], reverse=True)[:10],
+                ensure_ascii=False
+            ),
+            level="debug"
+        )
+        
         scored_rows.sort(key=lambda item: (item[0], str(item[1]["updated_at"])), reverse=True)
         limited_rows = scored_rows[: self.embedding_max_results]
         log(
@@ -729,7 +744,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     cleaned_query,
                 )
                 if keywords:
-                    rewritten_query = candidate_query
+                    rewritten_query = " OR ".join(f'"{token}"' for token in keywords if token)
             except Exception as exc:
                 log(f"Keyword rewrite failed: {exc}")
 
@@ -740,27 +755,16 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             ) or _tokenize_for_match(cleaned_query)
             rewritten_query = " OR ".join(f'"{token}"' for token in keywords if token)
 
-        if self.use_simple_query:
-            match_query = " ".join(keywords).strip() or cleaned_query
-            log_info = {
-                "query": cleaned_query,
-                "match_query": match_query,
-                "keywords": keywords,
-                "rewrite": bool(self.keyword_rewriter),
-                "fts": "simple_query",
-            }
-        else:
-            match_query = rewritten_query
-            log_info = {
-                "query": cleaned_query,
-                "match_query": match_query,
-                "keywords": keywords,
-                "rewrite": bool(self.keyword_rewriter),
-                "fts": "standard",
-            }
+        log_info = {
+            "query": cleaned_query,
+            "match_query": rewritten_query,
+            "keywords": keywords,
+            "rewrite": bool(self.keyword_rewriter),
+            "fts": "simple" if self.use_simple_query else "standard",
+        }
 
-        log("remember search input: " + json.dumps(log_info, ensure_ascii=False))
-        return match_query
+        log("remember search input: " + json.dumps(log_info, ensure_ascii=False), level="debug")
+        return rewritten_query
 
     def find(self, *, query: str) -> str:
         match_query = self._match_query(query)
@@ -791,10 +795,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             query,
         ) or _tokenize_for_match(query)
         with contextlib.closing(self._connect()) as conn:
-            match_sql = "simple_query(?)" if self.use_simple_query else "?"
+            match_sql = "?"
             log(
-                "remember search sql: fts5 match="
-                + (f"simple_query({match_query})" if self.use_simple_query else match_query)
+                f"remember search sql: fts5 match={match_query}"
             )
             rows = conn.execute(
                 f"""

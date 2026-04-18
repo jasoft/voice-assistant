@@ -15,12 +15,11 @@ public final class SessionViewModel: ObservableObject {
     public func apply(jsonLine: String) {
         do {
             try state.apply(jsonLine: jsonLine)
-            if state.phase == .done, state.autoCloseSeconds > 0 {
+            if case .done = state.status, state.autoCloseSeconds > 0 {
                 startCountdown(seconds: state.autoCloseSeconds)
             }
         } catch {
-            state.phase = .error
-            state.errorMessage = "GUI 解析事件失败"
+            state.status = .error(message: "GUI 解析事件失败")
         }
     }
 
@@ -41,15 +40,9 @@ public final class SessionViewModel: ObservableObject {
     }
 
     public func loadHistoryPreview(transcript: String, reply: String) {
-        state.phase = .done
+        state.status = .done(reply: reply)
         state.transcript = transcript
-        state.reply = reply
-        state.audioLevel = 0
-        state.audioSpeaking = false
-        state.timeoutProgress = 1
         state.errorMessage = ""
-        state.diagnosticMessage = ""
-        state.diagnosticLevel = ""
     }
 
     private func startCountdown(seconds: Int) {

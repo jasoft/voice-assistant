@@ -1,130 +1,136 @@
 import Foundation
 
-public enum SessionPhase: String, Equatable {
+public enum AssistantStatus: Equatable {
     case idle
-    case recording
+    case recording(RecordingStage)
     case transcribing
-    case noSpeech
-    case transcribeEmpty
     case thinking
-    case speaking
-    case done
+    case speaking(reply: String)
+    case done(reply: String)
+    case error(message: String)
     case cancelled
-    case error
+
+    // 辅助属性，用于兼容旧的逻辑判断
+    public var isRecording: Bool {
+        if case .recording = self { return true }
+        return false
+    }
+
+    public var replyText: String {
+        switch self {
+        case .speaking(let text), .done(let text): return text
+        default: return ""
+        }
+    }
 }
 
-public enum SessionStateError: Error {
-    case invalidJSON
+public enum RecordingStage: Equatable {
+    case waiting                  // 正在等待用户开口
+    case active(level: Double)    // 检测到语音，正在说话
+    case ending(progress: Double) // 语音停止，处于静默倒计时
 }
 
 public struct SessionState: Equatable {
-    public var phase: SessionPhase = .idle
-    public var audioLevel: Double = 0.0
-    public var audioSpeaking: Bool = false
-    public var timeoutProgress: Double = 0.0
+    public var status: AssistantStatus = .idle
     public var transcript: String = ""
-    public var reply: String = ""
     public var errorMessage: String = ""
-    public var diagnosticMessage: String = ""
-    public var diagnosticLevel: String = ""
     public var autoCloseSeconds: Int = 0
+    
+    // 内部存储，用于在非录音状态下也保持某些数值同步
+    private var lastAudioLevel: Double = 0.0
+    private var lastAudioSpeaking: Bool = false
+    private var lastTimeoutProgress: Double = 0.0
 
     public init() {}
 
     public mutating func apply(jsonLine: String) throws {
-        guard let data = jsonLine.data(using: .utf8) else {
-            throw SessionStateError.invalidJSON
-        }
-        guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw SessionStateError.invalidJSON
-        }
-        guard let type = payload["type"] as? String else {
+        guard let data = jsonLine.data(using: .utf8),
+              let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = payload["type"] as? String else {
             return
         }
 
         switch type {
         case "status":
-            applyStatus(payload: payload)
+            applyStatusUpdate(payload: payload)
         case "audio_level":
-            if let level = payload["level"] as? Double {
-                audioLevel = max(0.0, min(level, 1.0))
-            } else if let level = payload["level"] as? NSNumber {
-                audioLevel = max(0.0, min(level.doubleValue, 1.0))
-            }
-            if let speaking = payload["speaking"] as? Bool {
-                audioSpeaking = speaking
-            } else if let speaking = payload["speaking"] as? NSNumber {
-                audioSpeaking = speaking.boolValue
-            }
-            if let progress = payload["timeout_progress"] as? Double {
-                timeoutProgress = max(0.0, min(progress, 1.0))
-            } else if let progress = payload["timeout_progress"] as? NSNumber {
-                timeoutProgress = max(0.0, min(progress.doubleValue, 1.0))
-            }
+            applyAudioUpdate(payload: payload)
         case "transcript":
             if let text = payload["text"] as? String {
                 transcript = text
             }
         case "reply":
             if let text = payload["text"] as? String {
-                let withoutClosedThink = text.replacingOccurrences(
-                    of: "(?is)<think\\b[^>]*>.*?</think\\s*>",
-                    with: "",
-                    options: .regularExpression
-                )
-                reply = withoutClosedThink.replacingOccurrences(
-                    of: "(?is)<think\\b[^>]*>.*$",
-                    with: "",
-                    options: .regularExpression
-                ).trimmingCharacters(in: .whitespacesAndNewlines)
+                let cleaned = cleanReplyText(text)
+                status = .speaking(reply: cleaned)
             }
         case "error":
-            phase = .error
             errorMessage = (payload["message"] as? String) ?? "Unknown error"
-        case "diagnostic":
-            diagnosticMessage = (payload["message"] as? String) ?? ""
-            diagnosticLevel = (payload["level"] as? String) ?? "info"
+            status = .error(message: errorMessage)
         default:
             break
         }
     }
 
-    private mutating func applyStatus(payload: [String: Any]) {
-        guard let phaseValue = payload["phase"] as? String else {
-            return
-        }
-        switch phaseValue {
+    private mutating func applyStatusUpdate(payload: [String: Any]) {
+        guard let phase = payload["phase"] as? String else { return }
+        
+        switch phase {
         case "recording":
-            phase = .recording
-            timeoutProgress = 0.0
+            status = .recording(.waiting)
         case "transcribing":
-            phase = .transcribing
-            audioSpeaking = false
-            timeoutProgress = 1.0
-        case "no_speech":
-            phase = .noSpeech
-            audioSpeaking = false
-            timeoutProgress = 1.0
-        case "transcribe_empty":
-            phase = .transcribeEmpty
-            audioSpeaking = false
-            timeoutProgress = 1.0
+            status = .transcribing
         case "thinking":
-            phase = .thinking
+            status = .thinking
         case "speaking":
-            phase = .speaking
+            // 保持当前的 reply text
+            status = .speaking(reply: status.replyText)
         case "done":
-            phase = .done
-            audioSpeaking = false
-            timeoutProgress = 1.0
+            status = .done(reply: status.replyText)
+        case "no_speech", "transcribe_empty":
+            status = .idle // 或者可以定义特定的空状态
         case "cancelled":
-            phase = .cancelled
-            audioSpeaking = false
+            status = .cancelled
         default:
             break
         }
+        
         if let seconds = payload["auto_close_seconds"] as? Int {
             autoCloseSeconds = max(0, seconds)
         }
+    }
+
+    private mutating func applyAudioUpdate(payload: [String: Any]) {
+        let level = (payload["level"] as? Double) ?? (payload["level"] as? NSNumber)?.doubleValue ?? 0.0
+        let speaking = (payload["speaking"] as? Bool) ?? (payload["speaking"] as? NSNumber)?.boolValue ?? false
+        let progress = (payload["timeout_progress"] as? Double) ?? (payload["timeout_progress"] as? NSNumber)?.doubleValue ?? 0.0
+        
+        lastAudioLevel = level
+        lastAudioSpeaking = speaking
+        lastTimeoutProgress = progress
+
+        // 只有在录音模式下才更新录音子状态
+        if case .recording = status {
+            if speaking {
+                status = .recording(.active(level: level))
+            } else if progress > 0 {
+                status = .recording(.ending(progress: progress))
+            } else {
+                status = .recording(.waiting)
+            }
+        }
+    }
+
+    private func cleanReplyText(_ text: String) -> String {
+        let withoutClosedThink = text.replacingOccurrences(
+            of: "(?is)<think\\b[^>]*>.*?</think\\s*>",
+            with: "",
+            options: .regularExpression
+        )
+        return withoutClosedThink.replacingOccurrences(
+            of: "(?is)<think\\b[^>]*>.*$",
+            with: "",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

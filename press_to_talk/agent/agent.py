@@ -101,12 +101,14 @@ class OpenAICompatibleAgent:
         from openai import OpenAI
 
         client_kwargs: dict[str, Any] = {"api_key": cfg.llm_api_key}
-        if cfg.llm_base_url.strip():
-            client_kwargs["base_url"] = cfg.llm_base_url.strip()
+        raw_url = str(cfg.llm_base_url or "").strip()
+        if raw_url:
+            # Strip trailing slash to avoid double-slash issues with proxies
+            client_kwargs["base_url"] = raw_url.rstrip("/")
         self.client = OpenAI(**client_kwargs)
-        self.cfg = cfg
         self.model = cfg.llm_model
         self.summary_model = getattr(cfg, "llm_summarize_model", cfg.llm_model)
+        log(f"DEBUG OpenAICompatibleAgent: initialized with base_url={self.client.base_url} model={self.model}", level="debug")
         self.remember_script = cfg.remember_script
         self.storage = StorageService(build_storage_config(cfg))
         self.messages: list[Any] = []
@@ -116,7 +118,7 @@ class OpenAICompatibleAgent:
         workflow_data = load_json_file(WORKFLOW_CONFIG_PATH)
         workflow_data = expand_env_placeholders(workflow_data)
         self.workflow = self._validate_workflow_config(workflow_data)
-        log(f"workflow config loaded: {WORKFLOW_CONFIG_PATH}")
+        log(f"workflow config loaded: {WORKFLOW_CONFIG_PATH}", level="debug")
 
     def _validate_workflow_config(self, workflow: Any) -> dict[str, Any]:
         workflow_cfg = _require_mapping(workflow, "workflow")
@@ -195,7 +197,8 @@ class OpenAICompatibleAgent:
             clean_output = strip_think_tags(raw_output)
             log(
                 f"LLM intent response: finish_reason={finish_reason or 'unknown'} "
-                f"chars_raw={len(raw_output)} chars_cleaned={len(clean_output)}"
+                f"chars_raw={len(raw_output)} chars_cleaned={len(clean_output)}",
+                level="debug"
             )
             log_multiline("LLM intent raw", raw_output)
             log_multiline("LLM intent cleaned", clean_output)
@@ -206,7 +209,8 @@ class OpenAICompatibleAgent:
                 salvaged_payload = salvage_truncated_intent_payload(clean_output)
                 if salvaged_payload is not None:
                     log(
-                        "LLM intent payload was truncated; salvaged structured fields from partial JSON"
+                        "LLM intent payload was truncated; salvaged structured fields from partial JSON",
+                        level="debug"
                     )
                     payload = salvaged_payload
                 else:
@@ -215,7 +219,8 @@ class OpenAICompatibleAgent:
                     )
             log(
                 "LLM intent parsed: "
-                + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                + json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                level="info"
             )
             if payload.get("intent") not in ("record", "find"):
                 payload["intent"] = "find"
@@ -249,7 +254,7 @@ class OpenAICompatibleAgent:
                 payload["args"] = args
             return payload
         except Exception as e:
-            log(f"Intent extraction failed: {e}")
+            log(f"Intent extraction failed: {e}", level="error")
         return {
             "intent": "find",
             "tool": "remember_find",
@@ -325,7 +330,8 @@ class OpenAICompatibleAgent:
 
     async def _execute_remember_tool(self, name: str, args: dict) -> str:
         log(
-            f"remember tool request: name={name} args={json.dumps(args, ensure_ascii=False)}"
+            f"remember tool request: name={name} args={json.dumps(args, ensure_ascii=False)}",
+            level="debug"
         )
         remember_store = self.storage.remember_store()
         try:
@@ -343,7 +349,7 @@ class OpenAICompatibleAgent:
                 output = remember_store.find(query=query)
             else:
                 return f"Error: Unknown tool {name}"
-            log(f"remember tool result: {output}")
+            log(f"remember tool result: {output}", level="debug")
             return output
         except Exception as e:
             return f"Error executing {name}: {e}"
@@ -357,7 +363,7 @@ class OpenAICompatibleAgent:
         try:
             rewriter = self.storage.keyword_rewriter()
         except Exception as exc:
-            log(f"history query rewrite unavailable: {exc}")
+            log(f"history query rewrite unavailable: {exc}", level="debug")
             rewriter = None
 
         if rewriter is None:
@@ -380,15 +386,17 @@ class OpenAICompatibleAgent:
                     break
             log(
                 "history query terms: "
-                + json.dumps(terms, ensure_ascii=False, separators=(",", ":"))
+                + json.dumps(terms, ensure_ascii=False, separators=(",", ":")),
+                level="debug"
             )
         except Exception as exc:
-            log(f"history query rewrite failed: {exc}")
+            log(f"history query rewrite failed: {exc}", level="debug")
         return terms
 
     async def _execute_history_tool(self, name: str, args: dict) -> str:
         log(
-            f"history tool request: name={name} args={json.dumps(args, ensure_ascii=False)}"
+            f"history tool request: name={name} args={json.dumps(args, ensure_ascii=False)}",
+            level="debug"
         )
         history_store = self.storage.history_store()
         try:
@@ -412,7 +420,7 @@ class OpenAICompatibleAgent:
             output = json.dumps(
                 [asdict(entry) for entry in ordered_entries], ensure_ascii=False
             )
-            log(f"history tool result count: {len(ordered_entries)}")
+            log(f"history tool result count: {len(ordered_entries)}", level="debug")
             return output
         except Exception as exc:
             return f"Error executing {name}: {exc}"
@@ -526,6 +534,7 @@ class OpenAICompatibleAgent:
 
         try:
             summary_model = str(getattr(self, "summary_model", self.model))
+            log(f"DEBUG OpenAICompatibleAgent: summarizing with base_url={self.client.base_url} model={summary_model}", level="debug")
             log_llm_prompt(
                 "remember summary",
                 [
@@ -547,13 +556,14 @@ class OpenAICompatibleAgent:
             clean_summary = re.sub(r"[a-f0-9-]{32,}", "", clean_summary)
 
             log(
-                f"remember summary response: chars_raw={len(raw_summary)} chars_cleaned={len(clean_summary)}"
+                f"remember summary response: chars_raw={len(raw_summary)} chars_cleaned={len(clean_summary)}",
+                level="debug"
             )
             log_multiline("remember summary raw", raw_summary)
             log_multiline("remember summary cleaned", clean_summary)
             return clean_summary or "处理完成。"
         except Exception as e:
-            log(f"remember output summary failed: {e}")
+            log(f"remember output summary failed: {e}", level="error")
             return memories_summary
 
     async def _execute_structured_tool(
@@ -562,7 +572,8 @@ class OpenAICompatibleAgent:
         if tool_name is None:
             return None
         log(
-            f"structured tool path selected: tool={tool_name} args={json.dumps(args, ensure_ascii=False)}"
+            f"structured tool path selected: tool={tool_name} args={json.dumps(args, ensure_ascii=False)}",
+            level="debug"
         )
         if tool_name == "remember_add":
             memory = (
@@ -585,6 +596,15 @@ class OpenAICompatibleAgent:
             if not search_query:
                 return "Error: structured remember_find missing query"
             raw = await self._execute_remember_tool(tool_name, {"query": search_query})
+            
+            # --- 核心修改：非 chat-mode 兜底逻辑 ---
+            # 只有在 remember_find 没找到结果时，才需要考虑是否结束
+            extracted_data = self.storage.remember_store().extract_summary_items(raw)
+            if not extracted_data.get("items"):
+                log("OpenAICompatibleAgent: no results found for remember_find", level="info")
+                return "没有找到匹配的记忆信息。"
+            # ------------------------------------
+
             return self._summarize_remember_output(
                 tool_name, raw, user_question=user_input, query=search_query
             )
@@ -593,6 +613,17 @@ class OpenAICompatibleAgent:
             if not query:
                 return "Error: structured history_find missing query"
             raw = await self._execute_history_tool(tool_name, {"query": query})
+            
+            # --- 核心修改：非 chat-mode 兜底逻辑 ---
+            try:
+                payload = json.loads(raw)
+                if not payload:
+                    log("OpenAICompatibleAgent: no results found for history_find", level="info")
+                    return "大王，没有找到相关历史记录。"
+            except:
+                pass
+            # ------------------------------------
+
             return self._summarize_history_output(
                 raw, user_question=user_input, query=query
             )
@@ -606,7 +637,7 @@ class OpenAICompatibleAgent:
         if intent_key not in ("record", "find"):
             intent_key = "find"
 
-        log(f"Detected intent branch: [bold cyan]{intent_key}[/bold cyan]")
+        log(f"Detected intent branch: {intent_key}", level="info")
 
         tool_name = str(intent_payload.get("tool", "")).strip()
         if tool_name not in {"remember_add", "remember_find", "history_find"}:
