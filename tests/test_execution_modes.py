@@ -51,16 +51,16 @@ class ExecutionModeConfigTests(unittest.TestCase):
             workflow_data={"execution": {"default_mode": "hermes"}},
         )
 
-        self.assertEqual(config.execution_mode, "intent")
+        self.assertEqual(config.execution_mode, "database")
 
-    def test_parse_args_falls_back_to_intent_when_workflow_has_no_execution_mode(
+    def test_parse_args_falls_back_to_memory_chat_when_workflow_has_no_execution_mode(
         self,
     ) -> None:
         config = self.parse_config(["--text-input", "你好"], workflow_data={})
 
-        self.assertEqual(config.execution_mode, "intent")
+        self.assertEqual(config.execution_mode, "memory-chat")
 
-    def test_parse_args_rejects_classify_only_in_hermes_mode(self) -> None:
+    def test_parse_args_rejects_classify_only_outside_database_mode(self) -> None:
         with self.assertRaises(SystemExit):
             self.parse_config(
                 ["--text-input", "你好", "--execution-mode", "hermes", "--classify-only"],
@@ -74,6 +74,14 @@ class ExecutionModeConfigTests(unittest.TestCase):
         )
 
         self.assertEqual(config.execution_mode, "memory-chat")
+
+    def test_parse_args_accepts_database_execution_mode(self) -> None:
+        config = self.parse_config(
+            ["--text-input", "你好", "--execution-mode", "database"],
+            workflow_data={},
+        )
+
+        self.assertEqual(config.execution_mode, "database")
 
     def test_parse_args_reads_summarize_model_from_env(self) -> None:
         with (
@@ -359,6 +367,27 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
 
 
 class CoreExecutionDispatchTests(unittest.TestCase):
+    def test_execute_transcript_routes_database_mode_to_intent_runner(self) -> None:
+        from press_to_talk.execution import execute_transcript
+
+        cfg = SimpleNamespace(
+            execution_mode="database",
+            llm_api_key="test-key",
+            llm_base_url="",
+            llm_model="fast",
+            llm_summarize_model="summary-fast",
+        )
+
+        fake_runner = SimpleNamespace(run=unittest.mock.Mock(return_value="数据库回复"))
+        with patch(
+            "press_to_talk.execution.IntentExecutionRunner",
+            return_value=fake_runner,
+        ):
+            reply = execute_transcript(cfg, "usb测试版在哪")
+
+        self.assertEqual(reply, "数据库回复")
+        fake_runner.run.assert_called_once_with("usb测试版在哪")
+
     def test_execute_transcript_routes_memory_chat_to_memory_chat_runner(self) -> None:
         from press_to_talk.execution import execute_transcript
 

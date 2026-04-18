@@ -9,20 +9,24 @@ def workflow_default_execution_mode() -> str:
     try:
         workflow = load_json_file(WORKFLOW_CONFIG_PATH)
     except Exception:
-        return "intent"
+        return "memory-chat"
 
     execution = workflow.get("execution") if isinstance(workflow, dict) else None
     if not isinstance(execution, dict):
-        return "intent"
+        return "memory-chat"
 
     mode = str(execution.get("default_mode", "")).strip().lower()
-    if mode in {"intent", "hermes", "memory-chat"}:
+    if mode == "intent":
+        return "database"
+    if mode in {"database", "hermes", "memory-chat"}:
         return mode
-    return "intent"
+    return "memory-chat"
 
 
 def resolve_execution_mode(cfg: Any) -> str:
     mode = str(getattr(cfg, "execution_mode", "") or "").strip().lower()
-    if mode in {"intent", "hermes", "memory-chat"}:
+    if mode == "intent":
+        return "database"
+    if mode in {"database", "hermes", "memory-chat"}:
         return mode
     return workflow_default_execution_mode()

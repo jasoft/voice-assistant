@@ -91,16 +91,18 @@ def _workflow_default_execution_mode() -> str:
     try:
         workflow = load_json_file(WORKFLOW_CONFIG_PATH)
     except Exception:
-        return "intent"
+        return "memory-chat"
 
     execution = workflow.get("execution") if isinstance(workflow, dict) else None
     if not isinstance(execution, dict):
-        return "intent"
+        return "memory-chat"
 
     mode = str(execution.get("default_mode", "")).strip().lower()
-    if mode in {"intent", "hermes", "memory-chat"}:
+    if mode == "intent":
+        return "database"
+    if mode in {"database", "hermes", "memory-chat"}:
         return mode
-    return "intent"
+    return "memory-chat"
 
 
 def parse_args(argv: list[str] | None = None) -> Config:
@@ -151,9 +153,9 @@ def parse_args(argv: list[str] | None = None) -> Config:
     )
     parser.add_argument(
         "--execution-mode",
-        choices=("intent", "hermes", "memory-chat"),
+        choices=("database", "intent", "hermes", "memory-chat"),
         default=None,
-        help="执行模式：intent 走本地意图链路，hermes 显式调用 hermes chat，memory-chat 先查记忆再走本地 OpenAI-compatible 聊天链路",
+        help="执行模式：database 只走本地数据库链路；memory-chat 先查记忆再走本地 OpenAI-compatible 聊天链路；hermes 显式调用 hermes chat。intent 作为 database 的兼容别名保留。",
     )
     parser.add_argument(
         "--intent-samples-file",
@@ -213,7 +215,9 @@ def parse_args(argv: list[str] | None = None) -> Config:
 
     args = parser.parse_args(argv)
     text_input = resolve_text_input(args)
-    execution_mode = str(args.execution_mode or _workflow_default_execution_mode()).strip()
+    execution_mode = str(args.execution_mode or _workflow_default_execution_mode()).strip().lower()
+    if execution_mode == "intent":
+        execution_mode = "database"
     if not text_input and not args.intent_samples_file and not args.stt_url:
         parser.error("missing STT url; set PTT_STT_URL in .env or pass --stt-url")
     if not text_input and not args.intent_samples_file and not args.stt_token:
@@ -222,8 +226,8 @@ def parse_args(argv: list[str] | None = None) -> Config:
         parser.error(
             "missing API key; set OPENAI_API_KEY in .env, or pass --api-key"
         )
-    if args.classify_only and execution_mode != "intent":
-        parser.error("--classify-only is only available in intent execution mode")
+    if args.classify_only and execution_mode != "database":
+        parser.error("--classify-only is only available in database execution mode")
 
     return Config(
         sample_rate=args.sample_rate,

@@ -1,6 +1,6 @@
 {
     "execution": {
-        "default_mode": "intent"
+        "default_mode": "memory-chat"
     },
     "intents": {
         "record": {

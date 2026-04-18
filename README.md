@@ -13,14 +13,15 @@ uv run press-to-talk --help
 uv run press-to-talk
 uv run python -m press_to_talk --help
 uv run press-to-talk --text-input "帮我记住充电器是黑色的" --no-tts
-uv run press-to-talk --text-input "帮我找下护照在哪" --classify-only --no-tts
-uv run press-to-talk --execution-mode memory-chat --text-input "usb测试版在哪" --no-tts
+uv run press-to-talk --text-input "帮我找下护照在哪" --execution-mode database --classify-only --no-tts
+uv run press-to-talk --text-input "usb测试版在哪" --no-tts
+uv run press-to-talk --execution-mode database --text-input "usb测试版在哪" --no-tts
 uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 ```
 
 默认会直接调用系统里可用的 `qwen-tts` 命令，并使用 `--play --speaker serena --stream` 播报回复。
 
-`memory-chat` 模式会先按当前问题检索相关记忆，把命中的记忆作为上下文，再直接调用当前配置的 OpenAI-compatible 模型回答，不再经过 `hermes chat`，这样语音助手的响应更快。`hermes` 模式仍然保留为单独链路，只有显式指定 `--execution-mode hermes` 时才会调用外部 `hermes chat`。
+默认执行模式就是 `memory-chat`：先按当前问题检索相关记忆，把命中的记忆作为上下文，再直接调用当前配置的 OpenAI-compatible 模型回答，不再经过 `hermes chat`。如果你需要严格只查内部数据库、不允许自动兜底聊天，可以显式传 `--execution-mode database`。`intent` 仍然保留为 `database` 的兼容别名。`hermes` 模式也继续保留，只有显式指定 `--execution-mode hermes` 时才会调用外部 `hermes chat`。
 
 ## 记忆功能
 
@@ -58,7 +59,8 @@ uv run press-to-talk --text-input "记录一下，我今天安装了显示器的
 - `OPENAI_BASE_URL`：兼容 OpenAI 协议的服务地址
 - `BRAVE_API_KEY`：Brave Search API Key
 - `PTT_STT_URL` / `PTT_STT_TOKEN`：STT 服务地址和鉴权
-- `PTT_MODEL`：意图抽取与对话使用的模型名
+- `PTT_MODEL`：意图抽取、关键词拆分等非最终总结步骤使用的模型名
+- `PTT_SUMMERIZE_MODEL`：最终总结回复使用的模型名；不设置时回退到 `PTT_MODEL`
 - `PTT_LOG_DIR`：运行日志目录，默认写到项目根目录下的 `logs/`
 - `MEM0_API_KEY`：托管版 mem0 API Key
 - `MEM0_USER_ID`：mem0 用户 ID，默认 `soj`
@@ -80,7 +82,7 @@ uv run press-to-talk --text-input "记录一下，我今天安装了显示器的
 - TTS 使用：`qwen-tts`
 - 文字测试：`--text-input` 或 `--text-file` 可直接跳过录音和 STT
 - 静默测试：`--no-tts` 可跳过语音播报，只验证意图和工具链路
-- 分类测试：`--classify-only` 只输出意图标签
+- 分类测试：`--execution-mode database --classify-only` 只输出意图标签
 - 回归样本：`--intent-samples-file testdata/intent_samples.jsonl`
 - 记忆语义：`record` 覆盖位置、日期、特征、事件、备注，不再局限于 location
 - 运行日志：每次启动都会自动写一份会话日志到 `logs/`
