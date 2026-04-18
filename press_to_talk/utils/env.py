@@ -11,7 +11,6 @@ from .logging import log
 PTT_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = PROJECT_ROOT
-DEFAULT_WORKFLOW_PATH = APP_ROOT / "default_workflow.json"
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 INTENT_EXTRACTOR_CONFIG_PATH = APP_ROOT / "intent_extractor_config.json"
 DEFAULT_LOG_DIR = APP_ROOT / "logs"
@@ -147,26 +146,6 @@ def expand_env_placeholders(value: Any) -> Any:
 
         return ENV_VAR_PATTERN.sub(replace, value)
     return value
-
-MINIMAL_WORKFLOW: dict[str, Any] = {
-    "intents": {
-        "chat": {
-            "description": "通用闲聊或简单问答。",
-            "system_prompt": "你是一个中文闲聊助手。直接回答问题。",
-            "tools": [],
-        }
-    },
-    "mcp_servers": {},
-}
-
-def load_workflow_defaults() -> dict[str, Any]:
-    try:
-        defaults = expand_env_placeholders(load_json_file(DEFAULT_WORKFLOW_PATH))
-        if isinstance(defaults, dict):
-            return defaults
-    except Exception as e:
-        log(f"Failed to load default workflow config: {e}", level="error")
-    return json.loads(json.dumps(MINIMAL_WORKFLOW))
 
 def load_mem0_tuning_config() -> dict[str, Any]:
     defaults = {"min_score": 0.8, "max_items": 3}

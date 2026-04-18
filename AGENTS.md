@@ -21,7 +21,6 @@
 - Python 包：`press_to_talk`
 - 主逻辑文件：`press_to_talk/core.py`
 - 工作流配置：`workflow_config.json`
-- 默认工作流兜底：`default_workflow.json`
 - 意图抽取配置：`intent_extractor_config.json`
 - 提示音资源：`assets/chimes/start.wav` 和 `assets/chimes/end.wav`
 
