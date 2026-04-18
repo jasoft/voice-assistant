@@ -6,15 +6,28 @@ from .hermes import HermesExecutionRunner
 from .intent import IntentExecutionRunner
 from .memory_chat import MemoryChatExecutionRunner
 from .resolver import resolve_execution_mode
+from .bt.base import Blackboard
+from .bt.builder import build_master_tree
 
 
 def execute_transcript(cfg: Any, transcript: str) -> str:
     mode = resolve_execution_mode(cfg)
-    if mode == "hermes":
-        return HermesExecutionRunner(cfg).run(transcript)
-    if mode == "memory-chat":
-        return MemoryChatExecutionRunner(cfg).run(transcript)
-    return IntentExecutionRunner(cfg).run(transcript)
+    
+    # Initialize Blackboard
+    bb = Blackboard(transcript=transcript, cfg=cfg, mode=mode)
+    
+    # Build and tick the behavior tree
+    tree = build_master_tree()
+    tree.tick(bb)
+    
+    if bb.reply:
+        return bb.reply
+        
+    if bb.error:
+        return f"Error: {bb.error}"
+
+    # Default fallback if tree didn't produce a reply (though LLMChatFallbackAction should)
+    return "I'm sorry, I couldn't process that request."
 
 
 def classify_intent(cfg: Any, transcript: str) -> str:
