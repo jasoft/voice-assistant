@@ -31,7 +31,7 @@ from .audio.wav import write_wav
 from .audio.stt import run_stt
 from .audio.tts import speak_text, consume_tts_stop_request, TTS_STOP_SIGNAL_FILENAME
 from .agent.agent import OpenAICompatibleAgent
-from .agent.memory import extract_mem0_summary_payload
+from .storage.providers.mem0 import extract_mem0_summary_payload
 from .agent.intent import salvage_truncated_intent_payload
 from .execution import classify_intent, execute_transcript
 from .regression import run_intent_regression

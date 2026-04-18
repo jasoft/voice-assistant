@@ -24,7 +24,6 @@ from ..utils.text import (
 from .intent import (
     salvage_truncated_intent_payload,
 )
-from .memory import extract_mem0_summary_payload
 
 
 def _runtime_current_time_text() -> str:
@@ -469,7 +468,7 @@ class OpenAICompatibleAgent:
 
         # If it's a JSON response, only pass the memory body onward.
         if cleaned.startswith("[") or cleaned.startswith("{"):
-            extracted_data = extract_mem0_summary_payload(cleaned)
+            extracted_data = self.storage.remember_store().extract_summary_items(cleaned)
             items = extracted_data.get("items", [])
             for item in items:
                 mem_text = str(item.get("memory", "")).strip()

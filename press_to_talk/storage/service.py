@@ -12,8 +12,6 @@ from press_to_talk.utils.logging import log, log_llm_prompt, log_multiline
 from .cli_wrapper import CLIHistoryStore, CLIRememberStore
 from .memory_backends import (
     SIMPLE_EXTENSION_PATH,
-    Mem0RememberStore,
-    SQLiteFTS5RememberStore,
     _default_match_query,
     _extract_mem0_results,
     _keywords_from_match_query,
@@ -35,6 +33,7 @@ from .models import (
     SessionHistoryRecord,
     StorageConfig,
 )
+from .providers import Mem0RememberStore, SQLiteFTS5RememberStore
 from .sqlite_history import NullHistoryStore, SQLiteHistoryStore, migrate_history_table
 
 APP_ROOT = Path(__file__).resolve().parents[2]
@@ -100,10 +99,12 @@ def _workflow_storage_config() -> dict[str, Any]:
 
 
 def load_storage_config() -> StorageConfig:
-    storage_cfg = _workflow_storage_config()
+    workflow_cfg = load_workflow_config()
+    storage_cfg = workflow_cfg.get("storage", {}) if isinstance(workflow_cfg, dict) else {}
+    storage_cfg = storage_cfg if isinstance(storage_cfg, dict) else {}
     sqlite_cfg = storage_cfg.get("sqlite_fts5", {})
     sqlite_cfg = sqlite_cfg if isinstance(sqlite_cfg, dict) else {}
-    mem0_cfg = storage_cfg.get("mem0", {})
+    mem0_cfg = workflow_cfg.get("mem0", {}) if isinstance(workflow_cfg, dict) else {}
     mem0_cfg = mem0_cfg if isinstance(mem0_cfg, dict) else {}
     rewrite_cfg = sqlite_cfg.get("query_rewrite", sqlite_cfg.get("groq_query_rewrite", {}))
     rewrite_cfg = rewrite_cfg if isinstance(rewrite_cfg, dict) else {}
@@ -402,13 +403,22 @@ class StorageService:
         if not str(normalized.remember_db_path).strip():
             normalized.remember_db_path = str(DEFAULT_REMEMBER_DB_PATH)
         self.config = normalized
+        self._remember_provider: BaseRememberStore | None = None
+        self._remember_store: BaseRememberStore | None = None
         if use_cli:
             self._history_store = CLIHistoryStore()
-            self._remember_store = CLIRememberStore()
+            self._remember_store = CLIRememberStore(summary_extractor=self._get_or_build_remember_provider)
             return
         self._history_store = SQLiteHistoryStore(self.config.history_db_path)
+
+    def _get_or_build_remember_provider(self) -> BaseRememberStore:
+        if self._remember_provider is None:
+            self._remember_provider = self._build_remember_provider()
+        return self._remember_provider
+
+    def _build_remember_provider(self) -> BaseRememberStore:
         if self.config.backend == "sqlite_fts5":
-            self._remember_store = SQLiteFTS5RememberStore(
+            return SQLiteFTS5RememberStore(
                 db_path=self.config.remember_db_path,
                 max_results=self.config.remember_max_results,
                 keyword_rewriter=self.keyword_rewriter(),
@@ -418,12 +428,11 @@ class StorageService:
                 embedding_min_score=self.config.embedding_min_score,
                 embedding_context_min_score=self.config.embedding_context_min_score,
             )
-        else:
-            self._remember_store = Mem0RememberStore(
-                api_key=self.config.mem0_api_key,
-                user_id=self.config.mem0_user_id,
-                app_id=self.config.mem0_app_id,
-            )
+        return Mem0RememberStore(
+            api_key=self.config.mem0_api_key,
+            user_id=self.config.mem0_user_id,
+            app_id=self.config.mem0_app_id,
+        )
 
     @classmethod
     def from_env(cls, use_cli: bool = True) -> "StorageService":
@@ -462,6 +471,8 @@ class StorageService:
         )
 
     def remember_store(self) -> BaseRememberStore:
+        if self._remember_store is None:
+            self._remember_store = self._get_or_build_remember_provider()
         return self._remember_store
 
     def history_store(self) -> BaseHistoryStore:

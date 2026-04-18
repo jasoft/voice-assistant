@@ -4,7 +4,7 @@ import json
 import subprocess
 import sys
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Callable
 
 from .models import BaseHistoryStore, BaseRememberStore, RememberItemRecord, SessionHistoryRecord
 from ..utils.logging import log, log_multiline
@@ -45,6 +45,13 @@ class CLIHistoryStore(BaseHistoryStore, CLIStoreBase):
 
 
 class CLIRememberStore(BaseRememberStore, CLIStoreBase):
+    def __init__(
+        self,
+        *,
+        summary_extractor: BaseRememberStore | Callable[[], BaseRememberStore] | None = None,
+    ) -> None:
+        self.summary_extractor = summary_extractor
+
     def add(self, *, memory: str, original_text: str = "") -> str:
         data = self._run_json(["memory", "add", "--memory", memory, "--original-text", original_text])
         return data["result"]
@@ -61,3 +68,14 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
         if not data:
             return []
         return [RememberItemRecord(**item) for item in data]
+
+    def extract_summary_items(
+        self, raw_payload: str | dict[str, object] | list[object]
+    ) -> dict[str, object]:
+        if self.summary_extractor is None:
+            return {"items": [], "raw": raw_payload}
+        extractor = self.summary_extractor
+        if callable(extractor):
+            extractor = extractor()
+            self.summary_extractor = extractor
+        return extractor.extract_summary_items(raw_payload)

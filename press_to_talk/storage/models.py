@@ -72,6 +72,11 @@ class BaseRememberStore:
     def find(self, *, query: str) -> str:
         raise NotImplementedError
 
+    def extract_summary_items(
+        self, raw_payload: str | dict[str, object] | list[object]
+    ) -> dict[str, object]:
+        raise NotImplementedError
+
     def delete(self, *, memory_id: str) -> None:
         raise NotImplementedError
 

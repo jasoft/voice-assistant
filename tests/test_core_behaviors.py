@@ -13,6 +13,7 @@ from press_to_talk import core
 from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageService
 from press_to_talk.storage.cli_wrapper import CLIRememberStore
 from press_to_talk.storage import memory_backends as memory_backends_module
+from press_to_talk.storage.providers import extract_sqlite_summary_payload
 from press_to_talk.storage import service as storage_service_module
 
 
@@ -69,9 +70,10 @@ def workflow_with_prompts(
 
 
 class FakeRememberStore:
-    def __init__(self) -> None:
+    def __init__(self, *, backend: str = "mem0") -> None:
         self.add_calls: list[dict[str, object]] = []
         self.find_calls: list[str] = []
+        self.backend = backend
 
     def add(self, **kwargs) -> str:
         self.add_calls.append(dict(kwargs))
@@ -81,11 +83,16 @@ class FakeRememberStore:
         self.find_calls.append(query)
         return f"FIND:{query}"
 
+    def extract_summary_items(self, raw_payload: str | dict[str, object] | list[object]) -> dict[str, object]:
+        if self.backend == "sqlite_fts5":
+            return extract_sqlite_summary_payload(raw_payload)
+        return core.extract_mem0_summary_payload(raw_payload)
+
 
 class FakeStorageService:
     def __init__(self, *, backend: str = "mem0") -> None:
         self.history_entries: list[SessionHistoryRecord] = []
-        self._remember_store = FakeRememberStore()
+        self._remember_store = FakeRememberStore(backend=backend)
         self.config = SimpleNamespace(backend=backend)
 
     def remember_store(self) -> FakeRememberStore:
@@ -649,6 +656,7 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent.workflow = workflow_with_prompts(
             remember_summary_prompt="今天是 ${PTT_CURRENT_TIME}。请整理结果。"
         )
+        agent.storage = FakeStorageService()
 
         with patch(
             "press_to_talk.agent.agent._runtime_current_time_text",
@@ -722,6 +730,7 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent.client = FakeClient("护照在书房抽屉里。")
         agent.model = "test-model"
         agent.workflow = workflow_with_prompts()
+        agent.storage = FakeStorageService(backend="mem0")
 
         raw_output = (
             '{"results":[{"id":"m1","memory":"护照在书房抽屉里","score":0.91,'
@@ -742,6 +751,59 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertNotIn("分数: 0.91", prompt)
         self.assertNotIn("记录时间:", prompt)
         self.assertNotIn("元数据:", prompt)
+
+    def test_sqlite_summary_payload_does_not_apply_mem0_threshold(self) -> None:
+        payload = {
+            "results": [
+                {"id": "m1", "memory": "今天牙不疼了", "score": 0.70},
+                {"id": "m2", "memory": "今天去把智齿拔了", "score": 0.67},
+            ]
+        }
+
+        extracted = extract_sqlite_summary_payload(payload)
+
+        self.assertEqual(
+            [item["memory"] for item in extracted["items"]],
+            ["今天牙不疼了", "今天去把智齿拔了"],
+        )
+
+    def test_remember_summary_uses_provider_extractor_for_sqlite_results(self) -> None:
+        agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
+        agent.client = FakeClient("你最近拔过智齿，今天还记了牙已经不疼。")
+        agent.model = "test-model"
+        agent.workflow = workflow_with_prompts()
+        agent.storage = FakeStorageService(backend="sqlite_fts5")
+
+        raw_output = json.dumps(
+            {
+                "results": [
+                    {
+                        "id": "m1",
+                        "memory": "今天牙不疼了",
+                        "score": 0.70,
+                        "created_at": "2026-04-18T09:30:00+08:00",
+                    },
+                    {
+                        "id": "m2",
+                        "memory": "今天去把智齿拔了",
+                        "score": 0.67,
+                        "created_at": "2026-04-18T08:30:00+08:00",
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+        summary = agent._summarize_remember_output(
+            "remember_find",
+            raw_output,
+            user_question="我最近是不是拔了颗牙",
+        )
+
+        self.assertEqual(summary, "你最近拔过智齿，今天还记了牙已经不疼。")
+        prompt = str(agent.client.chat.completions.calls[0]["messages"][1]["content"])
+        self.assertIn("2026-04-18: 今天牙不疼了", prompt)
+        self.assertIn("2026-04-18: 今天去把智齿拔了", prompt)
 
     def test_expand_env_placeholders_keeps_runtime_tokens_when_env_missing(
         self,
@@ -930,7 +992,8 @@ class HistoryWriterTests(unittest.TestCase):
                     mem0_api_key="mem0-key",
                     mem0_user_id="soj",
                     history_db_path=str(db_path),
-                )
+                ),
+                use_cli=False,
             )
 
             service.history_store().persist(
@@ -964,7 +1027,8 @@ class HistoryWriterTests(unittest.TestCase):
                     mem0_api_key="mem0-key",
                     mem0_user_id="soj",
                     history_db_path=str(db_path),
-                )
+                ),
+                use_cli=False,
             )
 
             service.history_store().persist(
@@ -1010,7 +1074,8 @@ class HistoryWriterTests(unittest.TestCase):
                 backend="mem0",
                 mem0_api_key="mem0-key",
                 mem0_user_id="soj",
-            )
+            ),
+            use_cli=False,
         )
 
         self.assertTrue(
@@ -1026,8 +1091,8 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertEqual(config.backend, "sqlite_fts5")
         self.assertEqual(config.mem0_user_id, "soj")
         self.assertEqual(config.mem0_app_id, "voice-assistant")
-        self.assertEqual(config.mem0_min_score, 0.8)
-        self.assertEqual(config.mem0_max_items, 3)
+        self.assertEqual(config.mem0_min_score, 0.7)
+        self.assertEqual(config.mem0_max_items, 10)
         self.assertTrue(
             config.history_db_path.endswith("data/voice_assistant_store.sqlite3")
         )
@@ -1090,7 +1155,8 @@ class HistoryWriterTests(unittest.TestCase):
         service = StorageService(
             StorageConfig(
                 backend="mem0",
-            )
+            ),
+            use_cli=False,
         )
 
         with self.assertRaisesRegex(RuntimeError, "MEM0_API_KEY"):
