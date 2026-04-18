@@ -19,11 +19,11 @@ find_release_binary() {
 }
 
 if BINARY_PATH="$(find_release_binary)"; then
-  exec "${BINARY_PATH}"
+  exec "${BINARY_PATH}" "$@"
 fi
 
 cd "${PACKAGE_DIR}"
 swift build -c release
 
 BINARY_PATH="$(find_release_binary)"
-exec "${BINARY_PATH}"
+exec "${BINARY_PATH}" "$@"
