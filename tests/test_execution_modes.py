@@ -168,13 +168,17 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             "press_to_talk.execution.memory_chat.build_storage_config",
             return_value=SimpleNamespace(),
         ):
-            messages = runner._build_messages("护照在哪")
+            messages = runner._build_messages(
+                "护照在哪",
+                intent={"intent": "chat", "notes": "开放问答"},
+                memory_context="1. 护照在书房抽屉里（记录时间：2026-04-18T10:00:00+08:00）",
+            )
 
         self.assertEqual(messages[0]["role"], "system")
         self.assertIn("先参考我提供的相关记忆", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "user")
         self.assertIn("护照在书房抽屉里", messages[1]["content"])
-        self.assertIn("如果相关记忆不足", messages[1]["content"])
+        self.assertIn("意图分析：chat", messages[1]["content"])
         self.assertIn("用户问题：护照在哪", messages[1]["content"])
 
     def test_runner_calls_openai_client_instead_of_hermes(self) -> None:
@@ -200,10 +204,128 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             return_value=fake_client,
         ):
             runner = MemoryChatExecutionRunner(cfg)
-            with patch.object(runner, "_build_messages", return_value=[{"role": "user", "content": "hi"}]):
+            with (
+                patch.object(runner, "_analyze_intent", return_value={"intent": "chat", "notes": ""}),
+                patch.object(runner, "_memory_context", return_value="记忆上下文"),
+                patch.object(runner, "_build_messages", return_value=[{"role": "user", "content": "hi"}]),
+            ):
                 reply = runner.run("usb测试版在哪")
 
         self.assertEqual(reply, "记忆聊天回复")
+
+    def test_runner_logs_intent_and_summary_steps(self) -> None:
+        from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
+
+        create_mock = patch(
+            "press_to_talk.execution.memory_chat.OpenAI",
+            return_value=SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(
+                        create=unittest.mock.Mock(
+                            side_effect=[
+                                SimpleNamespace(
+                                    choices=[
+                                        SimpleNamespace(
+                                            message=SimpleNamespace(
+                                                content='{"intent":"chat","notes":"开放问答"}'
+                                            )
+                                        )
+                                    ]
+                                ),
+                                SimpleNamespace(
+                                    choices=[
+                                        SimpleNamespace(
+                                            message=SimpleNamespace(
+                                                content="<think>先想一下</think>今天上证收盘我现在没法确认精确点位，但你可以让我继续查实时来源。"
+                                            )
+                                        )
+                                    ]
+                                ),
+                            ]
+                        )
+                    )
+                )
+            ),
+        )
+
+        cfg = SimpleNamespace(
+            llm_api_key="test-key",
+            llm_base_url="http://localhost:1234/v1",
+            llm_model="fast",
+        )
+
+        fake_store = SimpleNamespace(
+            find=lambda *, query: '{"items":[]}',
+            extract_summary_items=lambda raw: {"items": []},
+        )
+        fake_storage = SimpleNamespace(remember_store=lambda: fake_store)
+
+        with (
+            create_mock as openai_mock,
+            patch(
+                "press_to_talk.execution.memory_chat.StorageService",
+                return_value=fake_storage,
+            ),
+            patch(
+                "press_to_talk.execution.memory_chat.build_storage_config",
+                return_value=SimpleNamespace(),
+            ),
+            patch("press_to_talk.execution.memory_chat.log_llm_prompt") as prompt_log,
+            patch("press_to_talk.execution.memory_chat.log_multiline") as multiline_log,
+            patch("press_to_talk.execution.memory_chat.log") as log_mock,
+        ):
+            runner = MemoryChatExecutionRunner(cfg)
+            reply = runner.run("今天股市收盘多少")
+
+        self.assertEqual(
+            reply,
+            "今天上证收盘我现在没法确认精确点位，但你可以让我继续查实时来源。",
+        )
+        create = openai_mock.return_value.chat.completions.create
+        self.assertEqual(create.call_count, 2)
+        self.assertEqual(prompt_log.call_count, 2)
+        self.assertEqual(prompt_log.call_args_list[0].args[0], "memory-chat intent")
+        self.assertEqual(prompt_log.call_args_list[1].args[0], "memory-chat summary")
+        summary_messages = prompt_log.call_args_list[1].args[1]
+        self.assertIn("没有命中相关记忆。", summary_messages[1]["content"])
+        self.assertIn("继续根据你的知识和联网检索能力回答问题", summary_messages[0]["content"])
+        self.assertTrue(
+            any(call.args[0] == "memory-chat summary raw" for call in multiline_log.call_args_list)
+        )
+        self.assertTrue(
+            any(call.args[0] == "memory-chat summary cleaned" for call in multiline_log.call_args_list)
+        )
+        self.assertTrue(
+            any("memory-chat intent parsed" in call.args[0] for call in log_mock.call_args_list)
+        )
+
+    def test_runner_falls_back_to_chat_when_intent_analysis_fails(self) -> None:
+        from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
+
+        cfg = SimpleNamespace(
+            llm_api_key="test-key",
+            llm_base_url="http://localhost:1234/v1",
+            llm_model="fast",
+        )
+
+        with patch(
+            "press_to_talk.execution.memory_chat.OpenAI",
+            return_value=SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(
+                        create=unittest.mock.Mock(side_effect=RuntimeError("provider unavailable"))
+                    )
+                )
+            ),
+        ):
+            runner = MemoryChatExecutionRunner(cfg)
+            with patch("press_to_talk.execution.memory_chat.log") as log_mock:
+                intent = runner._analyze_intent("今天股市收盘多少")
+
+        self.assertEqual(intent, {"intent": "chat", "notes": ""})
+        self.assertTrue(
+            any("memory-chat intent analysis failed" in call.args[0] for call in log_mock.call_args_list)
+        )
 
 
 class CoreExecutionDispatchTests(unittest.TestCase):
