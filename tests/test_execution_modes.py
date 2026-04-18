@@ -67,6 +67,14 @@ class ExecutionModeConfigTests(unittest.TestCase):
                 workflow_data={},
             )
 
+    def test_parse_args_accepts_memory_chat_execution_mode(self) -> None:
+        config = self.parse_config(
+            ["--text-input", "你好", "--execution-mode", "memory-chat"],
+            workflow_data={},
+        )
+
+        self.assertEqual(config.execution_mode, "memory-chat")
+
 
 class HermesExecutionRunnerTests(unittest.TestCase):
     def test_runner_returns_reply_without_session_id_trailer(self) -> None:
@@ -129,8 +137,65 @@ class HermesExecutionRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "provider unavailable"):
                 runner.run("测试一下")
 
+    def test_runner_builds_memory_chat_prompt_with_remember_context_and_web_tools(self) -> None:
+        from press_to_talk.execution import HermesExecutionRunner
+
+        runner = HermesExecutionRunner(
+            SimpleNamespace(
+                workspace_root=Path("/tmp"),
+                memory_chat=True,
+                llm_api_key="test-key",
+                llm_base_url="",
+                llm_model="test-model",
+            )
+        )
+
+        fake_store = SimpleNamespace(
+            find=lambda *, query: '{"items":[{"memory":"护照在书房抽屉里","created_at":"2026-04-18T10:00:00+08:00"}]}',
+            extract_summary_items=lambda raw: {
+                "items": [
+                    {
+                        "memory": "护照在书房抽屉里",
+                        "created_at": "2026-04-18T10:00:00+08:00",
+                    }
+                ]
+            },
+        )
+        fake_storage = SimpleNamespace(remember_store=lambda: fake_store)
+
+        with patch(
+            "press_to_talk.execution.hermes.StorageService",
+            return_value=fake_storage,
+        ), patch(
+            "press_to_talk.execution.hermes.build_storage_config",
+            return_value=SimpleNamespace(),
+        ):
+            command = runner._build_command("护照在哪")
+
+        self.assertEqual(command[:3], ["hermes", "chat", "-q"])
+        prompt = command[3]
+        self.assertIn("请先参考下面命中的相关记忆", prompt)
+        self.assertIn("护照在书房抽屉里", prompt)
+        self.assertIn("需要联网时，优先使用 brave-search___search", prompt)
+        self.assertIn("必要时再用 fetch___fetch", prompt)
+        self.assertIn("用户问题：护照在哪", prompt)
+
 
 class CoreExecutionDispatchTests(unittest.TestCase):
+    def test_execute_transcript_routes_memory_chat_to_hermes_runner(self) -> None:
+        from press_to_talk.execution import execute_transcript
+
+        cfg = SimpleNamespace(execution_mode="memory-chat")
+
+        with patch(
+            "press_to_talk.execution.HermesExecutionRunner.run",
+            return_value="记忆聊天回复",
+        ) as hermes_run:
+            reply = execute_transcript(cfg, "usb测试版在哪")
+
+        self.assertEqual(reply, "记忆聊天回复")
+        hermes_run.assert_called_once_with("usb测试版在哪")
+
     def test_main_routes_text_input_through_execution_layer(self) -> None:
         cfg = SimpleNamespace(
             intent_samples_file=None,

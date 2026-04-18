@@ -97,7 +97,7 @@ def _workflow_default_execution_mode() -> str:
         return "intent"
 
     mode = str(execution.get("default_mode", "")).strip().lower()
-    if mode in {"intent", "hermes"}:
+    if mode in {"intent", "hermes", "memory-chat"}:
         return mode
     return "intent"
 
@@ -150,9 +150,9 @@ def parse_args(argv: list[str] | None = None) -> Config:
     )
     parser.add_argument(
         "--execution-mode",
-        choices=("intent", "hermes"),
+        choices=("intent", "hermes", "memory-chat"),
         default=None,
-        help="执行模式：intent 走本地意图链路，hermes 走 hermes chat 单轮执行",
+        help="执行模式：intent 走本地意图链路，hermes 走 hermes chat 单轮执行，memory-chat 先查记忆再联网聊天",
     )
     parser.add_argument(
         "--intent-samples-file",
@@ -217,7 +217,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         parser.error(
             "missing API key; set OPENAI_API_KEY in .env, or pass --api-key"
         )
-    if args.classify_only and execution_mode == "hermes":
+    if args.classify_only and execution_mode != "intent":
         parser.error("--classify-only is only available in intent execution mode")
 
     return Config(

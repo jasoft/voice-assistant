@@ -14,10 +14,13 @@ uv run press-to-talk
 uv run python -m press_to_talk --help
 uv run press-to-talk --text-input "帮我记住充电器是黑色的" --no-tts
 uv run press-to-talk --text-input "帮我找下护照在哪" --classify-only --no-tts
+uv run press-to-talk --execution-mode memory-chat --text-input "usb测试版在哪" --no-tts
 uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
 ```
 
 默认会直接调用系统里可用的 `qwen-tts` 命令，并使用 `--play --speaker serena --stream` 播报回复。
+
+`memory-chat` 模式会先按当前问题检索相关记忆，把命中的记忆作为上下文，再进入 `hermes chat`。需要联网时会优先提示使用 `brave-search___search`，必要时再用 `fetch___fetch` 抓取网页正文。
 
 ## 记忆功能
 

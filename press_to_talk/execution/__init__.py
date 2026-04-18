@@ -9,7 +9,7 @@ from .resolver import resolve_execution_mode
 
 def execute_transcript(cfg: Any, transcript: str) -> str:
     mode = resolve_execution_mode(cfg)
-    if mode == "hermes":
+    if mode in {"hermes", "memory-chat"}:
         return HermesExecutionRunner(cfg).run(transcript)
     return IntentExecutionRunner(cfg).run(transcript)
 
