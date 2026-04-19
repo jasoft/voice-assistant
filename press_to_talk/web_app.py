@@ -157,4 +157,6 @@ async def process_audio(audio: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 开启 reload=True 即可实现热重载
+    # 注意：使用 reload 时，建议传入 import 字符串字符串形式以提高稳定性
+    uvicorn.run("press_to_talk.web_app:app", host="0.0.0.0", port=8000, reload=True)
