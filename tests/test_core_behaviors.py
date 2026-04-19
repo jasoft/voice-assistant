@@ -299,7 +299,7 @@ class LogCapture:
     def __init__(self) -> None:
         self.messages: list[str] = []
 
-    def __call__(self, message: str) -> None:
+    def __call__(self, message: str, **kwargs: object) -> None:
         self.messages.append(message)
 
 

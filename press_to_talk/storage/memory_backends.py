@@ -794,6 +794,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             _keywords_from_match_query(match_query, query),
             query,
         ) or _tokenize_for_match(query)
+        log(f"remember search keywords: {json.dumps(keywords, ensure_ascii=False)}")
         with contextlib.closing(self._connect()) as conn:
             match_sql = "?"
             log(
@@ -815,6 +816,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 """,
                 (match_query, self.max_results),
             ).fetchall()
+            log(f"remember search fts5 rows: {len(rows)}")
             if not rows and keywords:
                 log(
                     "remember search fallback: "
@@ -870,6 +872,12 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     for keyword in primary_keywords
                 )
             ]
+        log(f"remember search final rows: {len(filtered_rows)}")
+        for idx, row in enumerate(filtered_rows):
+            memory_preview = str(row["memory"]).replace("\n", " ")[:60]
+            original_preview = str(row.get("original_text") or "").replace("\n", " ")[:60]
+            log(f"  [{idx}] id={row['id']} mem={memory_preview}... | orig={original_preview}...")
+
         results = [
             {
                 "id": str(row["id"]),
