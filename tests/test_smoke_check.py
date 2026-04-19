@@ -1,43 +1,55 @@
 import unittest
+import subprocess
+import sys
+import os
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import io
-from contextlib import redirect_stdout, redirect_stderr
-
-from press_to_talk import core
 
 class SmokeCheckTests(unittest.TestCase):
     """
-    Smoke tests that run the full core.main path with specific inputs,
-    matching the manual verification steps in AGENTS.md.
+    Real-world smoke tests that execute the actual installed CLI scripts
+    without mocking internal logic.
     """
 
-    def test_smoke_usb_test_board_lookup(self):
+    def test_smoke_real_command_execution(self):
         """
-        Equivalent to: uv run press-to-talk --text-input "usb测试版在哪" --no-tts
-        We use mocks for the LLM and DB to ensure it passes in CI/test environments,
-        but it exercises the full core.main routing.
+        Executes: ptt-voice start --text-input "usb测试版在哪" --no-tts
+        This test expects the local database and environment to be correctly configured.
+        It verifies the full chain from CLI parsing to LLM/DB response.
         """
-        # Mocking the dependencies to make it a reliable automated test
-        # that doesn't depend on live network/database.
-        with (
-            patch("press_to_talk.core.init_session_log", return_value=Path("/tmp/test.log")),
-            patch("press_to_talk.core.close_session_log"),
-            patch("press_to_talk.core.play_chime"),
-            patch("press_to_talk.core.execute_transcript", return_value="大王，书房白色柜子里有USB数据线测试板。") as execute_mock,
-            patch("press_to_talk.core.HistoryWriter.from_config") as history_mock,
-            redirect_stdout(io.StringIO()),
-            redirect_stderr(io.StringIO()) as stderr,
-        ):
-            # Run the command
-            args = ["--text-input", "usb测试版在哪", "--no-tts"]
-            exit_code = core.main(args)
-
-            # Assertions
-            self.assertEqual(exit_code, 0)
-            execute_mock.assert_called_once()
-            # Verify the output message was logged
-            self.assertIn("reply ready: 大王，书房白色柜子里有USB数据线测试板。", stderr.getvalue())
+        # We use sys.executable -m press_to_talk to ensure we use the same environment
+        # and don't depend on whether 'ptt-voice' is in the system PATH yet.
+        cmd = [
+            sys.executable, "-m", "press_to_talk",
+            "start",
+            "--text-input", "usb测试版在哪",
+            "--no-tts"
+        ]
+        
+        # Inherit the current environment (including .env loaded variables if any)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8"
+        )
+        
+        # 1. Check exit code
+        self.assertEqual(
+            result.returncode, 0, 
+            f"Command failed with exit code {result.returncode}\nStderr: {result.stderr}"
+        )
+        
+        # 2. Check if the logic actually found the item in the database.
+        # This matches the real knowledge stored in data/voice_assistant_store.sqlite3
+        output = result.stderr # Logging goes to stderr
+        self.assertIn("reply ready:", output)
+        # Check for core keywords in the real response from the database/LLM
+        self.assertIn("USB", output)
+        self.assertIn("测试板", output)
+        
+        # Verify it went through the core execution steps
+        self.assertIn("LLM intent parsed", output)
+        self.assertIn("history record persisted", output)
 
 if __name__ == "__main__":
     unittest.main()
