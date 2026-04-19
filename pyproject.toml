@@ -17,6 +17,9 @@ dependencies = [
   "rich>=13.7.0",
   "mcp>=1.2.1",
   "vibe-colored-logger>=0.1.7",
+  "fastapi>=0.110.0",
+  "uvicorn>=0.27.0",
+  "python-multipart>=0.0.9",
 ]
 
 [project.scripts]
