@@ -10,7 +10,7 @@
             "tools": ["remember_add"]
         },
         "find": {
-            "description": "查询数据库中可能已保存的信息。范围覆盖个人生活的方方面面，包括人物、宠物、物品、事件、地点、日期、偏好、状态、关系、安排、备注与历史记录。凡是个人场景下的 What、When、Which、Who、Where 等提问，默认优先本地查询。",
+            "description": "查询数据库中可能已保存的信息。范围覆盖个人生活的方方面面，包括人物、宠物、物品、事件、地点、日期、偏好、状态、关系、安排、备注与记忆内容。凡是个人场景下的 What、When、Which、Who、Where 等提问，默认优先本地查询。",
             "keywords": [
                 "记住",
                 "帮我记一下",
@@ -25,8 +25,8 @@
                 "哪些",
                 "查找"
             ],
-            "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询本地数据库。查询长期事实时使用 remember_find；查询之前的对话、历史记录、刚才说过什么时使用 history_find。回复必须控制在30字以内。",
-            "tools": ["remember_find", "history_find"]
+            "system_prompt": "你是一个信息查询助手。所有请求都默认查询本地记忆数据库 remember_find。回复必须控制在30字以内。",
+            "tools": ["remember_find"]
         },
         "chat": {
             "description": "兼容保留分支。当前分类器默认不应进入 chat。",
@@ -53,7 +53,7 @@
             "system_prompt": "你是一个信息记录助手。当我要保存信息时，直接调用 remember_add。数据库里只保存两个字段：我的原始表达 original_text，和你整理后的记忆 memory。memory 只允许把我的原话整理得更通顺、修正明显错字或听写错误，绝不能丢失任何细节，也不要新增细节；不要拆成 name、content、type、note 等字段。回复必须控制在30字以内。"
         },
         "find": {
-            "system_prompt": "你是一个信息查询助手。所有非记录类请求都默认先查询本地数据库。查询长期事实时使用 remember_find；查询之前的对话、历史记录、刚才说过什么时使用 history_find。回复必须控制在30字以内。"
+            "system_prompt": "你是一个信息查询助手。所有请求都默认查询本地记忆数据库 remember_find。回复必须控制在30字以内。"
         },
         "chat": {
             "system_prompt": "你是一个兼容保留分支。若误入此分支，也应优先引导回本地数据库查询，不主动做开放域聊天。"
@@ -71,7 +71,7 @@
                         "mode": "item|list|property"
                     }
                 },
-                "tool": "remember_add|remember_find|history_find",
+                "tool": "remember_add|remember_find",
                 "args": {
                     "memory": "",
                     "query": ""
@@ -80,18 +80,13 @@
                 "notes": "简短中文说明"
             },
             "instructions": [
-                "record 表示要记录或更新信息，task.record.memory 和 args.memory 要把用户原话整理成一句更通顺、适合长期保存和检索的中文记忆，只能整理语序和明显错字，绝不能丢失任何细节，也不要新增细节。",
-                "find 表示要查询数据库里可能已经存在的信息。若是找某个具体主题，task.find.mode 用 item；若是按属性或维度追问，mode 用 property。",
+                "record表示要记录或更新信息，tool必须填remember_add。",
+                "find表示要查询数据库里可能已经存在的信息。tool必须填remember_find。严禁输出remember_list、history_find或其它任何名称。",
                 "这是一个通用的个人生活数据库，不限于物品。人物、宠物、事件、地点、日期、偏好、状态、经历、提醒、安排、关系、健康、消费、账号、内容都可以属于记忆查询范围。",
-                "凡是用户在个人场景中问 What、When、Which、Who、Where、Why、How many、How much 这类问题，本质上都是在问数据库里是否记过相关事实，通常判成 find，不要缩窄成‘必须明确说之前记过’才算。",
-                "像“关于小狗的信息”“上海天气”“某个概念是什么意思”“帮我查新闻”这类问法，在本系统里也统一先判成 find，去数据库里查；如果数据库没有结果，后续自然返回没找到。",
-                "像“把我之前记的东西列出来”“把所有记录都列出来”“有哪些我记过的内容”这类请求，不支持列表枚举；仍判成 find。",
-                "find.args.query 必须直接保留用户原始问句，不要提炼关键词，不要改写，不要删减修饰词。比如“我的护照在哪里”就保留“我的护照在哪里”。",
-                "如果用户明确在查‘记录、历史、刚才/之前说过什么、会话内容’，tool 应给 history_find；其它数据库事实查询给 remember_find。",
-                "不要输出 chat、search 或 null；如果不是 record，就优先按 find 处理，并给出 remember_find 或 history_find。",
-                "不要过度解释，不要自行补充复杂推理；只做最小必要判断与抽取。",
-                "tool 必须给出后续应执行的工具名。",
-                "args 要与 tool 对齐，尽量填全；record 时至少填 memory；find 时至少填 query。",
+                "凡是用户在个人场景中问 What、When、Which、Who、Where、Why、How many、How much 这类问题，本质上都是在问数据库里是否记过相关事实，通常判成 find。",
+                "像“关于小狗的信息”“上海天气”“某个概念是什么意思”“帮我查新闻”这类问法，在本系统里也统一先判成 find，去数据库里查。",
+                "像“把我之前记的东西列出来”“把所有记录都列出来”“有哪些我记过的内容”这类请求，统一判成 find，使用 remember_find 查询。",
+                "find.args.query 必须直接保留用户原始问句，不要提炼关键词，不要改写，不要删减修饰词。",
                 "输出必须是单个 JSON 对象，不能加 markdown，不能加解释，不能加额外文本。"
             ],
             "examples": [
@@ -213,16 +208,29 @@
                     }
                 },
                 {
+                    "user": "我今天记了什么？",
+                    "assistant": {
+                        "intent": "find",
+                        "tool": "remember_find",
+                        "args": {
+                            "memory": "",
+                            "query": "我今天记了什么？"
+                        },
+                        "confidence": 0.99,
+                        "notes": "用户查询当日记忆"
+                    }
+                },
+                {
                     "user": "查询壮壮的记录",
                     "assistant": {
                         "intent": "find",
-                        "tool": "history_find",
+                        "tool": "remember_find",
                         "args": {
                             "memory": "",
                             "query": "查询壮壮的记录"
                         },
                         "confidence": 0.99,
-                        "notes": "用户在查询之前的历史记录"
+                        "notes": "用户在查询记忆数据库内容"
                     }
                 }
             ]

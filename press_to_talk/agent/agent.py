@@ -309,23 +309,6 @@ class OpenAICompatibleAgent:
                     },
                 },
             },
-            "history_find": {
-                "type": "function",
-                "function": {
-                    "name": "history_find",
-                    "description": "Find matching conversation history records.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "Search query for prior conversation records",
-                            }
-                        },
-                        "required": ["query"],
-                    },
-                },
-            },
         }
 
     async def _execute_remember_tool(self, name: str, args: dict) -> str:
@@ -353,112 +336,6 @@ class OpenAICompatibleAgent:
             return output
         except Exception as e:
             return f"Error executing {name}: {e}"
-
-    def _history_query_terms(self, query: str) -> list[str]:
-        cleaned_query = str(query or "").strip()
-        if not cleaned_query:
-            return []
-
-        terms: list[str] = [cleaned_query]
-        try:
-            rewriter = self.storage.keyword_rewriter()
-        except Exception as exc:
-            log(f"history query rewrite unavailable: {exc}", level="debug")
-            rewriter = None
-
-        if rewriter is None:
-            return terms
-
-        try:
-            rewritten_query = rewriter.rewrite(cleaned_query)
-            candidate_terms = re.findall(r'"([^"]+)"', rewritten_query)
-            if not candidate_terms:
-                candidate_terms = [
-                    part.strip().strip('"')
-                    for part in rewritten_query.split(" OR ")
-                    if part.strip()
-                ]
-            for candidate in candidate_terms:
-                normalized = str(candidate).strip()
-                if normalized and normalized not in terms:
-                    terms.append(normalized)
-                if len(terms) >= 2:
-                    break
-            log(
-                "history query terms: "
-                + json.dumps(terms, ensure_ascii=False, separators=(",", ":")),
-                level="debug"
-            )
-        except Exception as exc:
-            log(f"history query rewrite failed: {exc}", level="debug")
-        return terms
-
-    async def _execute_history_tool(self, name: str, args: dict) -> str:
-        log(
-            f"history tool request: name={name} args={json.dumps(args, ensure_ascii=False)}",
-            level="debug"
-        )
-        history_store = self.storage.history_store()
-        try:
-            if name != "history_find":
-                return f"Error: Unknown tool {name}"
-
-            query = str(args.get("query", "")).strip()
-            if not query:
-                return "[]"
-
-            matched_entries: dict[str, Any] = {}
-            for term in self._history_query_terms(query):
-                for entry in history_store.list_recent(limit=20, query=term):
-                    matched_entries[entry.session_id] = entry
-
-            ordered_entries = sorted(
-                matched_entries.values(),
-                key=lambda item: str(item.started_at),
-                reverse=True,
-            )
-            output = json.dumps(
-                [asdict(entry) for entry in ordered_entries], ensure_ascii=False
-            )
-            log(f"history tool result count: {len(ordered_entries)}", level="debug")
-            return output
-        except Exception as exc:
-            return f"Error executing {name}: {exc}"
-
-    def _summarize_history_output(
-        self,
-        raw_output: str,
-        *,
-        user_question: str = "",
-        query: str = "",
-    ) -> str:
-        cleaned = raw_output.strip()
-        if not cleaned:
-            return "大王，没有找到相关历史记录。"
-        if cleaned.startswith("Error:") or cleaned.startswith("Error executing "):
-            return cleaned
-
-        try:
-            payload = json.loads(cleaned)
-        except json.JSONDecodeError:
-            return cleaned
-
-        items = payload if isinstance(payload, list) else [payload]
-        history_items = [item for item in items if isinstance(item, dict)]
-        if not history_items:
-            return "大王，没有找到相关历史记录。"
-
-        lines = [f"大王，查到 {len(history_items)} 条相关历史记录："]
-        for item in history_items[:5]:
-            started_at = _memory_date_prefix(str(item.get("started_at", "")).strip())
-            transcript = str(item.get("transcript", "")).strip()
-            reply = str(item.get("reply", "")).strip()
-            content = transcript or reply or "（空白记录）"
-            if started_at:
-                lines.append(f"- {started_at}：{content}")
-            else:
-                lines.append(f"- {content}")
-        return "\n".join(lines)
 
     async def _summarize_remember_output(
         self,
@@ -608,25 +485,6 @@ class OpenAICompatibleAgent:
             return await self._summarize_remember_output(
                 tool_name, raw, user_question=user_input, query=search_query
             )
-        if tool_name == "history_find":
-            query = str(args.get("query", "")).strip() or user_input.strip()
-            if not query:
-                return "Error: structured history_find missing query"
-            raw = await self._execute_history_tool(tool_name, {"query": query})
-            
-            # --- 核心修改：非 chat-mode 兜底逻辑 ---
-            try:
-                payload = json.loads(raw)
-                if not payload:
-                    log("OpenAICompatibleAgent: no results found for history_find", level="info")
-                    return "大王，没有找到相关历史记录。"
-            except:
-                pass
-            # ------------------------------------
-
-            return self._summarize_history_output(
-                raw, user_question=user_input, query=query
-            )
         return None
 
     async def chat(self, user_input: str) -> str:
@@ -640,7 +498,7 @@ class OpenAICompatibleAgent:
         log(f"Detected intent branch: {intent_key}", level="info")
 
         tool_name = str(intent_payload.get("tool", "")).strip()
-        if tool_name not in {"remember_add", "remember_find", "history_find"}:
+        if tool_name not in {"remember_add", "remember_find"}:
             tool_name = "remember_add" if intent_key == "record" else "remember_find"
 
         reply = await self._execute_structured_tool(
