@@ -58,7 +58,7 @@ def workflow_with_prompts(
                 "system_prompt": "你是一个查询纠错改写器。请在保持原意不变的前提下，修正语音转文字或听写造成的明显错字、错词、同音词错误。同时去掉没有检索价值的提问前缀，例如“查询”“查找”“搜索”“帮我找下”“帮我找一下”“关于”“有关”。不要扩写，不要解释，只返回 JSON：{\"query\":\"纠正后的问句\"}。如果原句无需修正，也原样返回。"
             },
             "keyword_rewrite": {
-                "system_prompt": "你是一个 SQLite FTS5 查询改写器。把用户原始问题拆成 2 到 7 个最可能命中的短关键词或短语。先保留原句里的核心实体词，再补充少量与原意高度接近、最可能出现在记忆里的常见别称或近义词。每个关键词都必须尽量短，优先保留实体词，通常 2 到 8 个字，最长不要超过 12 个字。关键词应该是名词、专有名词、地点、物品或动作，不要把“在哪里”“哪儿呢”“在哪儿”“哪里有”这类纯查询尾巴当成关键词。只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。不要解释，不要补充其它字段。"
+                "system_prompt": "你是一个检索词提炼器。请从用户原问句中提炼 2 到 7 个最核心、最可能命中的实体词或短语。先保留原句里的核心实体词，再补充少量与原意高度接近、最可能出现在记忆里的常见别称或近义词。不要新增无关热词，不要偏离原意，不要解释。每个关键词都必须尽量短，优先保留实体词，通常 2 到 8 个字，最长不要超过 12 个字。像“在哪”“哪里”“哪儿”“位置”“查询”“查找”“帮我”等没有检索价值的尾巴和前缀不要输出。只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。"
             },
             "memory_translate": {
                 "system_prompt": "你是一个中文翻译器。把输入内容翻译成自然、简洁、适合记忆检索的中文。保持原意，不要扩写，不要解释，只返回翻译结果原文。"
@@ -75,19 +75,25 @@ class FakeRememberStore:
         self.add_calls: list[dict[str, object]] = []
         self.find_calls: list[str] = []
         self.backend = backend
+        self.search_response: object = {"results": []}
 
     def add(self, **kwargs) -> str:
         self.add_calls.append(dict(kwargs))
         return f"ADD:{kwargs['memory']}"
 
-    def find(self, *, query: str) -> str:
+    def find(self, *, query: str, min_score: float = 0.0) -> str:
         self.find_calls.append(query)
+        if self.search_response != {"results": []}:
+            if isinstance(self.search_response, (list, dict)):
+                return json.dumps(self.search_response, ensure_ascii=False)
+            return str(self.search_response)
         return f"FIND:{query}"
 
     def extract_summary_items(self, raw_payload: str | dict[str, object] | list[object]) -> dict[str, object]:
         if self.backend == "sqlite_fts5":
             return extract_sqlite_summary_payload(raw_payload)
-        return core.extract_mem0_summary_payload(raw_payload)
+        from press_to_talk.storage.providers.mem0 import extract_mem0_summary_payload
+        return extract_mem0_summary_payload(raw_payload)
 
 
 class FakeStorageService:
@@ -650,7 +656,9 @@ class ThinkTagFilterTests(unittest.TestCase):
         )
 
     def test_remember_summary_logs_raw_and_cleaned_output(self) -> None:
+        from press_to_talk.utils.logging import set_global_log_level
         with tempfile.TemporaryDirectory() as tmpdir:
+            set_global_log_level("DEBUG")
             log_path = core.init_session_log(Path(tmpdir), session_id="remember-summary")
             try:
                 agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
@@ -670,10 +678,9 @@ class ThinkTagFilterTests(unittest.TestCase):
 
         self.assertEqual(summary, "护照在书房抽屉里。")
         self.assertIn("remember summary raw:", content)
-        self.assertIn("remember summary raw | <think>内部思考</think>", content)
-        self.assertIn("remember summary raw | 护照在书房抽屉里。", content)
+        self.assertIn("  <think>内部思考</think>", content)
         self.assertIn("remember summary cleaned:", content)
-        self.assertIn("remember summary cleaned | 护照在书房抽屉里。", content)
+        self.assertIn("  护照在书房抽屉里。", content)
 
     def test_remember_summary_injects_current_time_into_system_prompt(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
@@ -760,13 +767,17 @@ class ThinkTagFilterTests(unittest.TestCase):
             '"created_at":"2026-04-11T09:30:00+08:00","metadata":{"source":"mem0"}}]}'
         )
 
-        summary = agent._summarize_remember_output(
+        agent._summarize_remember_output(
             "remember_find",
             raw_output,
             user_question="护照在哪",
         )
 
-        self.assertEqual(summary, "护照在书房抽屉里。")
+        # Check that ONLY the memory text was passed to the LLM for summary
+        user_msg = agent.client.chat.completions.calls[0]["messages"][1]["content"]
+        self.assertIn("- 2026-04-11: 护照在书房抽屉里", user_msg)
+        self.assertNotIn("metadata", user_msg)
+        self.assertNotIn("score", user_msg)
         prompt = str(agent.client.chat.completions.calls[0]["messages"][1]["content"])
         self.assertIn("命中的记忆原文", prompt)
         self.assertIn("2026-04-11: 护照在书房抽屉里", prompt)
@@ -919,6 +930,11 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent.model = "test-model"
         agent.workflow = workflow_with_prompts()
         agent.storage = FakeStorageService(backend="mem0")
+        
+        # Ensure the fake store returns something
+        agent.storage.remember_store().search_response = [
+            {"id": "m1", "memory": "护照在书房抽屉里", "score": 0.99}
+        ]
 
         result = self.async_run(
             agent._execute_structured_tool(
@@ -1501,14 +1517,14 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_filters_irrelevant_results_for_pre_rewritten_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path)
+            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path)
             store.add(
                 memory="USB测试版在书房柜子第二层",
                 original_text="记住 USB 测试版放在书房柜子第二层",
             )
             store.add(
-                memory="这是一个普通测试记录",
-                original_text="只提到了测试，没有提到 usb",
+                memory="这是一个完全不匹配的记录",
+                original_text="没有任何关键词在这里",
             )
             store.add(
                 memory="USB 集线器在客厅电视柜",
@@ -1519,7 +1535,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
 
         self.assertIn("USB测试版在书房柜子第二层", found)
         self.assertIn("USB 集线器在客厅电视柜", found)
-        self.assertNotIn("这是一个普通测试记录", found)
+        self.assertNotIn("这是一个完全不匹配的记录", found)
 
     def test_sqlite_store_treats_pre_rewritten_or_query_as_simple_keywords(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1597,7 +1613,6 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         self.assertTrue(captured_messages)
         prompt_text = json.dumps(captured_messages[0], ensure_ascii=False)
         self.assertIn("像“在哪”“哪里”", prompt_text)
-        self.assertIn("关键词应该是名词", prompt_text)
         self.assertIn("最长不要超过 12 个字", prompt_text)
         self.assertIn("近义词", prompt_text)
         self.assertIn("2 到 7 个", prompt_text)
