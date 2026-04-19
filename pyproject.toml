@@ -36,4 +36,13 @@ include = ["press_to_talk*"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "poethepoet>=0.25.0",
 ]
+
+[tool.poe.tasks]
+web = "python3 -m press_to_talk.web_app"
+ptt = "ptt-voice --text-input"
+voice = "ptt-voice"
+doctor = "ptt-voice doctor"
+storage = "ptt-storage"
+test = "pytest"
