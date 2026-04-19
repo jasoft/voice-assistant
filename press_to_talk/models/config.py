@@ -61,6 +61,14 @@ def resolve_remember_script_path() -> Path:
     return default_remember_script_path()
 
 def resolve_text_input(args: argparse.Namespace) -> str | None:
+    if args.text_input == "-":
+        import sys
+
+        if not sys.stdin.isatty():
+            content = sys.stdin.read().strip()
+            return content or None
+        return None
+
     if args.text_input and args.text_input.strip():
         return args.text_input.strip()
     if args.text_file:
@@ -139,7 +147,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
     text_group.add_argument(
         "--text-input",
         default=None,
-        help="直接注入文本做链路测试，跳过录音和 STT",
+        help="直接注入文本做链路测试，跳过录音和 STT。传入 '-' 表示从 stdin 读取管道输入。",
     )
     text_group.add_argument(
         "--text-file",
