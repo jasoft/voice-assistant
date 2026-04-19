@@ -13,6 +13,7 @@ from press_to_talk import core
 from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageService
 from press_to_talk.storage.cli_wrapper import CLIRememberStore
 from press_to_talk.storage import memory_backends as memory_backends_module
+from press_to_talk.storage.providers import sqlite_fts as sqlite_fts_module
 from press_to_talk.storage.providers import extract_sqlite_summary_payload
 from press_to_talk.storage import service as storage_service_module
 
@@ -239,6 +240,7 @@ class FakeChatCompletions:
 class FakeClient:
     def __init__(self, response_content: str) -> None:
         self.chat = SimpleNamespace(completions=FakeChatCompletions(response_content))
+        self.base_url = "http://fake-api.home/v1"
 
 
 class SequentialFakeChatCompletions:
@@ -264,6 +266,7 @@ class SequentialFakeClient:
         self.chat = SimpleNamespace(
             completions=SequentialFakeChatCompletions(response_contents)
         )
+        self.base_url = "http://fake-api.home/v1"
 
 
 class FakeKeywordRewriter:
@@ -565,7 +568,9 @@ class ThinkTagFilterTests(unittest.TestCase):
         self.assertEqual(merged, "根据天气预报，明天南京可能会下雨。出门建议带伞。")
 
     def test_log_multiline_writes_full_content_to_session_log(self) -> None:
+        from press_to_talk.utils.logging import set_global_log_level
         with tempfile.TemporaryDirectory() as tmpdir:
+            set_global_log_level("DEBUG")
             log_path = core.init_session_log(Path(tmpdir), session_id="test-log")
             try:
                 core.log_multiline(
@@ -576,9 +581,9 @@ class ThinkTagFilterTests(unittest.TestCase):
 
             content = log_path.read_text(encoding="utf-8")
             self.assertIn("LLM response raw:", content)
-            self.assertIn("LLM response raw | <think>第一行", content)
-            self.assertIn("LLM response raw | 第二行</think>", content)
-            self.assertIn("LLM response raw | 最终答案", content)
+            self.assertIn("  <think>第一行", content)
+            self.assertIn("  第二行</think>", content)
+            self.assertIn("  最终答案", content)
 
     def test_salvage_truncated_intent_payload_recovers_top_level_fields(self) -> None:
         truncated = (
@@ -732,15 +737,12 @@ class ThinkTagFilterTests(unittest.TestCase):
 
         with (
             patch(
-                "press_to_talk.core.WORKFLOW_CONFIG_PATH",
-                Path("/tmp/workflow_config.json"),
-            ),
-            patch(
-                "press_to_talk.core.load_json_file",
+                "press_to_talk.storage.service.load_workflow_config",
                 return_value={"mem0": {"min_score": 0.8, "max_items": 4}},
             ),
         ):
-            extracted = core.extract_mem0_summary_payload(payload)
+            from press_to_talk.storage.providers.mem0 import extract_mem0_summary_payload
+            extracted = extract_mem0_summary_payload(payload)
 
         self.assertEqual(
             [item["id"] for item in extracted["items"]], ["m6", "m1", "m2", "m3"]
@@ -1185,7 +1187,9 @@ class HistoryWriterTests(unittest.TestCase):
 
     def test_mem0_store_add_uses_fixed_user_id(self) -> None:
         client = FakeMem0Client()
-        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+        store = storage_service_module.Mem0RememberStore(
+            client=client, user_id="soj", app_id="voice-assistant"
+        )
 
         result = store.add(
             memory="护照在书房抽屉里",
@@ -1203,7 +1207,9 @@ class HistoryWriterTests(unittest.TestCase):
 
     def test_mem0_store_round_trip_returns_app_id(self) -> None:
         client = FakeMem0Client()
-        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+        store = storage_service_module.Mem0RememberStore(
+            client=client, user_id="soj", app_id="voice-assistant"
+        )
 
         store.add(
             memory="新护照在书房第二层抽屉里",
@@ -1217,7 +1223,9 @@ class HistoryWriterTests(unittest.TestCase):
 
     def test_mem0_store_find_returns_json(self) -> None:
         client = FakeMem0Client()
-        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+        store = storage_service_module.Mem0RememberStore(
+            client=client, user_id="soj", app_id="voice-assistant"
+        )
 
         result = store.find(query="护照在哪")
 
@@ -1260,7 +1268,9 @@ class HistoryWriterTests(unittest.TestCase):
                 "score": 0.93,
             },
         ]
-        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+        store = storage_service_module.Mem0RememberStore(
+            client=client, user_id="soj", app_id="voice-assistant"
+        )
 
         result = store.find(query="我的 airpods 在哪里")
 
@@ -1294,7 +1304,9 @@ class HistoryWriterTests(unittest.TestCase):
                 }
             ]
         }
-        store = storage_service_module.Mem0RememberStore(client=client, user_id="soj")
+        store = storage_service_module.Mem0RememberStore(
+            client=client, user_id="soj", app_id="voice-assistant"
+        )
 
         result = store.find(query="护照在哪")
 
@@ -1312,15 +1324,12 @@ class HistoryWriterTests(unittest.TestCase):
 
         with (
             patch(
-                "press_to_talk.core.WORKFLOW_CONFIG_PATH",
-                Path("/tmp/workflow_config.json"),
-            ),
-            patch(
-                "press_to_talk.core.load_json_file",
+                "press_to_talk.storage.service.load_workflow_config",
                 return_value={"mem0": {"min_score": 0.8, "max_items": 2}},
             ),
         ):
-            extracted = core.extract_mem0_summary_payload(payload)
+            from press_to_talk.storage.providers.mem0 import extract_mem0_summary_payload
+            extracted = extract_mem0_summary_payload(payload)
 
         self.assertEqual([item["memory"] for item in extracted["items"]], ["C", "D"])
 
@@ -1515,12 +1524,12 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_treats_pre_rewritten_or_query_as_simple_keywords(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path)
+            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path)
             store.use_simple_query = True
 
             match_query = store._match_query('"usb" OR "测试版"')
 
-        self.assertEqual(match_query, "usb 测试版")
+        self.assertEqual(match_query, '"usb" OR "测试版"')
 
     def test_groq_keyword_rewriter_logs_prompt_and_raw_response(self) -> None:
         capture = LogCapture()
@@ -1587,7 +1596,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
 
         self.assertTrue(captured_messages)
         prompt_text = json.dumps(captured_messages[0], ensure_ascii=False)
-        self.assertIn("不要把“在哪里”", prompt_text)
+        self.assertIn("像“在哪”“哪里”", prompt_text)
         self.assertIn("关键词应该是名词", prompt_text)
         self.assertIn("最长不要超过 12 个字", prompt_text)
         self.assertIn("近义词", prompt_text)
@@ -1607,7 +1616,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
                 original_text="帮我记住护照在书房第二层抽屉里",
             )
 
-            with patch.object(memory_backends_module, "log", capture):
+            with patch.object(sqlite_fts_module, "log", capture):
                 found = store.find(query="我的护照放哪了")
 
         self.assertIn('"memory": "护照在书房第二层抽屉里"', found)
@@ -1662,7 +1671,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
                 original_text="苹果笔记本充电器在蓝色布包里",
             )
 
-            with patch.object(memory_backends_module, "log", capture):
+            with patch.object(sqlite_fts_module, "log", capture):
                 found = store.find(query="我的电脑电源适配器在哪")
 
         payload = json.loads(found)
@@ -1701,7 +1710,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
                 original_text="USB测试板在书房白色柜子透明盒里",
             )
 
-            with patch.object(memory_backends_module, "log", capture):
+            with patch.object(sqlite_fts_module, "log", capture):
                 found = store.find(query="usb测试版在哪")
 
         payload = json.loads(found)

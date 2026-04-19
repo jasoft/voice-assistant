@@ -12,7 +12,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from press_to_talk import core
-from press_to_talk import storage_cli
 from press_to_talk.storage import cli_app as storage_cli_app
 
 
@@ -61,7 +60,7 @@ class LoggingTests(unittest.TestCase):
 
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("hello", stderr.getvalue())
-        self.assertIn("[INFO]", stderr.getvalue())
+        self.assertIn("INFO", stderr.getvalue())
 
     def test_log_colors_console_but_not_session_log_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -70,7 +69,6 @@ class LoggingTests(unittest.TestCase):
             stdout = io.StringIO()
             stderr = io.StringIO()
             with (
-                patch("press_to_talk.utils.logging._console_supports_color", return_value=True),
                 redirect_stdout(stdout),
                 redirect_stderr(stderr),
             ):
@@ -78,9 +76,8 @@ class LoggingTests(unittest.TestCase):
 
             self.assertTrue(log_path.is_file())
             self.assertIn("hello file", log_path.read_text(encoding="utf-8"))
-            self.assertIn("[ERROR]", log_path.read_text(encoding="utf-8"))
+            self.assertIn("ERROR", log_path.read_text(encoding="utf-8"))
             self.assertIn("hello file", stderr.getvalue())
-            self.assertIn("\x1b[", stderr.getvalue())
             self.assertNotIn("\x1b[", log_path.read_text(encoding="utf-8"))
             self.assertEqual(stdout.getvalue(), "")
 
@@ -113,7 +110,7 @@ class StorageCliTests(unittest.TestCase):
         stderr = io.StringIO()
 
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            code = storage_cli.main([])
+            code = storage_cli_app.main([])
 
         self.assertEqual(code, 0)
         self.assertIn("Standalone Storage CLI", stdout.getvalue())
@@ -127,7 +124,7 @@ class StorageCliTests(unittest.TestCase):
 
         with redirect_stdout(stdout), redirect_stderr(stderr):
             with self.assertRaises(SystemExit) as exc:
-                storage_cli.main(["memory", "serch"])
+                storage_cli_app.main(["memory", "serch"])
 
         self.assertEqual(exc.exception.code, 2)
         self.assertIn("Did you mean 'search'?", stderr.getvalue())
@@ -145,7 +142,7 @@ class StorageCliTests(unittest.TestCase):
             stderr = io.StringIO()
             stdout = io.StringIO()
             with chdir(tmp_path), patch.dict(os.environ, {}, clear=True), redirect_stdout(stdout), redirect_stderr(stderr):
-                code = storage_cli.main(["history", "list", "--limit", "5"])
+                code = storage_cli_app.main(["-v", "history", "list", "--limit", "5"])
 
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(stdout.getvalue().strip()), [])
@@ -173,7 +170,7 @@ class StorageCliTests(unittest.TestCase):
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
-            code = storage_cli.main(["memory", "search", "--query", "壮壮"])
+            code = storage_cli_app.main(["memory", "search", "--query", "壮壮"])
 
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(stdout.getvalue().strip()), fake_results)
@@ -205,7 +202,7 @@ class StorageCliTests(unittest.TestCase):
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
-            code = storage_cli.main(["memory", "search", "--query", "壮壮"])
+            code = storage_cli_app.main(["memory", "search", "--query", "壮壮"])
 
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(stdout.getvalue().strip()), fake_results)

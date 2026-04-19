@@ -180,6 +180,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             llm_base_url="http://localhost:1234/v1",
             llm_model="fast",
             llm_summarize_model="summary-fast",
+            remember_script=Path("/tmp/remember.py"),
         )
 
         fake_intent_runner = SimpleNamespace(
@@ -204,7 +205,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
                     "_analyze_intent",
                     return_value={"intent": "record", "notes": "用户要记录事实"},
                 ),
-                patch.object(runner, "_memory_context") as memory_context_mock,
+                patch.object(runner, "_memory_context_items") as memory_context_mock,
                 patch.object(runner, "_build_messages") as build_messages_mock,
             ):
                 reply = runner.run("记录一下, 杜甫是外星人")
@@ -274,6 +275,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             llm_base_url="http://localhost:1234/v1",
             llm_model="fast",
             llm_summarize_model="summary-fast",
+            remember_script=Path("/tmp/remember.py"),
         )
 
         with patch(
@@ -283,7 +285,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             runner = MemoryChatExecutionRunner(cfg)
             with (
                 patch.object(runner, "_analyze_intent", return_value={"intent": "chat", "notes": ""}),
-                patch.object(runner, "_memory_context", return_value="记忆上下文"),
+                patch.object(runner, "_memory_context_items", return_value=[{"memory": "记忆内容"}]),
                 patch.object(runner, "_build_messages", return_value=[{"role": "user", "content": "hi"}]),
             ):
                 reply = runner.run("usb测试版在哪")
@@ -330,6 +332,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             llm_base_url="http://localhost:1234/v1",
             llm_model="fast",
             llm_summarize_model="summary-fast",
+            remember_script=Path("/tmp/remember.py"),
         )
 
         fake_store = SimpleNamespace(
@@ -418,17 +421,20 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             llm_base_url="",
             llm_model="fast",
             llm_summarize_model="summary-fast",
+            remember_script=Path("/tmp/remember.py"),
         )
 
-        fake_runner = SimpleNamespace(run=unittest.mock.Mock(return_value="数据库回复"))
-        with patch(
-            "press_to_talk.execution.IntentExecutionRunner",
-            return_value=fake_runner,
-        ):
+        with patch("press_to_talk.execution.build_master_tree") as build_mock:
+            fake_tree = unittest.mock.Mock()
+            def set_reply(bb):
+                bb.reply = "行为树回复"
+            fake_tree.tick.side_effect = set_reply
+            build_mock.return_value = fake_tree
+            
             reply = execute_transcript(cfg, "usb测试版在哪")
 
-        self.assertEqual(reply, "数据库回复")
-        fake_runner.run.assert_called_once_with("usb测试版在哪")
+        self.assertEqual(reply, "行为树回复")
+        build_mock.assert_called_once()
 
     def test_execute_transcript_routes_memory_chat_to_memory_chat_runner(self) -> None:
         from press_to_talk.execution import execute_transcript
@@ -438,16 +444,20 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             llm_api_key="test-key",
             llm_base_url="",
             llm_model="fast",
+            remember_script=Path("/tmp/remember.py"),
         )
 
-        with patch(
-            "press_to_talk.execution.MemoryChatExecutionRunner.run",
-            return_value="记忆聊天回复",
-        ) as memory_chat_run:
+        with patch("press_to_talk.execution.build_master_tree") as build_mock:
+            fake_tree = unittest.mock.Mock()
+            def set_reply(bb):
+                bb.reply = "记忆聊天回复"
+            fake_tree.tick.side_effect = set_reply
+            build_mock.return_value = fake_tree
+            
             reply = execute_transcript(cfg, "usb测试版在哪")
 
         self.assertEqual(reply, "记忆聊天回复")
-        memory_chat_run.assert_called_once_with("usb测试版在哪")
+        build_mock.assert_called_once()
 
     def test_main_routes_text_input_through_execution_layer(self) -> None:
         cfg = SimpleNamespace(
@@ -480,7 +490,7 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             patch.object(core.HistoryWriter, "from_config", return_value=fake_history_writer),
             patch.object(core, "init_session_log", return_value=Path("/tmp/session.log")),
             patch.object(core, "close_session_log"),
-            patch.object(core, "log"),
+            patch.object(core, "log") as log_mock,
             patch.object(core, "log_timing"),
             patch.object(core, "execute_transcript", return_value="Hermes 回复") as execute_mock,
             patch("builtins.print") as print_mock,
@@ -489,7 +499,8 @@ class CoreExecutionDispatchTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         execute_mock.assert_called_once_with(cfg, "你好")
-        print_mock.assert_called_once_with("Hermes 回复")
+        # Now we assert on log calls instead of print
+        self.assertTrue(any("reply ready: Hermes 回复" in str(call) for call in log_mock.call_args_list))
 
 
 if __name__ == "__main__":
