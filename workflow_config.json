@@ -74,7 +74,9 @@
                 "tool": "remember_add|remember_find",
                 "args": {
                     "memory": "",
-                    "query": ""
+                    "query": "",
+                    "start_date": "YYYY-MM-DD",
+                    "end_date": "YYYY-MM-DD"
                 },
                 "confidence": 0.0,
                 "notes": "简短中文说明"
@@ -82,6 +84,8 @@
             "instructions": [
                 "record表示要记录或更新信息，tool必须填remember_add。",
                 "find表示要查询数据库里可能已经存在的信息。tool必须填remember_find。严禁输出remember_list、history_find或其它任何名称。",
+                "今天是 ${PTT_CURRENT_TIME}。如果用户询问特定时间段（今天、昨天、最近三天、上周等）的记录，请在 find.args 中填入具体的 start_date 和 end_date（格式 YYYY-MM-DD）。",
+                "如果用户问“今天记了什么”，start_date 和 end_date 均为今天；如果问“最近一周”，start_date 为 7 天前，end_date 为今天。",
                 "这是一个通用的个人生活数据库，不限于物品。人物、宠物、事件、地点、日期、偏好、状态、经历、提醒、安排、关系、健康、消费、账号、内容都可以属于记忆查询范围。",
                 "凡是用户在个人场景中问 What、When、Which、Who、Where、Why、How many、How much 这类问题，本质上都是在问数据库里是否记过相关事实，通常判成 find。",
                 "像“关于小狗的信息”“上海天气”“某个概念是什么意思”“帮我查新闻”这类问法，在本系统里也统一先判成 find，去数据库里查。",
@@ -214,10 +218,27 @@
                         "tool": "remember_find",
                         "args": {
                             "memory": "",
-                            "query": "我今天记了什么？"
+                            "query": "我今天记了什么？",
+                            "start_date": "2026-04-20",
+                            "end_date": "2026-04-20"
                         },
                         "confidence": 0.99,
                         "notes": "用户查询当日记忆"
+                    }
+                },
+                {
+                    "user": "最近一周的记录有哪些？",
+                    "assistant": {
+                        "intent": "find",
+                        "tool": "remember_find",
+                        "args": {
+                            "memory": "",
+                            "query": "最近一周的记录有哪些？",
+                            "start_date": "2026-04-13",
+                            "end_date": "2026-04-20"
+                        },
+                        "confidence": 0.99,
+                        "notes": "用户查询最近一周记忆"
                     }
                 },
                 {

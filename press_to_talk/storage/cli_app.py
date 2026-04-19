@@ -179,6 +179,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.5,
         help="Minimum score threshold for search results (default: 0.5).",
     )
+    m_search.add_argument(
+        "--start-date",
+        help="Start date for range query (YYYY-MM-DD).",
+    )
+    m_search.add_argument(
+        "--end-date",
+        help="End date for range query (YYYY-MM-DD).",
+    )
     m_del = memory_sub.add_parser(
         "delete",
         help="Delete one memory entry by id",
@@ -315,7 +323,12 @@ def main(argv: list[str] | None = None) -> int:
 
             service = StorageService(config, use_cli=False)
             if args.category == "memory" and args.command == "search":
-                print(service.remember_store().find(query=args.query, min_score=args.min_score))
+                print(service.remember_store().find(
+                    query=args.query,
+                    min_score=args.min_score,
+                    start_date=args.start_date,
+                    end_date=args.end_date
+                ))
                 exit_code = 0
             elif args.category == "memory" and args.command == "export":
                 target_store = service.build_export_target_store(args.to_provider)

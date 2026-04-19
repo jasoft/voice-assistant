@@ -329,7 +329,13 @@ class OpenAICompatibleAgent:
                 )
             elif name == "remember_find":
                 query = str(args.get("query", ""))
-                output = remember_store.find(query=query)
+                start_date = args.get("start_date")
+                end_date = args.get("end_date")
+                output = remember_store.find(
+                    query=query, 
+                    start_date=start_date, 
+                    end_date=end_date
+                )
             else:
                 return f"Error: Unknown tool {name}"
             log(f"remember tool result: {output}", level="debug")
@@ -469,10 +475,19 @@ class OpenAICompatibleAgent:
             )
         if tool_name == "remember_find":
             query = str(args.get("query", "")).strip()
+            start_date = args.get("start_date")
+            end_date = args.get("end_date")
             search_query = user_input.strip() or query
-            if not search_query:
-                return "Error: structured remember_find missing query"
-            raw = await self._execute_remember_tool(tool_name, {"query": search_query})
+            if not search_query and not (start_date or end_date):
+                return "Error: structured remember_find missing query or date range"
+            raw = await self._execute_remember_tool(
+                tool_name, 
+                {
+                    "query": search_query,
+                    "start_date": start_date,
+                    "end_date": end_date
+                }
+            )
             
             # --- 核心修改：非 chat-mode 兜底逻辑 ---
             # 只有在 remember_find 没找到结果时，才需要考虑是否结束

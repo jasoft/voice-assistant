@@ -51,10 +51,17 @@ class ExecuteSearchAction(Action):
             intent_key = bb.intent.get("intent", "find")
             args = bb.intent.get("args", {})
             query = args.get("query") or bb.transcript
+            start_date = args.get("start_date")
+            end_date = args.get("end_date")
             
             if intent_key == "find" or bb.mode == "memory-chat":
                 remember_store = agent.storage.remember_store()
-                raw = remember_store.find(query=query)
+                # 如果有日期范围，优先透传
+                raw = remember_store.find(
+                    query=query, 
+                    start_date=start_date, 
+                    end_date=end_date
+                )
                 bb.memories_raw = raw
                 extracted = remember_store.extract_summary_items(raw)
                 bb.memories = extracted.get("items", [])

@@ -721,7 +721,49 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         )
         return rewritten_query
 
-    def find(self, *, query: str, min_score: float = 0.0) -> str:
+    def find(
+        self,
+        *,
+        query: str,
+        min_score: float = 0.0,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> str:
+        # 1. 优先处理日期范围查询（大王要求的偷懒模式）
+        if start_date or end_date:
+            log(f"remember search mode: date range ({start_date} to {end_date})")
+            with contextlib.closing(self._connect()) as conn:
+                # 构造 SQL，加上安全阀（最多 100 条）
+                sql = f"SELECT id, memory, original_text, created_at, updated_at FROM {self.table_name} WHERE 1=1"
+                params: list[Any] = []
+                if start_date:
+                    # 我们假设日期是 YYYY-MM-DD 格式，直接字符串比较
+                    sql += " AND created_at >= ?"
+                    params.append(f"{start_date}T00:00:00")
+                if end_date:
+                    sql += " AND created_at <= ?"
+                    params.append(f"{end_date}T23:59:59")
+                
+                sql += " ORDER BY created_at DESC LIMIT 100"
+                
+                rows = conn.execute(sql, params).fetchall()
+                log(f"remember search date range rows: {len(rows)}")
+                
+                results = [
+                    {
+                        "id": str(row["id"]),
+                        "memory": str(row["memory"]),
+                        "original_text": str(row["original_text"]),
+                        "created_at": format_local_datetime(str(row["created_at"])),
+                        "updated_at": format_local_datetime(str(row["updated_at"])),
+                        "score": 1.0, # 时间范围查询默认高置信度，交给 LLM 筛选
+                        "metadata": {"original_text": str(row["original_text"])},
+                    }
+                    for row in rows
+                ]
+                return json.dumps({"results": results}, ensure_ascii=False)
+
+        # 2. 正常的关键词和向量搜索流程
         match_query = self._match_query(query)
         if not match_query:
             semantic_results = []

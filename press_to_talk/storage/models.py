@@ -73,7 +73,14 @@ class BaseRememberStore:
     def add(self, *, memory: str, original_text: str = "") -> str:
         raise NotImplementedError
 
-    def find(self, *, query: str, min_score: float = 0.0) -> str:
+    def find(
+        self,
+        *,
+        query: str,
+        min_score: float = 0.0,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> str:
         raise NotImplementedError
 
     def extract_summary_items(

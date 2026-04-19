@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -184,14 +185,14 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
         )
 
         fake_intent_runner = SimpleNamespace(
-            run=unittest.mock.Mock(return_value="已记录：杜甫是外星人")
+            run_async=unittest.mock.AsyncMock(return_value="已记录：杜甫是外星人")
         )
 
         with patch(
-            "press_to_talk.execution.memory_chat.OpenAI",
+            "press_to_talk.execution.memory_chat.AsyncOpenAI",
             return_value=SimpleNamespace(
                 chat=SimpleNamespace(
-                    completions=SimpleNamespace(create=unittest.mock.Mock())
+                    completions=SimpleNamespace(create=unittest.mock.AsyncMock())
                 )
             ),
         ), patch(
@@ -202,7 +203,8 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             with (
                 patch.object(
                     runner,
-                    "_analyze_intent",
+                    "_analyze_intent_async",
+                    new_callable=unittest.mock.AsyncMock,
                     return_value={"intent": "record", "notes": "用户要记录事实"},
                 ),
                 patch.object(runner, "_memory_context_items") as memory_context_mock,
@@ -211,7 +213,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
                 reply = runner.run("记录一下, 杜甫是外星人")
 
         self.assertEqual(reply, "已记录：杜甫是外星人")
-        fake_intent_runner.run.assert_called_once_with("记录一下, 杜甫是外星人")
+        fake_intent_runner.run_async.assert_called_once_with("记录一下, 杜甫是外星人")
         memory_context_mock.assert_not_called()
         build_messages_mock.assert_not_called()
 
@@ -266,7 +268,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
         )
         fake_client = SimpleNamespace(
             chat=SimpleNamespace(
-                completions=SimpleNamespace(create=lambda **kwargs: fake_response)
+                completions=SimpleNamespace(create=unittest.mock.AsyncMock(return_value=fake_response))
             )
         )
 
@@ -279,12 +281,12 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
         )
 
         with patch(
-            "press_to_talk.execution.memory_chat.OpenAI",
+            "press_to_talk.execution.memory_chat.AsyncOpenAI",
             return_value=fake_client,
         ):
             runner = MemoryChatExecutionRunner(cfg)
             with (
-                patch.object(runner, "_analyze_intent", return_value={"intent": "chat", "notes": ""}),
+                patch.object(runner, "_analyze_intent_async", new_callable=unittest.mock.AsyncMock, return_value={"intent": "chat", "notes": ""}),
                 patch.object(runner, "_memory_context_items", return_value=[{"memory": "记忆内容"}]),
                 patch.object(runner, "_build_messages", return_value=[{"role": "user", "content": "hi"}]),
             ):
@@ -296,11 +298,11 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
         from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
 
         create_mock = patch(
-            "press_to_talk.execution.memory_chat.OpenAI",
+            "press_to_talk.execution.memory_chat.AsyncOpenAI",
             return_value=SimpleNamespace(
                 chat=SimpleNamespace(
                     completions=SimpleNamespace(
-                        create=unittest.mock.Mock(
+                        create=unittest.mock.AsyncMock(
                             side_effect=[
                                 SimpleNamespace(
                                     choices=[
@@ -382,7 +384,8 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             any("memory-chat intent parsed" in call.args[0] for call in log_mock.call_args_list)
         )
 
-    def test_runner_falls_back_to_chat_when_intent_analysis_fails(self) -> None:
+    @pytest.mark.anyio
+    async def test_runner_falls_back_to_chat_when_intent_analysis_fails(self) -> None:
         from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
 
         cfg = SimpleNamespace(
@@ -392,18 +395,18 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
         )
 
         with patch(
-            "press_to_talk.execution.memory_chat.OpenAI",
+            "press_to_talk.execution.memory_chat.AsyncOpenAI",
             return_value=SimpleNamespace(
                 chat=SimpleNamespace(
                     completions=SimpleNamespace(
-                        create=unittest.mock.Mock(side_effect=RuntimeError("provider unavailable"))
+                        create=unittest.mock.AsyncMock(side_effect=RuntimeError("provider unavailable"))
                     )
                 )
             ),
         ):
             runner = MemoryChatExecutionRunner(cfg)
             with patch("press_to_talk.execution.memory_chat.log") as log_mock:
-                intent = runner._analyze_intent("今天股市收盘多少")
+                intent = await runner._analyze_intent_async("今天股市收盘多少")
 
         self.assertEqual(intent, {"intent": "chat", "notes": ""})
         self.assertTrue(
@@ -425,8 +428,8 @@ class CoreExecutionDispatchTests(unittest.TestCase):
         )
 
         with patch("press_to_talk.execution.build_master_tree") as build_mock:
-            fake_tree = unittest.mock.Mock()
-            def set_reply(bb):
+            fake_tree = unittest.mock.AsyncMock()
+            async def set_reply(bb):
                 bb.reply = "行为树回复"
             fake_tree.tick.side_effect = set_reply
             build_mock.return_value = fake_tree
@@ -448,8 +451,8 @@ class CoreExecutionDispatchTests(unittest.TestCase):
         )
 
         with patch("press_to_talk.execution.build_master_tree") as build_mock:
-            fake_tree = unittest.mock.Mock()
-            def set_reply(bb):
+            fake_tree = unittest.mock.AsyncMock()
+            async def set_reply(bb):
                 bb.reply = "记忆聊天回复"
             fake_tree.tick.side_effect = set_reply
             build_mock.return_value = fake_tree
