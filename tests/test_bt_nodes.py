@@ -27,6 +27,11 @@ class TestBTNodes(unittest.TestCase):
         self.bb.memories = []
         self.assertEqual(node.tick(self.bb), Status.FAILURE)
 
+    def test_has_memory_hits_failure(self):
+        node = HasMemoryHits()
+        self.bb.memories = []
+        self.assertEqual(node.tick(self.bb), Status.FAILURE)
+
     def test_is_chat_mode(self):
         node = IsChatMode()
         self.bb.mode = "memory-chat"
@@ -110,6 +115,22 @@ class TestBTNodes(unittest.TestCase):
 
         self.assertEqual(status, Status.SUCCESS)
         self.assertEqual(self.bb.reply, "recorded success")
+
+    @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
+    def test_execute_search_action_empty(self, MockAgent):
+        mock_agent = MockAgent.return_value
+        mock_store = MagicMock()
+        mock_agent.storage.remember_store.return_value = mock_store
+        mock_store.find.return_value = '{"results": []}'
+        mock_store.extract_summary_items.return_value = {"items": []}
+
+        self.bb.intent = {"intent": "find", "args": {"query": "something non-existent"}}
+        node = ExecuteSearchAction()
+        status = node.tick(self.bb)
+
+        # Action logic itself is successful, even with 0 results
+        self.assertEqual(status, Status.SUCCESS)
+        self.assertEqual(len(self.bb.memories), 0)
 
 if __name__ == "__main__":
     unittest.main()
