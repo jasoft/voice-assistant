@@ -8,6 +8,7 @@ import json
 import re
 import sys
 from dataclasses import asdict
+from pathlib import Path
 
 from .models import SessionHistoryRecord
 from .service import StorageService, load_storage_config
@@ -37,25 +38,37 @@ class AgentFriendlyArgumentParser(argparse.ArgumentParser):
         return suggestions[0] if suggestions else ""
 
 def build_parser() -> argparse.ArgumentParser:
+    prog_name = Path(sys.argv[0]).name
+    if prog_name == "cli_app.py" or prog_name == "__main__.py":
+        prog_name = "python3 -m press_to_talk.storage.cli_app"
+
     parser = AgentFriendlyArgumentParser(
-        prog="press-to-talk-storage",
+        prog=prog_name,
         description=(
             "Standalone Storage CLI for session history and long-term memory.\n"
             "Designed for agents: successful commands emit machine-readable JSON to stdout."
         ),
         epilog=(
             "Examples:\n"
-            "  scripts/storage_cli.sh history list --limit 5\n"
-            "  scripts/storage_cli.sh history list --query \"passport\"\n"
-            "  scripts/storage_cli.sh history add --json '{\"session_id\":\"abc\",...}'\n"
-            "  scripts/storage_cli.sh memory search --query 'usb'\n"
-            "  scripts/storage_cli.sh memory search --query '\"usb\" OR \"测试版\"' | jq '.results[] | .memory'\n"
-            "  scripts/storage_cli.sh memory add --memory \"The passport is in the top drawer\" --original-text \"My passport is in the top drawer\"\n"
-            "  scripts/storage_cli.sh memory delete --id <uuid>\n"
+            f"  {prog_name} history list --limit 5\n"
+            f"  {prog_name} history list --query \"passport\"\n"
+            f"  {prog_name} history add --json '{{\"session_id\":\"abc\",...}}'\n"
+            f"  {prog_name} memory search --query 'usb'\n"
+            f"  {prog_name} memory search --query '\"usb\" OR \"测试版\"' | jq '.results[] | .memory'\n"
+            f"  {prog_name} memory add --memory \"The passport is in the top drawer\" --original-text \"My passport is in the top drawer\"\n"
+            f"  {prog_name} memory delete --id <uuid>\n"
         ),
         formatter_class=AgentHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="category", required=True)
+
+    # Doctor command
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Check configuration and connectivity of storage backends",
+        description=f"Verify environment variables and database accessibility. Run as `{prog_name} doctor`.",
+        formatter_class=AgentHelpFormatter,
+    )
 
     history_parser = subparsers.add_parser(
         "history",
@@ -67,9 +80,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=AgentHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  scripts/storage_cli.sh history list --limit 3\n"
-            "  scripts/storage_cli.sh history list --query \"壮壮\"\n"
-            "  scripts/storage_cli.sh history delete --session-id 4315f703e74248839604be6ad6349f8a\n"
+            f"  {prog_name} history list --limit 3\n"
+            f"  {prog_name} history list --query \"壮壮\"\n"
+            f"  {prog_name} history delete --session-id 4315f703e74248839604be6ad6349f8a\n"
         ),
     )
     history_sub = history_parser.add_subparsers(dest="command", required=True)
@@ -123,10 +136,10 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=AgentHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  scripts/storage_cli.sh memory search --query 'usb'\n"
-            "  scripts/storage_cli.sh memory search --query '\"usb\" OR \"测试版\"' | jq -r '.results[] | \"\\(.memory)\\t\\(.created_at)\"'\n"
-            "  scripts/storage_cli.sh memory list --limit 20\n"
-            "  scripts/storage_cli.sh memory delete --id 8eb8825167ad406ba2501e83c2eb24c8\n"
+            f"  {prog_name} memory search --query 'usb'\n"
+            f"  {prog_name} memory search --query '\"usb\" OR \"测试版\"' | jq -r '.results[] | \"\\(.memory)\\t\\(.created_at)\"'\n"
+            f"  {prog_name} memory list --limit 20\n"
+            f"  {prog_name} memory delete --id 8eb8825167ad406ba2501e83c2eb24c8\n"
         ),
     )
     memory_sub = memory_parser.add_subparsers(dest="command", required=True)
@@ -159,6 +172,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--query",
         required=True,
         help="Search query text. Can be raw keywords or a pre-rewritten query; output is JSON to stdout.",
+    )
+    m_search.add_argument(
+        "--min-score",
+        type=float,
+        default=0.5,
+        help="Minimum score threshold for search results (default: 0.5).",
     )
     m_del = memory_sub.add_parser(
         "delete",
@@ -196,8 +215,68 @@ def _build_local_service() -> StorageService:
     return StorageService(config, use_cli=False)
 
 
+def _run_storage_doctor() -> int:
+    from press_to_talk.core import load_env_files
+    load_env_files()
+    config = load_storage_config()
+    report = {
+        "status": "ok",
+        "config": {
+            "backend": config.backend,
+            "history_db": str(config.history_db_path),
+            "remember_db": str(config.remember_db_path),
+            "llm_model": config.llm_model,
+        },
+        "connectivity": {},
+    }
+    # Check SQLite
+    try:
+        import sqlite3
+        for db_key, db_path in [("history", config.history_db_path), ("remember", config.remember_db_path)]:
+            path = Path(db_path)
+            if not path.parent.exists():
+                report["connectivity"][f"{db_key}_db"] = f"error: parent dir {path.parent} missing"
+                report["status"] = "error"
+                continue
+            conn = sqlite3.connect(db_path)
+            conn.execute("SELECT 1")
+            conn.close()
+            report["connectivity"][f"{db_key}_db"] = "connected"
+    except Exception as e:
+        report["connectivity"]["sqlite"] = f"error: {str(e)}"
+        report["status"] = "error"
+
+    # Check LLM
+    if config.llm_api_key:
+        report["connectivity"]["llm_api"] = "configured (key present)"
+    else:
+        report["connectivity"]["llm_api"] = "missing (OPENAI_API_KEY)"
+        if config.backend == "sqlite_fts5" and config.query_rewrite_enabled:
+             report["status"] = "warn"
+
+    # Check Mem0
+    if config.backend == "mem0":
+        if config.mem0_api_key:
+             report["connectivity"]["mem0_api"] = "configured (key present)"
+        else:
+             report["connectivity"]["mem0_api"] = "missing (MEM0_API_KEY)"
+             report["status"] = "error"
+
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0 if report["status"] != "error" else 1
+
+
+def run_as_console_script() -> int:
+    return main()
+
+
 def main(argv: list[str] | None = None) -> int:
     parsed_argv = list(sys.argv[1:] if argv is None else argv)
+    
+    # Intercept 'doctor' for ptt-storage
+    if parsed_argv and parsed_argv[0] == "doctor":
+        return _run_storage_doctor()
+
     parser = build_parser()
     if not parsed_argv:
         parser.print_help()
@@ -217,9 +296,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         exit_code = 0
         with contextlib.redirect_stderr(stderr_buffer):
-            service = _build_local_service()
+            config = load_storage_config()
+            service = StorageService(config, use_cli=False)
             if args.category == "memory" and args.command == "search":
-                print(service.remember_store().find(query=args.query))
+                print(service.remember_store().find(query=args.query, min_score=args.min_score))
                 exit_code = 0
             elif args.category == "history":
                 store = service.history_store()
@@ -256,3 +336,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

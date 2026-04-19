@@ -4,26 +4,26 @@ This skill provides direct, pure access to session history and long-term memory 
 
 ## Core Commands
 
-Prefer the shell wrapper from the repo root: `scripts/storage_cli.sh`.
-It wraps `uv run python -m press_to_talk.storage_cli` and now emits JSON on success, so agents can pipe directly to `jq`.
+Use the installed console script: `ptt-storage`.
+It emits JSON on success, so agents can pipe directly to `jq`.
 
 ### 1. Session History
 
 Save and retrieve conversation logs.
 
-- **List history**: `scripts/storage_cli.sh history list [--limit N] [--query "text"]`
-- **Add history**: `scripts/storage_cli.sh history add --json '{"session_id": "...", ...}'`
-- **Delete history**: `scripts/storage_cli.sh history delete --session-id <id>`
+- **List history**: `ptt-storage history list [--limit N] [--query "text"]`
+- **Add history**: `ptt-storage history add --json '{"session_id": "...", ...}'`
+- **Delete history**: `ptt-storage history delete --session-id <id>`
 
 ### 2. Long-term Memory
 
 Store and search persistent data entries.
 
-- **Add memory**: `scripts/storage_cli.sh memory add --memory "Fact/Content" --original-text "Source Context"`
-- **Search memory**: `scripts/storage_cli.sh memory search --query "search keyword"`
+- **Add memory**: `ptt-storage memory add --memory "Fact/Content" --original-text "Source Context"`
+- **Search memory**: `ptt-storage memory search --query "search keyword"`
     - Performs direct FTS5/Mem0 search. Use raw keywords.
-- **List memories**: `scripts/storage_cli.sh memory list [--limit N]`
-- **Delete memory**: `scripts/storage_cli.sh memory delete --id <uuid>`
+- **List memories**: `ptt-storage memory list [--limit N]`
+- **Delete memory**: `ptt-storage memory delete --id <uuid>`
 
 ## Guidelines for Agents
 
@@ -36,15 +36,15 @@ Store and search persistent data entries.
 
 **Search for a record about "passport":**
 ```bash
-scripts/storage_cli.sh history list --query "passport" --limit 1
+ptt-storage history list --query "passport" --limit 1
 ```
 
 **Directly save a fact:**
 ```bash
-scripts/storage_cli.sh memory add --memory "The passport is in the top drawer" --original-text "My passport? Oh, it's in the top drawer."
+ptt-storage memory add --memory "The passport is in the top drawer" --original-text "My passport? Oh, it's in the top drawer."
 ```
 
 **Read memory text + date with `jq`:**
 ```bash
-scripts/storage_cli.sh memory search --query "usb" | jq -r '.results[] | "\(.memory)\t\(.created_at)"'
+ptt-storage memory search --query "usb" | jq -r '.results[] | "\(.memory)\t\(.created_at)"'
 ```

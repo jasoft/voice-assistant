@@ -111,14 +111,14 @@ def load_env_files() -> None:
             return
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     load_env_files()
     session_id = uuid.uuid4().hex
     log_path = init_session_log(
         env_path("PTT_LOG_DIR", DEFAULT_LOG_DIR), session_id=session_id
     )
     log_timing("process imported, entering main()")
-    cfg = parse_args()
+    cfg = parse_args(argv)
     if cfg.debug:
         set_global_log_level("DEBUG")
     else:

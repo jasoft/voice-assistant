@@ -141,7 +141,7 @@ uv run python scripts/migrate_mem0_app_id.py --apply
 
 ## 历史记录
 
-历史记录会写入本地 SQLite，默认路径是 `data/voice_assistant_store.sqlite3`。GUI 的 History 面板和 `press_to_talk.storage_cli list-history` 都会读取这份库；如需自定义路径，可设置 `PTT_HISTORY_DB_PATH`。
+历史记录会写入本地 SQLite，默认路径是 `data/voice_assistant_store.sqlite3`。GUI 的 History 面板和 `ptt-storage history list` 都会读取这份库；如需自定义路径，可设置 `PTT_HISTORY_DB_PATH`。
 
 ## 回归测试
 

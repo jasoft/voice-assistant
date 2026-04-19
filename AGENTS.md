@@ -23,7 +23,7 @@
 - CLI 入口：`press-to-talk`
 - Python 包：`press_to_talk`
 - 执行层：`press_to_talk/execution/bt/` (基于行为树架构)
-- 存储层隔离：`press_to_talk/storage/storage_cli.py` (通过 subprocess 调用)
+- 存储层隔离：`ptt-storage` (通过 subprocess 调用)
 - 主逻辑文件：`press_to_talk/core.py`
 - 工作流配置：`workflow_config.json`
 - 意图抽取配置：`intent_extractor_config.json`
@@ -36,7 +36,7 @@
   `qwen-tts --play <text> --speaker serena --stream`
 - Chat 分支会加载 `brave-search` 和 `fetch` MCP 工具
 - Remember 分支使用存储层 CLI：
-  `python -m press_to_talk.storage.storage_cli remember`
+  `ptt-storage memory search` / `ptt-storage memory add`
 - 存储后端：支持 `Mem0` (云端) 和 `SQLite FTS5` (本地) 双引擎分发
 
 ## Git 工作流

@@ -247,8 +247,13 @@ class Mem0RememberStore(BaseRememberStore):
                 )
         return f"✅ 已记录：{stored_memory}"
 
-    def find(self, *, query: str) -> str:
+    def find(self, *, query: str, min_score: float = 0.0) -> str:
         response = self.client.search(query, **self._read_scope_kwargs())
+        # Mem0 search results are usually a list of dicts with 'score' or similar.
+        # However, _localize_timestamp_fields handles the recursion.
+        # We need to filter before localization or ensure localization preserves structure.
+        if min_score > 0 and isinstance(response, list):
+            response = [item for item in response if isinstance(item, dict) and float(item.get("score", 0)) >= min_score]
         return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
 
     def delete(self, *, memory_id: str) -> None:
@@ -766,7 +771,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         log("remember search input: " + json.dumps(log_info, ensure_ascii=False), level="debug")
         return rewritten_query
 
-    def find(self, *, query: str) -> str:
+    def find(self, *, query: str, min_score: float = 0.0) -> str:
         match_query = self._match_query(query)
         if not match_query:
             semantic_results = []
@@ -789,6 +794,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     }
                     for row in self._embedding_results_for_context(query=query)
                 ]
+            if min_score > 0:
+                semantic_results = [r for r in semantic_results if float(r.get("score", 0)) >= min_score]
             return json.dumps({"results": semantic_results}, ensure_ascii=False)
         keywords = _sanitize_rewritten_keywords(
             _keywords_from_match_query(match_query, query),
@@ -875,7 +882,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         log(f"remember search final rows: {len(filtered_rows)}")
         for idx, row in enumerate(filtered_rows):
             memory_preview = str(row["memory"]).replace("\n", " ")[:60]
-            original_preview = str(row.get("original_text") or "").replace("\n", " ")[:60]
+            original_preview = str(row["original_text"] or "").replace("\n", " ")[:60]
             log(f"  [{idx}] id={row['id']} mem={memory_preview}... | orig={original_preview}...")
 
         results = [
@@ -922,6 +929,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     seen_ids.add(semantic_id)
             except Exception as exc:
                 log(f"remember embedding search failed: {exc}")
+        
+        if min_score > 0:
+            results = [r for r in results if float(r.get("score", 0)) >= min_score]
+            
         return json.dumps({"results": results}, ensure_ascii=False)
 
     def delete(self, *, memory_id: str) -> None:

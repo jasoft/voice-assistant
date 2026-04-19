@@ -13,7 +13,7 @@ from ..utils.logging import log, log_multiline
 
 class CLIStoreBase:
     def _run_process(self, args: list[str]) -> subprocess.CompletedProcess[str]:
-        cmd = [sys.executable, "-m", "press_to_talk.storage_cli", *args]
+        cmd = [sys.executable, "-m", "press_to_talk.storage.cli_app", *args]
         # Use shlex.join for a more readable command log that handles quoting correctly
         log("storage cli exec: " + shlex.join(cmd), level="debug")
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
@@ -58,8 +58,11 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
         data = self._run_json(["memory", "add", "--memory", memory, "--original-text", original_text])
         return data["result"]
 
-    def find(self, *, query: str) -> str:
-        result = self._run_process(["memory", "search", "--query", query])
+    def find(self, *, query: str, min_score: float = 0.0) -> str:
+        args = ["memory", "search", "--query", query]
+        if min_score > 0:
+            args.extend(["--min-score", str(min_score)])
+        result = self._run_process(args)
         return result.stdout.strip()
 
     def delete(self, *, memory_id: str) -> None:
