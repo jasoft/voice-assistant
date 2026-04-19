@@ -4,6 +4,7 @@
 # Gemini CLI 运行指南
 
 本项目已在 `AGENTS.md` 中定义了核心硬约束，请务必严格遵守。
+任何修改前，必须阅读 `@docs/system_architecture.md` 以确保理解行为树执行引擎与存储层隔离架构。
 
 ## 关键同步
 
