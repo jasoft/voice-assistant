@@ -10,7 +10,25 @@ from .bt.base import Blackboard
 from .bt.builder import build_master_tree
 
 
-def execute_transcript(cfg: Any, transcript: str) -> str:
+import asyncio
+
+def _run_sync(coro):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    
+    # If loop is running, we might be in FastAPI. 
+    # But execute_transcript is sync. This is exactly where the error happens.
+    # We should ideally use execute_transcript_async in async contexts.
+    if loop.is_running():
+        # This is a fallback but might still fail in some environments
+        # Better to have the caller use execute_transcript_async
+        return asyncio.run_coroutine_threadsafe(coro, loop).result()
+    else:
+        return asyncio.run(coro)
+
+async def execute_transcript_async(cfg: Any, transcript: str) -> str:
     mode = resolve_execution_mode(cfg)
     
     # Initialize Blackboard
@@ -18,7 +36,7 @@ def execute_transcript(cfg: Any, transcript: str) -> str:
     
     # Build and tick the behavior tree
     tree = build_master_tree()
-    tree.tick(bb)
+    await tree.tick(bb)
     
     if bb.reply:
         return bb.reply
@@ -26,8 +44,11 @@ def execute_transcript(cfg: Any, transcript: str) -> str:
     if bb.error:
         return f"Error: {bb.error}"
 
-    # Default fallback if tree didn't produce a reply (though LLMChatFallbackAction should)
+    # Default fallback if tree didn't produce a reply
     return "I'm sorry, I couldn't process that request."
+
+def execute_transcript(cfg: Any, transcript: str) -> str:
+    return asyncio.run(execute_transcript_async(cfg, transcript))
 
 
 def classify_intent(cfg: Any, transcript: str) -> str:

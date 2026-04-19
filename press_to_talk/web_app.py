@@ -8,9 +8,12 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .core import execute_transcript, run_stt, load_env_files, parse_args
+from .execution import execute_transcript_async
+from .core import run_stt, load_env_files, parse_args
 from .utils.logging import log, init_session_log
 from .utils.env import env_path, DEFAULT_LOG_DIR
+
+from fastapi.staticfiles import StaticFiles
 
 # 初始化环境
 load_env_files()
@@ -25,6 +28,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 挂载静态文件
+frontend_path = Path("web_gui")
+frontend_path.mkdir(exist_ok=True)
+app.mount("/gui", StaticFiles(directory="web_gui", html=True), name="gui")
 
 @app.get("/health")
 async def health_check():
@@ -52,6 +60,7 @@ async def process_audio(audio: UploadFile = File(...)):
         
         # 1. 语音转文字
         log(f"Web API: transcribing {audio_path}")
+        # run_stt 是同步的，目前没看到它内部有用 asyncio.run
         transcript = run_stt(cfg.stt_url, cfg.stt_token, str(audio_path))
         
         if not transcript:
@@ -62,7 +71,7 @@ async def process_audio(audio: UploadFile = File(...)):
         
         # 2. 执行逻辑流
         log(f"Web API: executing transcript: {transcript}")
-        reply = execute_transcript(cfg, transcript)
+        reply = await execute_transcript_async(cfg, transcript)
         
         return {
             "session_id": session_id,

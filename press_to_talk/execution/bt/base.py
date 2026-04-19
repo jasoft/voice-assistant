@@ -20,7 +20,7 @@ class Blackboard:
     error: Optional[str] = None
 
 class Node:
-    def tick(self, bb: Blackboard) -> Status:
+    async def tick(self, bb: Blackboard) -> Status:
         raise NotImplementedError
 
 class Composite(Node):
@@ -28,22 +28,22 @@ class Composite(Node):
         self.children = children
 
 class Sequence(Composite):
-    def tick(self, bb: Blackboard) -> Status:
+    async def tick(self, bb: Blackboard) -> Status:
         log(f"BT Sequence: ticking {len(self.children)} children", level="debug")
         for child in self.children:
             child_name = child.__class__.__name__
-            status = child.tick(bb)
+            status = await child.tick(bb)
             log(f"BT Sequence: child {child_name} returned {status.name}", level="debug")
             if status != Status.SUCCESS:
                 return status
         return Status.SUCCESS
 
 class Selector(Composite):
-    def tick(self, bb: Blackboard) -> Status:
+    async def tick(self, bb: Blackboard) -> Status:
         log(f"BT Selector: ticking {len(self.children)} children", level="debug")
         for child in self.children:
             child_name = child.__class__.__name__
-            status = child.tick(bb)
+            status = await child.tick(bb)
             log(f"BT Selector: child {child_name} returned {status.name}", level="debug")
             if status != Status.FAILURE:
                 return status
