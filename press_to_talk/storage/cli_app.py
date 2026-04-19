@@ -202,6 +202,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=100,
         help="Maximum number of memory entries to return, ordered by newest first.",
     )
+    m_export = memory_sub.add_parser(
+        "export",
+        help="Export local memories to another provider (e.g., mem0)",
+        description="Migrate all local SQLite memories to a cloud provider like mem0. Uses user_id=soj and no app_id.",
+        formatter_class=AgentHelpFormatter,
+    )
+    m_export.add_argument(
+        "--to-provider",
+        required=True,
+        choices=["mem0", "sqlite_fts5"],
+        help="Target provider to export to.",
+    )
     parser.add_argument(
         "-v", "--debug",
         action="store_true",
@@ -285,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from press_to_talk.core import load_env_files
     from press_to_talk.utils.logging import set_global_log_level
+    from press_to_talk.storage.memory_backends import export_memories_to_provider
 
     load_env_files()
     if args.debug:
@@ -297,9 +310,21 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = 0
         with contextlib.redirect_stderr(stderr_buffer):
             config = load_storage_config()
+            if args.category == "doctor":
+                return _run_storage_doctor()
+
             service = StorageService(config, use_cli=False)
             if args.category == "memory" and args.command == "search":
                 print(service.remember_store().find(query=args.query, min_score=args.min_score))
+                exit_code = 0
+            elif args.category == "memory" and args.command == "export":
+                target_store = service.build_export_target_store(args.to_provider)
+                source_store = service.remember_store()
+                count = export_memories_to_provider(
+                    source_store=source_store,
+                    target_store=target_store
+                )
+                print(json.dumps({"status": "ok", "exported_count": count}, ensure_ascii=False))
                 exit_code = 0
             elif args.category == "history":
                 store = service.history_store()

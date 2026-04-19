@@ -261,10 +261,15 @@ class GroqKeywordRewriter(LLMKeywordRewriter):
         if not cleaned_query:
             return ""
 
-        normalize_prompt = (
-            "你是一个查询纠错改写器。请在保持原意不变的前提下，修正语音转文字或听写造成的明显错字、错词、同音词错误。"
-            "不要扩写，不要解释，只返回 JSON：{\"query\":\"纠正后的问句\"}。"
-        )
+        workflow = _require_mapping(load_workflow_config(), "workflow")
+        prompts = _require_mapping(workflow.get("prompts"), "prompts")
+        
+        # 1. Normalize
+        normalize_cfg = _require_mapping(prompts.get("query_normalize"), "prompts.query_normalize")
+        normalize_prompt = str(normalize_cfg.get("system_prompt", "")).strip()
+        if not normalize_prompt:
+             raise RuntimeError("workflow config missing: prompts.query_normalize.system_prompt")
+             
         normalize_messages = [
             {"role": "system", "content": normalize_prompt},
             {"role": "user", "content": cleaned_query},
@@ -276,21 +281,25 @@ class GroqKeywordRewriter(LLMKeywordRewriter):
             messages=normalize_messages,
         )
         normalize_content = str(normalize_response.choices[0].message.content or "").strip()
-        log_multiline("keyword rewrite raw", normalize_content)
+        log_multiline("query normalize raw", normalize_content)
         normalized_query = cleaned_query
         try:
-            payload = json.loads(normalize_content)
-            normalized_query = str(payload.get("query") or cleaned_query).strip() or cleaned_query
+            # Strip think tags if any
+            text_result = re.sub(r"(?is)<think>.*?</think>", "", normalize_content).strip()
+            if "{" in text_result and "}" in text_result:
+                json_start = text_result.find("{")
+                json_end = text_result.rfind("}") + 1
+                payload = json.loads(text_result[json_start:json_end])
+                normalized_query = str(payload.get("query") or cleaned_query).strip() or cleaned_query
         except Exception:
             pass
 
-        keyword_prompt = (
-            "你是一个 SQLite FTS5 查询改写器。把用户原始问题拆成 2 到 7 个最可能命中的短关键词或短语。"
-            "先保留原句里的核心实体词，再补充少量与原意高度接近、最可能出现在记忆里的常见别称或近义词。"
-            "每个关键词都必须尽量短，优先保留实体词，通常 2 到 8 个字，最长不要超过 12 个字。"
-            "关键词应该是名词、专有名词、地点、物品或动作，不要把“在哪里”“哪儿呢”“在哪儿”“哪里有”这类纯查询尾巴当成关键词。"
-            "只返回 JSON：{\"keywords\":[\"词1\",\"词2\"]}。不要解释，不要补充其它字段。"
-        )
+        # 2. Rewrite
+        rewrite_cfg = _require_mapping(prompts.get("query_rewrite"), "prompts.query_rewrite")
+        keyword_prompt = str(rewrite_cfg.get("system_prompt", "")).strip()
+        if not keyword_prompt:
+             raise RuntimeError("workflow config missing: prompts.query_rewrite.system_prompt")
+
         rewrite_messages = [
             {"role": "system", "content": keyword_prompt},
             {"role": "user", "content": normalized_query},
@@ -305,9 +314,13 @@ class GroqKeywordRewriter(LLMKeywordRewriter):
         log_multiline("keyword rewrite raw", rewrite_content)
         keywords: list[str] = []
         try:
-            payload = json.loads(rewrite_content)
-            raw_keywords = payload.get("keywords", []) if isinstance(payload, dict) else []
-            keywords = [str(item).strip() for item in raw_keywords if str(item).strip()]
+            text_result = re.sub(r"(?is)<think>.*?</think>", "", rewrite_content).strip()
+            if "{" in text_result and "}" in text_result:
+                json_start = text_result.find("{")
+                json_end = text_result.rfind("}") + 1
+                payload = json.loads(text_result[json_start:json_end])
+                raw_keywords = payload.get("keywords", []) if isinstance(payload, dict) else []
+                keywords = [str(item).strip() for item in raw_keywords if str(item).strip()]
         except Exception:
             pass
         log("keyword rewrite parsed: " + json.dumps(keywords, ensure_ascii=False), level="debug")
@@ -421,21 +434,13 @@ class StorageService:
         return self._remember_provider
 
     def _build_remember_provider(self) -> BaseRememberStore:
-        if self.config.backend == "sqlite_fts5":
-            return SQLiteFTS5RememberStore(
-                db_path=self.config.remember_db_path,
-                max_results=self.config.remember_max_results,
-                keyword_rewriter=self.keyword_rewriter(),
-                embedding_client=self.embedding_client(),
-                embedding_model=self.config.embedding_model,
-                embedding_max_results=self.config.embedding_max_results,
-                embedding_min_score=self.config.embedding_min_score,
-                embedding_context_min_score=self.config.embedding_context_min_score,
-            )
-        return Mem0RememberStore(
-            api_key=self.config.mem0_api_key,
-            user_id=self.config.mem0_user_id,
-            app_id=self.config.mem0_app_id,
+        from .providers import get_remember_provider_class
+        
+        provider_cls = get_remember_provider_class(self.config.backend)
+        return provider_cls.from_config(
+            self.config,
+            keyword_rewriter=self.keyword_rewriter(),
+            embedding_client=self.embedding_client(),
         )
 
     @classmethod
@@ -472,6 +477,18 @@ class StorageService:
             api_key=self.config.embedding_api_key,
             model=self.config.embedding_model,
             base_url=self.config.embedding_base_url,
+        )
+
+    def build_export_target_store(self, provider_name: str) -> BaseRememberStore:
+        """Build a remember store specifically for export, using user_id from config and no app_id."""
+        from .providers import get_remember_provider_class
+        
+        provider_cls = get_remember_provider_class(provider_name)
+        return provider_cls.from_config(
+            self.config,
+            app_id="",  # Special instruction for export
+            keyword_rewriter=self.keyword_rewriter(),
+            embedding_client=self.embedding_client(),
         )
 
     def remember_store(self) -> BaseRememberStore:

@@ -66,6 +66,10 @@ class EmbeddingClient(Protocol):
 
 
 class BaseRememberStore:
+    @classmethod
+    def from_config(cls, config: StorageConfig, **kwargs) -> BaseRememberStore:
+        raise NotImplementedError
+
     def add(self, *, memory: str, original_text: str = "") -> str:
         raise NotImplementedError
 
