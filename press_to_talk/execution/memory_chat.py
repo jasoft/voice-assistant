@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from .intent import IntentExecutionRunner
 from ..models.history import build_storage_config
@@ -33,7 +33,7 @@ class MemoryChatExecutionRunner:
         client_kwargs: dict[str, Any] = {"api_key": cfg.llm_api_key}
         if str(getattr(cfg, "llm_base_url", "") or "").strip():
             client_kwargs["base_url"] = str(cfg.llm_base_url).strip()
-        self.client = OpenAI(**client_kwargs)
+        self.client = AsyncOpenAI(**client_kwargs)
         self.cfg = cfg
         self.model = str(cfg.llm_model)
         self.summary_model = str(getattr(cfg, "llm_summarize_model", "") or self.model)
@@ -44,7 +44,7 @@ class MemoryChatExecutionRunner:
             self._storage_service = StorageService(build_storage_config(self.cfg))
         return self._storage_service
 
-    def _analyze_intent(self, transcript: str) -> dict[str, str]:
+    async def _analyze_intent_async(self, transcript: str) -> dict[str, str]:
         messages = [
             {
                 "role": "system",
@@ -60,7 +60,7 @@ class MemoryChatExecutionRunner:
         ]
         log_llm_prompt("memory-chat intent", messages)
         try:
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=0,
@@ -131,12 +131,12 @@ class MemoryChatExecutionRunner:
             },
         ]
 
-    def run(self, transcript: str) -> str:
+    async def run_async(self, transcript: str) -> str:
         # 1. 首先尝试意图分析，看是否是记录请求
-        intent = self._analyze_intent(transcript)
+        intent = await self._analyze_intent_async(transcript)
         if intent.get("intent") == "record":
             log("memory-chat routing record intent to structured record flow")
-            return IntentExecutionRunner(self.cfg).run(transcript)
+            return await IntentExecutionRunner(self.cfg).run_async(transcript)
 
         # 2. 如果不是记录，说明是查询类。先查数据库内容。
         items = self._memory_context_items(transcript)
@@ -158,7 +158,7 @@ class MemoryChatExecutionRunner:
             memory_context=memory_context,
         )
         log_llm_prompt("memory-chat summary", messages)
-        response = self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model=self.summary_model,
             messages=messages,
             temperature=0.2,
@@ -170,3 +170,7 @@ class MemoryChatExecutionRunner:
         if not reply:
             raise RuntimeError("memory-chat returned empty reply")
         return reply
+
+    def run(self, transcript: str) -> str:
+        import asyncio
+        return asyncio.run(self.run_async(transcript))

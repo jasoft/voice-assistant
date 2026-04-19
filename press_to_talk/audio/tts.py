@@ -61,7 +61,7 @@ def generate_tts_wav(text: str, output_path: Path) -> Path:
     # qwen-tts 默认生成到 output.wav，或者可以通过参数指定
     # 假设 qwen-tts 支持 --output 参数，如果不支持则需要重命名
     proc = subprocess.run(
-        [qwen_tts, clean_text, "--speaker", "serena", "--output", str(output_path)],
+        [qwen_tts, clean_text, "--speaker", "serena", "--output", str(output_path), "--no-play"],
         capture_output=True,
         text=True,
     )
@@ -69,7 +69,7 @@ def generate_tts_wav(text: str, output_path: Path) -> Path:
     if proc.returncode != 0:
         # 如果不支持 --output，尝试默认行为并移动文件
         proc = subprocess.run(
-            [qwen_tts, clean_text, "--speaker", "serena"],
+            [qwen_tts, clean_text, "--speaker", "serena", "--no-play"],
             capture_output=True,
             text=True,
         )

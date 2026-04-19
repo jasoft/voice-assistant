@@ -44,6 +44,57 @@ app.mount("/audio", StaticFiles(directory=str(audio_tmp_dir)), name="audio")
 async def health_check():
     return {"status": "ok"}
 
+@app.post("/stt")
+async def speech_to_text(audio: UploadFile = File(...)):
+    session_id = uuid.uuid4().hex
+    temp_dir = Path("tmp") / "web" / session_id
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    audio_path = temp_dir / "input.wav"
+    
+    try:
+        with audio_path.open("wb") as buffer:
+            shutil.copyfileobj(audio.file, buffer)
+        
+        cfg = parse_args(["--no-tts"])
+        log(f"Web API: transcribing {audio_path}")
+        transcript = run_stt(cfg.stt_url, cfg.stt_token, str(audio_path))
+        
+        return {
+            "session_id": session_id,
+            "transcript": transcript,
+            "status": "success"
+        }
+    except Exception as e:
+        log(f"Web API STT Error: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/execute")
+async def execute_text(transcript: str, session_id: str):
+    try:
+        cfg = parse_args(["--no-tts"])
+        log(f"Web API: executing transcript: {transcript}")
+        reply = await execute_transcript_async(cfg, transcript)
+        
+        audio_url = None
+        if reply:
+            tts_filename = f"{session_id}.wav"
+            tts_path = audio_tmp_dir / tts_filename
+            try:
+                generate_tts_wav(reply, tts_path)
+                audio_url = f"/audio/{tts_filename}"
+            except Exception as e:
+                log(f"Web API TTS Error: {str(e)}", level="error")
+        
+        return {
+            "session_id": session_id,
+            "reply": reply,
+            "audio_url": audio_url,
+            "status": "success"
+        }
+    except Exception as e:
+        log(f"Web API Execute Error: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/process")
 async def process_audio(audio: UploadFile = File(...)):
     session_id = uuid.uuid4().hex

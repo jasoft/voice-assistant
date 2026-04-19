@@ -98,14 +98,14 @@ def _memory_date_prefix(timestamp: str) -> str:
 
 class OpenAICompatibleAgent:
     def __init__(self, cfg: Config) -> None:
-        from openai import OpenAI
+        from openai import AsyncOpenAI
 
         client_kwargs: dict[str, Any] = {"api_key": cfg.llm_api_key}
         raw_url = str(cfg.llm_base_url or "").strip()
         if raw_url:
             # Strip trailing slash to avoid double-slash issues with proxies
             client_kwargs["base_url"] = raw_url.rstrip("/")
-        self.client = OpenAI(**client_kwargs)
+        self.client = AsyncOpenAI(**client_kwargs)
         self.model = cfg.llm_model
         self.summary_model = getattr(cfg, "llm_summarize_model", cfg.llm_model)
         log(f"DEBUG OpenAICompatibleAgent: initialized with base_url={self.client.base_url} model={self.model}", level="debug")
@@ -187,7 +187,7 @@ class OpenAICompatibleAgent:
         extract_messages = self._build_intent_extractor_messages(user_input)
         try:
             log_llm_prompt("intent extractor", extract_messages)
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=extract_messages,  # type: ignore
                 temperature=0,
@@ -460,7 +460,7 @@ class OpenAICompatibleAgent:
                 lines.append(f"- {content}")
         return "\n".join(lines)
 
-    def _summarize_remember_output(
+    async def _summarize_remember_output(
         self,
         tool_name: str,
         raw_output: str,
@@ -542,7 +542,7 @@ class OpenAICompatibleAgent:
                     {"role": "user", "content": user_prompt},
                 ],
             )
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=summary_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -605,7 +605,7 @@ class OpenAICompatibleAgent:
                 return "没有找到匹配的记忆信息。"
             # ------------------------------------
 
-            return self._summarize_remember_output(
+            return await self._summarize_remember_output(
                 tool_name, raw, user_question=user_input, query=search_query
             )
         if tool_name == "history_find":

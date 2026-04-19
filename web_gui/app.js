@@ -105,29 +105,33 @@ async function sendAudioToBackend(blob) {
     formData.append('audio', blob, 'recording.wav');
 
     try {
-        const response = await fetch('/process', {
+        // 第一步：仅获取转写结果
+        const sttResponse = await fetch('/stt', {
             method: 'POST',
             body: formData
         });
+        const sttData = await sttResponse.json();
 
-        const data = await response.json();
-
-        if (data.status === 'success') {
-            if (data.transcript) {
-                addTranscriptCard(data.transcript);
-            }
+        if (sttData.status === 'success' && sttData.transcript) {
+            // 立即显示转写卡片
+            addTranscriptCard(sttData.transcript);
             
-            // 显示正在思考
+            // 显示正在准备回答的占位卡片
             addResponseCard();
             updateStatus('思考中...', 'thinking');
 
-            if (data.reply) {
-                updateResponseCard(data.reply);
+            // 第二步：根据转写结果请求执行
+            const execResponse = await fetch(`/execute?transcript=${encodeURIComponent(sttData.transcript)}&session_id=${sttData.session_id}`, {
+                method: 'POST'
+            });
+            const execData = await execResponse.json();
+
+            if (execData.status === 'success' && execData.reply) {
+                updateResponseCard(execData.reply);
                 updateStatus('正在回答', 'speaking');
                 
-                // 播放语音
-                if (data.audio_url) {
-                    const audio = new Audio(data.audio_url);
+                if (execData.audio_url) {
+                    const audio = new Audio(execData.audio_url);
                     audio.onended = () => {
                         updateStatus('就绪', 'idle');
                     };
@@ -138,14 +142,17 @@ async function sendAudioToBackend(blob) {
             } else {
                 updateStatus('就绪', 'idle');
             }
+        } else if (sttData.status === 'success' && !sttData.transcript) {
+            statusBar.innerText = '未检测到语音';
+            updateStatus('就绪', 'idle');
         } else {
-            updateStatus('出错了', 'idle');
-            statusBar.innerText = data.error || '未知错误';
+            statusBar.innerText = sttData.error || '识别失败';
+            updateStatus('就绪', 'idle');
         }
     } catch (err) {
-        console.error('发送失败:', err);
+        console.error('流程失败:', err);
         updateStatus('就绪', 'idle');
-        statusBar.innerText = '网络请求失败';
+        statusBar.innerText = '请求失败';
     }
 }
 

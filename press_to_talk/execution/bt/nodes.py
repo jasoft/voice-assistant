@@ -70,8 +70,7 @@ class LLMSummarizeAction(Action):
         try:
             # Use raw memories for summarization
             raw_output = bb.memories_raw or json.dumps({"results": bb.memories}, ensure_ascii=False)
-            bb.reply = await asyncio.to_thread(
-                agent._summarize_remember_output,
+            bb.reply = await agent._summarize_remember_output(
                 "remember_find",
                 raw_output,
                 user_question=bb.transcript
@@ -87,7 +86,7 @@ class LLMChatFallbackAction(Action):
         runner = MemoryChatExecutionRunner(bb.cfg)
         try:
             # Reuse fallback chat logic
-            bb.reply = await asyncio.to_thread(runner.run, bb.transcript)
+            bb.reply = await runner.run_async(bb.transcript)
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
