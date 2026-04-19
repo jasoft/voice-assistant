@@ -109,6 +109,13 @@ def _quote_match_token(token: str) -> str:
     return f'"{escaped}"' if escaped else ""
 
 
+def _default_match_query(query: str) -> str:
+    tokens = _tokenize_for_match(query)
+    if not tokens:
+        return ""
+    return " OR ".join(tokens)
+
+
 def _keywords_from_match_query(match_query: str, raw_query: str) -> list[str]:
     quoted = re.findall(r'"([^"]+)"', str(match_query or ""))
     cleaned = [item.strip() for item in quoted if item.strip()]

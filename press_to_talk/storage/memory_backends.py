@@ -6,6 +6,22 @@ from typing import Any
 from .models import BaseRememberStore
 
 
+from .providers.mem0 import (
+    create_mem0_client,
+    _localize_timestamp_fields,
+    _extract_mem0_results,
+)
+from .providers.sqlite_fts import (
+    SIMPLE_EXTENSION_PATH,
+    _default_match_query,
+    _keywords_from_match_query,
+    _normalize_match_text,
+    _quote_match_token,
+    _reduce_filter_keywords,
+    _sanitize_rewritten_keywords,
+)
+
+
 def export_memories_to_provider(
     *,
     source_store: BaseRememberStore,
