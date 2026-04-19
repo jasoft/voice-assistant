@@ -1,14 +1,16 @@
 let mediaRecorder;
 let audioChunks = [];
 let isRecording = false;
+let recordTimer;
+let startTime;
 
-const recordBtn = document.getElementById('record-btn');
-const statusText = document.getElementById('status-text');
-const statusIndicator = document.getElementById('status-indicator');
-const recordingAnimation = document.getElementById('recording-animation');
-const chatHistory = document.getElementById('chat-history');
+const micBtn = document.getElementById('mic-btn');
+const statusBar = document.getElementById('status-bar');
+const orb = document.getElementById('orb');
+const cardsContainer = document.getElementById('cards-container');
+const mainContent = document.getElementById('main-content');
 
-// 获取麦克风权限
+// 初始化录音器
 async function setupRecorder() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -21,31 +23,83 @@ async function setupRecorder() {
         mediaRecorder.onstop = async () => {
             const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
             audioChunks = [];
+            
+            // 如果录音时间太短（可能是误触），则忽略
+            const duration = Date.now() - startTime;
+            if (duration < 500) {
+                console.log('录音时间太短，忽略');
+                updateStatus('就绪', 'idle');
+                return;
+            }
+            
             await sendAudioToBackend(audioBlob);
         };
     } catch (err) {
         console.error('无法访问麦克风:', err);
-        addMessage('system', '无法访问麦克风，请确保已授予权限。');
+        statusBar.innerText = '无法访问麦克风';
     }
 }
 
-function addMessage(role, text) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role}`;
-    
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.innerText = text;
-    
-    messageDiv.appendChild(bubble);
-    chatHistory.appendChild(messageDiv);
-    
-    // 滚动到底部
-    chatHistory.scrollTop = chatHistory.scrollHeight;
+function updateStatus(text, state) {
+    statusBar.innerText = text;
+    orb.className = `orb ${state}`;
+    micBtn.className = `mic-btn ${state === 'recording' ? 'recording' : ''}`;
+}
+
+function clearCards() {
+    cardsContainer.innerHTML = '';
+}
+
+function addTranscriptCard(text) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+        <div class="card-header">
+            <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+            实时转写
+        </div>
+        <div class="card-content">${text}</div>
+    `;
+    cardsContainer.appendChild(card);
+    mainContent.scrollTop = mainContent.scrollHeight;
+}
+
+function addResponseCard() {
+    const card = document.createElement('div');
+    card.id = 'response-card';
+    card.className = 'card';
+    card.innerHTML = `
+        <div class="card-header">
+            <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+            智能回答
+        </div>
+        <div class="card-footer" id="response-footer">
+            <div class="thinking-dots">
+                <span class="active"></span><span class="active"></span><span class="active"></span>
+            </div>
+            正在准备回答
+        </div>
+        <div class="card-content" id="response-content" style="display:none;"></div>
+    `;
+    cardsContainer.appendChild(card);
+    mainContent.scrollTop = mainContent.scrollHeight;
+    return card;
+}
+
+function updateResponseCard(reply) {
+    const content = document.getElementById('response-content');
+    const footer = document.getElementById('response-footer');
+    if (content && footer) {
+        content.innerText = reply;
+        content.style.display = 'block';
+        footer.innerHTML = '回答完成';
+        footer.style.color = '#128540';
+    }
+    mainContent.scrollTop = mainContent.scrollHeight;
 }
 
 async function sendAudioToBackend(blob) {
-    updateStatus('识别中...', true);
+    updateStatus('识别中...', 'thinking');
     
     const formData = new FormData();
     formData.append('audio', blob, 'recording.wav');
@@ -60,65 +114,128 @@ async function sendAudioToBackend(blob) {
 
         if (data.status === 'success') {
             if (data.transcript) {
-                addMessage('user', data.transcript);
+                addTranscriptCard(data.transcript);
             }
+            
+            // 显示正在思考
+            addResponseCard();
+            updateStatus('思考中...', 'thinking');
+
             if (data.reply) {
-                updateStatus('思考中...', true);
-                addMessage('assistant', data.reply);
+                updateResponseCard(data.reply);
+                updateStatus('正在回答', 'speaking');
+                
+                // 播放语音
+                if (data.audio_url) {
+                    const audio = new Audio(data.audio_url);
+                    audio.onended = () => {
+                        updateStatus('就绪', 'idle');
+                    };
+                    audio.play();
+                } else {
+                    updateStatus('就绪', 'idle');
+                }
+            } else {
+                updateStatus('就绪', 'idle');
             }
-            updateStatus('就绪', false);
         } else {
-            addMessage('system', '出错了: ' + (data.error || '未知错误'));
-            updateStatus('就绪', false);
+            updateStatus('出错了', 'idle');
+            statusBar.innerText = data.error || '未知错误';
         }
     } catch (err) {
         console.error('发送失败:', err);
-        addMessage('system', '网络请求失败，请检查后端服务是否运行。');
-        updateStatus('就绪', false);
+        updateStatus('就绪', 'idle');
+        statusBar.innerText = '网络请求失败';
     }
 }
 
-function updateStatus(text, showLoading) {
-    statusText.innerText = text;
-    recordingAnimation.style.display = showLoading ? 'flex' : 'none';
-}
-
 function startRecording() {
-    if (!mediaRecorder) return;
+    if (!mediaRecorder || isRecording) return;
     
+    clearCards();
     audioChunks = [];
+    startTime = Date.now();
     mediaRecorder.start();
     isRecording = true;
-    recordBtn.classList.add('recording');
-    updateStatus('录音中...', true);
+    updateStatus('录音中...', 'recording');
 }
 
 function stopRecording() {
-    if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+    if (!mediaRecorder || !isRecording) return;
     
     mediaRecorder.stop();
     isRecording = false;
-    recordBtn.classList.remove('recording');
-    updateStatus('识别中...', true);
 }
 
-// 绑定事件
-recordBtn.addEventListener('mousedown', startRecording);
-recordBtn.addEventListener('mouseup', stopRecording);
-recordBtn.addEventListener('mouseleave', () => {
-    if (isRecording) stopRecording();
+// 按钮交互逻辑
+let isPointerDown = false;
+let isLongPress = false;
+
+micBtn.addEventListener('mousedown', (e) => {
+    isPointerDown = true;
+    isLongPress = false;
+    
+    // 设置长按检测
+    recordTimer = setTimeout(() => {
+        if (isPointerDown) {
+            isLongPress = true;
+            startRecording();
+        }
+    }, 200);
 });
 
-// 适配触摸设备
-recordBtn.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    startRecording();
+micBtn.addEventListener('mouseup', (e) => {
+    isPointerDown = false;
+    clearTimeout(recordTimer);
+    
+    if (isLongPress) {
+        // 长按结束，停止录音
+        stopRecording();
+    } else {
+        // 短点击切换
+        if (!isRecording) {
+            startRecording();
+        } else {
+            stopRecording();
+        }
+    }
 });
-recordBtn.addEventListener('touchend', (e) => {
+
+micBtn.addEventListener('mouseleave', () => {
+    if (isPointerDown && isLongPress) {
+        stopRecording();
+    }
+    isPointerDown = false;
+    clearTimeout(recordTimer);
+});
+
+// 触摸支持
+micBtn.addEventListener('touchstart', (e) => {
     e.preventDefault();
-    stopRecording();
+    isPointerDown = true;
+    isLongPress = false;
+    recordTimer = setTimeout(() => {
+        if (isPointerDown) {
+            isLongPress = true;
+            startRecording();
+        }
+    }, 200);
+});
+
+micBtn.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    isPointerDown = false;
+    clearTimeout(recordTimer);
+    if (isLongPress) {
+        stopRecording();
+    } else {
+        if (!isRecording) {
+            startRecording();
+        } else {
+            stopRecording();
+        }
+    }
 });
 
 // 初始化
 setupRecorder();
-addMessage('system', '欢迎回来，大王！');

@@ -50,6 +50,40 @@ def consume_tts_stop_request() -> bool:
         signal_path.unlink()
     return True
 
+def generate_tts_wav(text: str, output_path: Path) -> Path:
+    clean_text = sanitize_for_tts(text)
+    if not clean_text:
+        raise RuntimeError("tts text became empty after sanitize")
+
+    qwen_tts = ensure_bin("qwen-tts")
+    log(f"generating tts wav for text: {clean_text[:20]}...")
+    
+    # qwen-tts 默认生成到 output.wav，或者可以通过参数指定
+    # 假设 qwen-tts 支持 --output 参数，如果不支持则需要重命名
+    proc = subprocess.run(
+        [qwen_tts, clean_text, "--speaker", "serena", "--output", str(output_path)],
+        capture_output=True,
+        text=True,
+    )
+    
+    if proc.returncode != 0:
+        # 如果不支持 --output，尝试默认行为并移动文件
+        proc = subprocess.run(
+            [qwen_tts, clean_text, "--speaker", "serena"],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0:
+            default_output = Path("output.wav")
+            if default_output.exists():
+                shutil.move(str(default_output), str(output_path))
+                return output_path
+        
+        msg = (proc.stderr or proc.stdout or f"tts generation failed with code {proc.returncode}").strip()
+        raise RuntimeError(msg)
+        
+    return output_path
+
 def speak_text(text: str) -> bool:
     clean_text = sanitize_for_tts(text)
     if not clean_text:

@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from .execution import execute_transcript_async
 from .core import run_stt, load_env_files, parse_args
+from .audio.tts import generate_tts_wav
 from .utils.logging import log, init_session_log
 from .utils.env import env_path, DEFAULT_LOG_DIR
 
@@ -34,6 +35,11 @@ frontend_path = Path("web_gui")
 frontend_path.mkdir(exist_ok=True)
 app.mount("/gui", StaticFiles(directory="web_gui", html=True), name="gui")
 
+# 挂载临时音频目录用于播放
+audio_tmp_dir = Path("tmp") / "web_audio"
+audio_tmp_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/audio", StaticFiles(directory=str(audio_tmp_dir)), name="audio")
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
@@ -41,10 +47,10 @@ async def health_check():
 @app.post("/process")
 async def process_audio(audio: UploadFile = File(...)):
     session_id = uuid.uuid4().hex
-    # 初始化日志（可选，为了调试方便）
+    # 初始化日志
     init_session_log(env_path("PTT_LOG_DIR", DEFAULT_LOG_DIR), session_id=session_id)
     
-    # 创建临时目录存放音频
+    # 创建临时目录
     temp_dir = Path("tmp") / "web" / session_id
     temp_dir.mkdir(parents=True, exist_ok=True)
     audio_path = temp_dir / "input.wav"
@@ -55,12 +61,10 @@ async def process_audio(audio: UploadFile = File(...)):
             shutil.copyfileobj(audio.file, buffer)
         
         # 构造配置
-        # 我们默认关闭 TTS 和 GUI 事件，只返回结果文本
         cfg = parse_args(["--no-tts"])
         
         # 1. 语音转文字
         log(f"Web API: transcribing {audio_path}")
-        # run_stt 是同步的，目前没看到它内部有用 asyncio.run
         transcript = run_stt(cfg.stt_url, cfg.stt_token, str(audio_path))
         
         if not transcript:
@@ -73,10 +77,22 @@ async def process_audio(audio: UploadFile = File(...)):
         log(f"Web API: executing transcript: {transcript}")
         reply = await execute_transcript_async(cfg, transcript)
         
+        # 3. 生成 TTS 音频供浏览器播放
+        audio_url = None
+        if reply:
+            tts_filename = f"{session_id}.wav"
+            tts_path = audio_tmp_dir / tts_filename
+            try:
+                generate_tts_wav(reply, tts_path)
+                audio_url = f"/audio/{tts_filename}"
+            except Exception as e:
+                log(f"Web API TTS Error: {str(e)}", level="error")
+        
         return {
             "session_id": session_id,
             "transcript": transcript,
             "reply": reply,
+            "audio_url": audio_url,
             "status": "success"
         }
     except Exception as e:

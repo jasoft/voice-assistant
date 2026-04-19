@@ -2,40 +2,41 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Assistant - 大王的专属助手</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Voice Assistant</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Voice Assistant</h1>
-            <p class="subtitle">大王，今天有什么吩咐吗？</p>
+            <div class="avatar">
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                    <path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                </svg>
+            </div>
+            <h1>大王的语音助手</h1>
         </header>
 
-        <main>
-            <div id="chat-history" class="chat-history">
-                <div class="message system">
-                    <div class="bubble">准备就绪。点击下方按钮开始录音。</div>
-                </div>
+        <main id="main-content">
+            <div class="orb-container">
+                <div id="orb" class="orb idle"></div>
             </div>
 
-            <div class="status-indicator" id="status-indicator">
-                <span id="status-text">就绪</span>
-                <div class="recording-animation" id="recording-animation" style="display: none;">
-                    <span></span><span></span><span></span><span></span>
-                </div>
+            <div id="cards-container">
+                <!-- Cards will be inserted here -->
             </div>
         </main>
 
         <footer>
-            <button id="record-btn" class="record-btn">
-                <svg viewBox="0 0 24 24" width="24" height="24">
-                    <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                    <path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                </svg>
-            </button>
-            <p class="tip">长按或点击开始录音</p>
+            <div class="bottom-bar">
+                <button id="mic-btn" class="mic-btn">
+                    <svg viewBox="0 0 24 24">
+                        <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                        <path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                    </svg>
+                </button>
+            </div>
+            <div id="status-bar" class="status-bar">就绪</div>
         </footer>
     </div>
     <script src="app.js"></script>
