@@ -18,7 +18,7 @@ public final class AppModel: ObservableObject {
 
     private let bridge: PTTProcessBridge
     private let forwardedArgs: [String]
-    private let workingDirectory: URL
+    public let workingDirectory: URL
     private var cancellables = Set<AnyCancellable>()
     private var historySearchTask: Task<Void, Never>?
 
