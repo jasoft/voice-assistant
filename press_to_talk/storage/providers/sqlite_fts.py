@@ -956,7 +956,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     (memory_id,),
                 )
 
-    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
+    def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
         with contextlib.closing(self._connect()) as conn:
             rows = conn.execute(
                 f"""
@@ -968,9 +968,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     created_at
                 FROM {self.table_name}
                 ORDER BY created_at DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (max(1, limit),),
+                (max(1, limit), max(0, offset)),
             ).fetchall()
         return [
             RememberItemRecord(

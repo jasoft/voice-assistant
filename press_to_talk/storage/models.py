@@ -91,7 +91,7 @@ class BaseRememberStore:
     def delete(self, *, memory_id: str) -> None:
         raise NotImplementedError
 
-    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
+    def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
         raise NotImplementedError
 
 

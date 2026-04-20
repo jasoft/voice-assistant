@@ -230,11 +230,11 @@ class Mem0RememberStore(BaseRememberStore):
     def delete(self, *, memory_id: str) -> None:
         self.client.delete(memory_id)
 
-    def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
+    def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
         response = self.client.get_all(**self._read_scope_kwargs())
         items = _extract_mem0_results(response)
         records = []
-        for item in items[:limit]:
+        for item in items[offset : offset + limit]:
             metadata = item.get("metadata", {})
             if not isinstance(metadata, dict):
                 metadata = {}

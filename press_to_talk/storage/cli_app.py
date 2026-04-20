@@ -210,6 +210,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=100,
         help="Maximum number of memory entries to return, ordered by newest first.",
     )
+    m_list.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Number of memory entries to skip for pagination.",
+    )
     m_export = memory_sub.add_parser(
         "export",
         help="Export local memories to another provider (e.g., mem0)",
@@ -364,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
                     store.delete(memory_id=args.id)
                     print(json.dumps({"deleted": args.id}, ensure_ascii=False))
                 elif args.command == "list":
-                    records = store.list_all(limit=args.limit)
+                    records = store.list_all(limit=args.limit, offset=args.offset)
                     print(json.dumps([asdict(record) for record in records], ensure_ascii=False))
 
         buffered = stderr_buffer.getvalue()
