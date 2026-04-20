@@ -274,7 +274,9 @@ struct AssistantShellView: View {
                 title: "SETTINGS",
                 symbol: "gearshape",
                 active: false,
-                action: {}
+                action: {
+                    SettingsWindowController.show(store: MemoryStore(workingDirectory: model.workingDirectory))
+                }
             )
         }
         .padding(.vertical, 14)
