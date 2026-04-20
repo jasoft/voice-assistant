@@ -43,6 +43,13 @@ class ExtractIntentAction(Action):
             bb.error = str(e)
             return Status.FAILURE
 
+class SetDefaultIntentAction(Action):
+    async def tick(self, bb: Blackboard) -> Status:
+        if not bb.intent:
+            # Fallback to a default search intent if extraction failed
+            bb.intent = {"intent": "find", "args": {"query": bb.transcript}}
+        return Status.SUCCESS
+
 class ExecuteSearchAction(Action):
     async def tick(self, bb: Blackboard) -> Status:
         from ...agent.agent import OpenAICompatibleAgent

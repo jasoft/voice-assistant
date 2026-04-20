@@ -3,7 +3,7 @@ from .nodes import (
     IsRecordIntent, ExecuteRecordAction,
     ExecuteSearchAction, HasMemoryHits, LLMSummarizeAction,
     LLMChatFallbackAction, ExtractIntentAction,
-    IsHermesMode, ExecuteHermesAction
+    IsHermesMode, ExecuteHermesAction, SetDefaultIntentAction
 )
 
 def build_master_tree():
@@ -11,8 +11,10 @@ def build_master_tree():
     Builds the master behavior tree for execution logic.
     Logic:
     Sequence:
-      - ExtractIntentAction
-      - Selector:
+      - Selector (Intent):
+          - ExtractIntentAction
+          - SetDefaultIntentAction
+      - Selector (Main):
           - Sequence (Record): IsRecordIntent -> ExecuteRecordAction
           - Sequence (Hermes): IsHermesMode -> ExecuteHermesAction
           - Sequence (Search): ExecuteSearchAction -> HasMemoryHits -> LLMSummarizeAction
@@ -42,8 +44,13 @@ def build_master_tree():
         LLMChatFallbackAction()
     ])
     
-    root = Sequence([
+    intent_logic = Selector([
         ExtractIntentAction(),
+        SetDefaultIntentAction()
+    ])
+    
+    root = Sequence([
+        intent_logic,
         main_logic
     ])
     
