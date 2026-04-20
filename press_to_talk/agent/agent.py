@@ -156,6 +156,9 @@ class OpenAICompatibleAgent:
             f"{index}. {item}"
             for index, item in enumerate(extractor_cfg["instructions"], start=1)
         )
+        # 注入真实的时间基准
+        instructions = instructions.replace("${PTT_CURRENT_TIME}", _runtime_current_time_text())
+        
         system_prompt = _render_prompt_template(
             str(extractor_cfg["system_prompt"]),
             {
