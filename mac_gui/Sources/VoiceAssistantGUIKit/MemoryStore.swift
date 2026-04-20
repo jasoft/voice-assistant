@@ -1,6 +1,6 @@
 import Foundation
 
-public final class MemoryStore {
+public final class MemoryStore: Sendable {
     private let workingDirectory: URL
 
     public init(workingDirectory: URL) {
