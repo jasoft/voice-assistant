@@ -58,10 +58,21 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
         data = self._run_json(["memory", "add", "--memory", memory, "--original-text", original_text])
         return data["result"]
 
-    def find(self, *, query: str, min_score: float = 0.0) -> str:
+    def find(
+        self,
+        *,
+        query: str,
+        min_score: float = 0.0,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> str:
         args = ["memory", "search", "--query", query]
         if min_score > 0:
             args.extend(["--min-score", str(min_score)])
+        if start_date:
+            args.extend(["--start-date", start_date])
+        if end_date:
+            args.extend(["--end-date", end_date])
         result = self._run_process(args)
         return result.stdout.strip()
 

@@ -8,7 +8,7 @@
 
 ## 目标
 - 把 storage 重构为清晰分层：配置/模型、SQLite repository、CLI app、CLI wrapper、facade。
-- 保持现有外部接口稳定：`StorageService`、`press_to_talk.storage_cli`、agent/GUI 调用方式不变。
+- 保持现有外部接口稳定：`StorageService`、`press_to_talk.storage.cli_app`、agent/GUI 调用方式不变。
 - memory/history 都以简单 SQLite CRUD 为核心；LLM 仅负责用户口述转写后的查询改写与命令调用，不进入 repository 逻辑。
 
 ## 方案对比

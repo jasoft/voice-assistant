@@ -16,7 +16,7 @@
 - 把记忆能力拆成真正的多 provider 架构
 - `mem0` 与 `sqlite_fts5` 各自管理自己的检索结果提取与阈值逻辑
 - agent 层不再直接调用 `mem0` 专用逻辑
-- 保持现有外部接口稳定：`StorageService`、`press_to_talk.storage_cli`、`remember_find` 调用方式不变
+- 保持现有外部接口稳定：`StorageService`、`press_to_talk.storage.cli_app`、`remember_find` 调用方式不变
 - 保持本地录音启动体验不变，不给录音前路径增加额外初始化
 
 ## 非目标

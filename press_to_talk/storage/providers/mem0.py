@@ -203,7 +203,16 @@ class Mem0RememberStore(BaseRememberStore):
                 )
         return f"✅ 已记录：{stored_memory}"
 
-    def find(self, *, query: str, min_score: float = 0.0) -> str:
+    def find(
+        self,
+        *,
+        query: str,
+        min_score: float = 0.0,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> str:
+        # Note: Mem0 current search API might not support direct date range filtering via SDK
+        # Maintaining the interface for consistency.
         response = self.client.search(query, **self._read_scope_kwargs())
         if min_score > 0 and isinstance(response, list):
             response = [

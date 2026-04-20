@@ -190,7 +190,7 @@ def main() -> int:
 
 - [ ] **Step 2: Test CLI manually**
 
-Run: `python -m press_to_talk.storage_cli history list --limit 1`
+Run: `python -m press_to_talk.storage.cli_app history list --limit 1`
 Expected: Valid JSON array.
 
 - [ ] **Step 3: Commit**
@@ -217,7 +217,7 @@ from .service import BaseHistoryStore, BaseRememberStore, SessionHistoryRecord, 
 
 class CLIStoreBase:
     def _run(self, args: list[str]) -> Any:
-        cmd = [sys.executable, "-m", "press_to_talk.storage_cli"] + args
+        cmd = [sys.executable, "-m", "press_to_talk.storage.cli_app"] + args
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
         if result.returncode != 0:
             raise RuntimeError(f"Storage CLI error: {result.stderr}")
@@ -241,7 +241,7 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
 
     def find(self, *, query: str) -> str:
         # Note: CLI search already returns JSON string
-        cmd = [sys.executable, "-m", "press_to_talk.storage_cli", "memory", "search", "--query", query]
+        cmd = [sys.executable, "-m", "press_to_talk.storage.cli_app", "memory", "search", "--query", query]
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
         return result.stdout.strip()
 

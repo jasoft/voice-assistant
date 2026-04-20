@@ -51,8 +51,8 @@ class MemoryChatExecutionRunner:
                 "content": (
                     "你是语音助手 chat-mode 的意图分析器。"
                     "只做最小判断，把当前问题判断成 record 或 chat。"
-                    "record 表示用户明确要记录、保存、更新某条记忆；"
-                    "其它情况一律输出 chat。"
+                    "record 表示用户明确要记录、保存、更新某条**新的**事实信息；"
+                    "如果是询问、查询、列出、翻阅已有的记录，务必输出 chat。"
                     '只返回 JSON，例如 {"intent":"chat","notes":"开放问答"}。'
                 ),
             },

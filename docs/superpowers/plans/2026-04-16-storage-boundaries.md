@@ -58,6 +58,6 @@
 - Modify: `tests/test_gui_events.py`
 
 - [ ] 跑 storage 相关单测。
-- [ ] 跑 `uv run python -m press_to_talk.storage_cli memory search --query '"usb" OR "测试版"'`。
+- [ ] 跑 `uv run python -m press_to_talk.storage.cli_app memory search --query '"usb" OR "测试版"'`。
 - [ ] 跑 `uv run press-to-talk --text-input "usb测试版在哪" --no-tts`。
 - [ ] 提交一次原子 commit。
