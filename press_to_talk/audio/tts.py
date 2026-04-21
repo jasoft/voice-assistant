@@ -119,8 +119,10 @@ def speak_text(text: str) -> bool:
     )
     try:
         while True:
-            if consume_tts_stop_request():
-                log("received GUI stop request for qwen-tts")
+            # Check if parent process (the GUI or launcher) has died. 
+            # On macOS/Unix, orphaned processes are adopted by PID 1.
+            if consume_tts_stop_request() or os.getppid() == 1:
+                log("received GUI stop request or parent process exited for qwen-tts")
                 proc.terminate()
                 try:
                     proc.wait(timeout=2)

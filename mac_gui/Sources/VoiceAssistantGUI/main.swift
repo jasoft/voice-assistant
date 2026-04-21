@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let escMonitor {
             NSEvent.removeMonitor(escMonitor)
         }
+        model.stopSpeaking()
         model.stopRecording()
     }
 
