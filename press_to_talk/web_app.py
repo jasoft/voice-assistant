@@ -36,11 +36,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 挂载静态文件
-frontend_path = Path("web_gui")
-frontend_path.mkdir(exist_ok=True)
-app.mount("/", StaticFiles(directory="web_gui", html=True), name="gui")
-
 # 挂载临时音频目录用于播放
 audio_tmp_dir = Path("tmp") / "web_audio"
 audio_tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -147,6 +142,11 @@ async def process_audio(audio: UploadFile = File(...)):
         # if temp_dir.exists():
         #     shutil.rmtree(temp_dir)
         pass
+
+# 挂载静态文件放在最后，避免拦截 API 路由
+frontend_path = Path("web_gui")
+frontend_path.mkdir(exist_ok=True)
+app.mount("/", StaticFiles(directory="web_gui", html=True), name="gui")
 
 if __name__ == "__main__":
     import uvicorn
