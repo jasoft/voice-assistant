@@ -4,10 +4,8 @@ import json
 import os
 import re
 import sqlite3
-import subprocess
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from press_to_talk.utils.logging import log, log_llm_prompt, log_multiline
 
@@ -391,7 +389,6 @@ class OpenAIEmbeddingClient:
         self.model = model.strip()
         self.base_url = base_url.strip()
         self._client: Any | None = None
-        self._lmstudio_model_ready = False
 
     def _client_instance(self) -> Any:
         if self._client is None:
@@ -404,63 +401,10 @@ class OpenAIEmbeddingClient:
             self._client = OpenAI(**client_kwargs)
         return self._client
 
-    def _uses_local_lmstudio(self) -> bool:
-        if not self.model:
-            return False
-        if not self.base_url:
-            return False
-        parsed = urlparse(self.base_url)
-        hostname = str(parsed.hostname or "").strip().lower()
-        return hostname in {"127.0.0.1", "localhost"}
-
-    def _loaded_lmstudio_identifiers(self) -> set[str]:
-        result = subprocess.run(
-            ["lms", "ps", "--json"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            stderr = str(result.stderr or "").strip()
-            raise RuntimeError(f"failed to inspect loaded LM Studio models: {stderr or result.returncode}")
-        try:
-            payload = json.loads(result.stdout or "[]")
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("failed to parse LM Studio loaded model list") from exc
-        identifiers: set[str] = set()
-        if not isinstance(payload, list):
-            return identifiers
-        for item in payload:
-            if not isinstance(item, dict):
-                continue
-            for key in ("identifier", "id", "modelKey", "model", "name"):
-                value = str(item.get(key, "")).strip()
-                if value:
-                    identifiers.add(value)
-        return identifiers
-
-    def _ensure_lmstudio_model_loaded(self) -> None:
-        if self._lmstudio_model_ready or not self._uses_local_lmstudio():
-            return
-        if self.model in self._loaded_lmstudio_identifiers():
-            self._lmstudio_model_ready = True
-            return
-        result = subprocess.run(
-            ["lms", "load", "-y", "--identifier", self.model, self.model],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            stderr = str(result.stderr or "").strip()
-            raise RuntimeError(f"failed to load LM Studio model {self.model}: {stderr or result.returncode}")
-        self._lmstudio_model_ready = True
-
     def embed_many(self, texts: list[str]) -> list[list[float]]:
         cleaned_texts = [str(text or "").strip() for text in texts if str(text or "").strip()]
         if not cleaned_texts:
             return []
-        self._ensure_lmstudio_model_loaded()
         response = self._client_instance().embeddings.create(
             model=self.model,
             input=cleaned_texts,

@@ -360,7 +360,7 @@ class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class OpenAIEmbeddingClientTests(unittest.TestCase):
-    def test_embed_many_loads_lmstudio_model_when_missing(self) -> None:
+    def test_embed_many_calls_embeddings_api_directly(self) -> None:
         client = storage_service_module.OpenAIEmbeddingClient(
             api_key="lm-studio",
             model="text-embedding-bge-m3",
@@ -369,30 +369,15 @@ class OpenAIEmbeddingClientTests(unittest.TestCase):
         fake_openai = FakeOpenAIClient()
 
         with patch.object(client, "_client_instance", return_value=fake_openai):
-            with patch(
-                "press_to_talk.storage.service.subprocess.run",
-                side_effect=[
-                    SimpleNamespace(returncode=0, stdout="[]", stderr=""),
-                    SimpleNamespace(returncode=0, stdout="loaded", stderr=""),
-                ],
-            ) as mock_run:
-                embeddings = client.embed_many(["护照在哪"])
+            embeddings = client.embed_many(["护照在哪"])
 
         self.assertEqual(embeddings, [[1.0, 1.5]])
-        self.assertEqual(
-            mock_run.call_args_list[0].args[0],
-            ["lms", "ps", "--json"],
-        )
-        self.assertEqual(
-            mock_run.call_args_list[1].args[0],
-            ["lms", "load", "-y", "--identifier", "text-embedding-bge-m3", "text-embedding-bge-m3"],
-        )
         self.assertEqual(
             fake_openai.embeddings.calls,
             [{"model": "text-embedding-bge-m3", "input": ["护照在哪"]}],
         )
 
-    def test_embed_many_skips_lmstudio_load_when_model_already_loaded(self) -> None:
+    def test_embed_many_filters_blank_inputs(self) -> None:
         client = storage_service_module.OpenAIEmbeddingClient(
             api_key="lm-studio",
             model="text-embedding-bge-m3",
@@ -401,22 +386,10 @@ class OpenAIEmbeddingClientTests(unittest.TestCase):
         fake_openai = FakeOpenAIClient()
 
         with patch.object(client, "_client_instance", return_value=fake_openai):
-            with patch(
-                "press_to_talk.storage.service.subprocess.run",
-                return_value=SimpleNamespace(
-                    returncode=0,
-                    stdout='[{"identifier":"text-embedding-bge-m3"}]',
-                    stderr="",
-                ),
-            ) as mock_run:
-                embeddings = client.embed_many(["护照在哪"])
+            embeddings = client.embed_many(["", "  ", "\n"])
 
-        self.assertEqual(embeddings, [[1.0, 1.5]])
-        self.assertEqual(mock_run.call_count, 1)
-        self.assertEqual(
-            fake_openai.embeddings.calls,
-            [{"model": "text-embedding-bge-m3", "input": ["护照在哪"]}],
-        )
+        self.assertEqual(embeddings, [])
+        self.assertEqual(fake_openai.embeddings.calls, [])
 
 
 class RememberToolErrorsTests(unittest.IsolatedAsyncioTestCase):
