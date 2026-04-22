@@ -164,22 +164,12 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("记忆内容")
-                TextEditor(text: draftBinding(\.memory))
-                    .frame(minHeight: 110)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.3))
-                    )
+                borderedEditor(text: draftBinding(\.memory))
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("原始文本")
-                TextEditor(text: draftBinding(\.originalText))
-                    .frame(minHeight: 110)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.3))
-                    )
+                borderedEditor(text: draftBinding(\.originalText))
             }
 
             if !saveError.isEmpty {
@@ -218,6 +208,21 @@ struct SettingsView: View {
                 editingDraft?[keyPath: keyPath] = newValue
             }
         )
+    }
+
+    @ViewBuilder
+    private func borderedEditor(text: Binding<String>) -> some View {
+        TextEditor(text: text)
+            .font(.body)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 10)
+            .frame(minHeight: 110)
+            .background(Color(NSColor.textBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.3))
+            )
     }
 
     private func saveEdit() {
