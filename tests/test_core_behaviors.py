@@ -363,8 +363,7 @@ class OpenAIEmbeddingClientTests(unittest.TestCase):
     def test_embed_many_loads_lmstudio_model_when_missing(self) -> None:
         client = storage_service_module.OpenAIEmbeddingClient(
             api_key="lm-studio",
-            model="remember-bge-m3",
-            load_model="text-embedding-bge-m3",
+            model="text-embedding-bge-m3",
             base_url="http://127.0.0.1:1234/v1",
         )
         fake_openai = FakeOpenAIClient()
@@ -386,45 +385,17 @@ class OpenAIEmbeddingClientTests(unittest.TestCase):
         )
         self.assertEqual(
             mock_run.call_args_list[1].args[0],
-            ["lms", "load", "-y", "--identifier", "remember-bge-m3", "text-embedding-bge-m3"],
+            ["lms", "load", "-y", "--identifier", "text-embedding-bge-m3", "text-embedding-bge-m3"],
         )
         self.assertEqual(
             fake_openai.embeddings.calls,
-            [{"model": "remember-bge-m3", "input": ["护照在哪"]}],
+            [{"model": "text-embedding-bge-m3", "input": ["护照在哪"]}],
         )
 
     def test_embed_many_skips_lmstudio_load_when_model_already_loaded(self) -> None:
         client = storage_service_module.OpenAIEmbeddingClient(
             api_key="lm-studio",
-            model="remember-bge-m3",
-            load_model="text-embedding-bge-m3",
-            base_url="http://127.0.0.1:1234/v1",
-        )
-        fake_openai = FakeOpenAIClient()
-
-        with patch.object(client, "_client_instance", return_value=fake_openai):
-            with patch(
-                "press_to_talk.storage.service.subprocess.run",
-                return_value=SimpleNamespace(
-                    returncode=0,
-                    stdout='[{"identifier":"remember-bge-m3"}]',
-                    stderr="",
-                ),
-            ) as mock_run:
-                embeddings = client.embed_many(["护照在哪"])
-
-        self.assertEqual(embeddings, [[1.0, 1.5]])
-        self.assertEqual(mock_run.call_count, 1)
-        self.assertEqual(
-            fake_openai.embeddings.calls,
-            [{"model": "remember-bge-m3", "input": ["护照在哪"]}],
-        )
-
-    def test_embed_many_skips_load_when_lmstudio_model_key_already_loaded(self) -> None:
-        client = storage_service_module.OpenAIEmbeddingClient(
-            api_key="lm-studio",
-            model="remember-bge-m3",
-            load_model="text-embedding-bge-m3",
+            model="text-embedding-bge-m3",
             base_url="http://127.0.0.1:1234/v1",
         )
         fake_openai = FakeOpenAIClient()
@@ -442,6 +413,10 @@ class OpenAIEmbeddingClientTests(unittest.TestCase):
 
         self.assertEqual(embeddings, [[1.0, 1.5]])
         self.assertEqual(mock_run.call_count, 1)
+        self.assertEqual(
+            fake_openai.embeddings.calls,
+            [{"model": "text-embedding-bge-m3", "input": ["护照在哪"]}],
+        )
 
 
 class RememberToolErrorsTests(unittest.IsolatedAsyncioTestCase):
@@ -1245,7 +1220,7 @@ class HistoryWriterTests(unittest.TestCase):
         )
         self.assertTrue(config.groq_rewrite_enabled)
         self.assertTrue(config.embedding_search_enabled)
-        self.assertEqual(config.embedding_model, "remember-bge-m3")
+        self.assertEqual(config.embedding_model, "text-embedding-bge-m3")
         self.assertEqual(config.embedding_base_url, "http://127.0.0.1:1234/v1")
         self.assertEqual(config.embedding_max_results, 5)
         self.assertEqual(config.embedding_min_score, 0.45)
@@ -1781,7 +1756,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
                 db_path=db_path,
                 keyword_rewriter=FakeKeywordRewriter('"完全不相关的词"'),
                 embedding_client=embedding_client,
-                embedding_model="remember-bge-m3",
+                embedding_model="text-embedding-bge-m3",
                 embedding_max_results=3,
                 embedding_min_score=0.45,
                 embedding_context_min_score=0.55,
@@ -1820,7 +1795,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
                 db_path=db_path,
                 keyword_rewriter=FakeKeywordRewriter('"完全不相关的词"'),
                 embedding_client=embedding_client,
-                embedding_model="remember-bge-m3",
+                embedding_model="text-embedding-bge-m3",
                 embedding_max_results=3,
                 embedding_min_score=0.45,
                 embedding_context_min_score=0.8,

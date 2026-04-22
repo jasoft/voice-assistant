@@ -25,7 +25,6 @@ class StorageConfig:
     embedding_base_url: str = ""
     embedding_api_key: str = ""
     embedding_model: str = ""
-    embedding_load_model: str = ""
     embedding_max_results: int = 5
     embedding_min_score: float = 0.45
     embedding_context_min_score: float = 0.55
