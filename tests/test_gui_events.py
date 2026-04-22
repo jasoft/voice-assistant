@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from press_to_talk import core
 from press_to_talk.storage import cli_app as storage_cli_app
+from press_to_talk.storage.models import RememberItemRecord
 
 
 @contextmanager
@@ -206,6 +207,58 @@ class StorageCliTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(stdout.getvalue().strip()), fake_results)
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_memory_update_writes_json_to_stdout(self) -> None:
+        fake_store = SimpleNamespace(
+            update=lambda **kwargs: RememberItemRecord(
+                id=kwargs["memory_id"],
+                source_memory_id="",
+                memory=kwargs["memory"],
+                original_text=kwargs["original_text"],
+                created_at="2026-04-22 12:00:00",
+                updated_at="2026-04-22 12:01:00",
+            )
+        )
+        fake_service = SimpleNamespace(remember_store=lambda: fake_store)
+        fake_config = SimpleNamespace(query_rewrite_enabled=True)
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            patch("press_to_talk.core.load_env_files"),
+            patch.object(storage_cli_app, "load_storage_config", return_value=fake_config),
+            patch.object(storage_cli_app, "StorageService", return_value=fake_service),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = storage_cli_app.main(
+                [
+                    "memory",
+                    "update",
+                    "--id",
+                    "m1",
+                    "--memory",
+                    "壮壮改成明天下午去打篮球",
+                    "--original-text",
+                    "帮我改成明天下午去打篮球",
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            json.loads(stdout.getvalue().strip()),
+            {
+                "updated": {
+                    "id": "m1",
+                    "source_memory_id": "",
+                    "memory": "壮壮改成明天下午去打篮球",
+                    "original_text": "帮我改成明天下午去打篮球",
+                    "created_at": "2026-04-22 12:00:00",
+                    "updated_at": "2026-04-22 12:01:00",
+                }
+            },
+        )
         self.assertEqual(stderr.getvalue(), "")
 
 

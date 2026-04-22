@@ -79,6 +79,33 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
     def delete(self, *, memory_id: str) -> None:
         self._run_json(["memory", "delete", "--id", memory_id])
 
+    def update(
+        self,
+        *,
+        memory_id: str,
+        memory: str,
+        original_text: str = "",
+    ) -> RememberItemRecord:
+        data = self._run_json(
+            [
+                "memory",
+                "update",
+                "--id",
+                memory_id,
+                "--memory",
+                memory,
+                "--original-text",
+                original_text,
+            ]
+        )
+        if not data or "updated" not in data:
+            raise RuntimeError("Storage CLI error: missing updated memory payload")
+        item = dict(data["updated"])
+        item.setdefault("source_memory_id", "")
+        item.setdefault("created_at", "")
+        item.setdefault("updated_at", "")
+        return RememberItemRecord(**item)
+
     def list_all(self, *, limit: int = 100) -> list[RememberItemRecord]:
         data = self._run_json(["memory", "list", "--limit", str(limit)])
         if not data:

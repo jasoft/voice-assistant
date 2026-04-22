@@ -956,6 +956,74 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     (memory_id,),
                 )
 
+    def update(
+        self,
+        *,
+        memory_id: str,
+        memory: str,
+        original_text: str = "",
+    ) -> RememberItemRecord:
+        stored_memory = str(memory or "").strip()
+        stored_original_text = str(original_text or "").strip()
+        updated_at = _now_iso()
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                existing = conn.execute(
+                    f"""
+                    SELECT
+                        id,
+                        source_memory_id,
+                        memory,
+                        original_text,
+                        created_at,
+                        updated_at
+                    FROM {self.table_name}
+                    WHERE id = ?
+                    """,
+                    (memory_id,),
+                ).fetchone()
+                if existing is None:
+                    raise RuntimeError(f"memory not found: {memory_id}")
+                conn.execute(
+                    f"""
+                    UPDATE {self.table_name}
+                    SET memory = ?, original_text = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (stored_memory, stored_original_text, updated_at, memory_id),
+                )
+                conn.execute(
+                    f"DELETE FROM {self.fts_table_name} WHERE item_id = ?",
+                    (memory_id,),
+                )
+                conn.execute(
+                    f"""
+                    INSERT INTO {self.fts_table_name} (
+                        memory,
+                        original_text,
+                        item_id
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (stored_memory, stored_original_text, memory_id),
+                )
+        if self._embedding_enabled():
+            try:
+                self._sync_embedding_for_item(
+                    item_id=memory_id,
+                    memory=stored_memory,
+                    original_text=stored_original_text,
+                )
+            except Exception as exc:
+                log(f"remember embedding sync failed: {exc}")
+        return RememberItemRecord(
+            id=str(existing["id"]),
+            source_memory_id=str(existing["source_memory_id"]),
+            memory=stored_memory,
+            original_text=stored_original_text,
+            created_at=str(existing["created_at"]),
+            updated_at=updated_at,
+        )
+
     def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
         with contextlib.closing(self._connect()) as conn:
             rows = conn.execute(
@@ -965,7 +1033,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     source_memory_id,
                     memory,
                     original_text,
-                    created_at
+                    created_at,
+                    updated_at
                 FROM {self.table_name}
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
@@ -979,6 +1048,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 memory=str(row["memory"]),
                 original_text=str(row["original_text"]),
                 created_at=str(row["created_at"]),
+                updated_at=str(row["updated_at"]),
             )
             for row in rows
         ]

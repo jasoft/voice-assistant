@@ -423,6 +423,51 @@ class CLIWrapperTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, json.dumps(payload, ensure_ascii=False))
 
+    def test_cli_remember_store_updates_memory_via_nested_command(self) -> None:
+        store = CLIRememberStore()
+        payload = {
+            "updated": {
+                "id": "m1",
+                "source_memory_id": "",
+                "memory": "新的记忆",
+                "original_text": "新的原文",
+                "created_at": "2026-04-22T10:00:00+08:00",
+                "updated_at": "2026-04-22T10:01:00+08:00",
+            }
+        }
+
+        with patch(
+            "press_to_talk.storage.cli_wrapper.subprocess.run",
+            return_value=SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(payload, ensure_ascii=False),
+                stderr="",
+            ),
+        ) as run_mock:
+            result = store.update(
+                memory_id="m1",
+                memory="新的记忆",
+                original_text="新的原文",
+            )
+
+        self.assertEqual(result.id, "m1")
+        self.assertEqual(result.memory, "新的记忆")
+        self.assertEqual(result.original_text, "新的原文")
+        args = run_mock.call_args.args[0]
+        self.assertEqual(
+            args[-8:],
+            [
+                "memory",
+                "update",
+                "--id",
+                "m1",
+                "--memory",
+                "新的记忆",
+                "--original-text",
+                "新的原文",
+            ],
+        )
+
     async def test_chat_uses_structured_tool_name_from_intent_payload(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent._extract_intent_payload = AsyncMock(
@@ -1524,6 +1569,33 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         self.assertIn("✅ 已记录", result)
         self.assertIn('"memory": "周会在二号会议室"', found)
         self.assertIn('"original_text": "帮我记一下周会在二号会议室，别搞错"', found)
+
+    def test_sqlite_store_update_overwrites_single_existing_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "remember.sqlite3"
+            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path)
+            store.add(
+                memory="护照在书房抽屉里",
+                original_text="帮我记住护照在书房抽屉里",
+            )
+            record = store.list_all(limit=1)[0]
+
+            updated = store.update(
+                memory_id=record.id,
+                memory="护照在卧室床头柜第二层",
+                original_text="帮我改成护照在卧室床头柜第二层",
+            )
+            records = store.list_all(limit=10)
+            found = store.find(query="床头柜")
+
+        self.assertEqual(updated.id, record.id)
+        self.assertEqual(updated.memory, "护照在卧室床头柜第二层")
+        self.assertEqual(updated.original_text, "帮我改成护照在卧室床头柜第二层")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].id, record.id)
+        self.assertEqual(records[0].memory, "护照在卧室床头柜第二层")
+        self.assertIn('"memory": "护照在卧室床头柜第二层"', found)
+        self.assertNotIn('"memory": "护照在书房抽屉里"', found)
 
     def test_sqlite_store_uses_keyword_rewriter_before_search(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

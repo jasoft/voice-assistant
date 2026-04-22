@@ -8,6 +8,10 @@ struct SettingsView: View {
     @State private var searchText = ""
     @State private var isLoading = false
     @State private var page = 0
+    @State private var editingEntry: MemoryEntry?
+    @State private var editingMemory = ""
+    @State private var editingOriginalText = ""
+    @State private var saveError = ""
     let pageSize = 20
 
     var body: some View {
@@ -29,6 +33,9 @@ struct SettingsView: View {
         .onChange(of: searchText) {
             page = 0
             loadMemories() 
+        }
+        .sheet(item: $editingEntry) { entry in
+            editSheet(entry: entry)
         }
     }
 
@@ -64,13 +71,20 @@ struct SettingsView: View {
             TableColumn("创建时间", value: \.createdAt)
                 .width(150)
             TableColumn("操作") { entry in
-                Button(action: { deleteEntry(entry) }) {
-                    Image(systemName: "trash")
-                        .foregroundColor(.red)
+                HStack(spacing: 10) {
+                    Button(action: { beginEditing(entry) }) {
+                        Image(systemName: "pencil")
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: { deleteEntry(entry) }) {
+                        Image(systemName: "trash")
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
-            .width(50)
+            .width(70)
         }
     }
 
@@ -130,6 +144,83 @@ struct SettingsView: View {
             }
             await MainActor.run { selection.removeAll() }
             loadMemories()
+        }
+    }
+
+    private func beginEditing(_ entry: MemoryEntry) {
+        editingMemory = entry.memory
+        editingOriginalText = entry.originalText
+        saveError = ""
+        editingEntry = entry
+    }
+
+    @ViewBuilder
+    private func editSheet(entry: MemoryEntry) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("编辑记忆").font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("记忆内容")
+                TextEditor(text: $editingMemory)
+                    .frame(minHeight: 110)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.3))
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("原始文本")
+                TextEditor(text: $editingOriginalText)
+                    .frame(minHeight: 110)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.3))
+                    )
+            }
+
+            if !saveError.isEmpty {
+                Text(saveError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("取消") {
+                    editingEntry = nil
+                }
+                Button("保存") {
+                    saveEdit(entry)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(editingMemory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 520, height: 380)
+    }
+
+    private func saveEdit(_ entry: MemoryEntry) {
+        let memory = editingMemory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let originalText = editingOriginalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !memory.isEmpty else {
+            saveError = "记忆内容不能为空"
+            return
+        }
+        Task {
+            do {
+                try await store.update(id: entry.id, memory: memory, originalText: originalText)
+                await MainActor.run {
+                    editingEntry = nil
+                    saveError = ""
+                }
+                loadMemories()
+            } catch {
+                await MainActor.run {
+                    saveError = "保存失败：\(error.localizedDescription)"
+                }
+            }
         }
     }
 }

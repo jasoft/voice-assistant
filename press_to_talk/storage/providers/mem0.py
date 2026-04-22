@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from ..models import BaseRememberStore, RememberItemRecord, StorageConfig
+from ...utils.text import format_local_datetime
 
 
 def create_mem0_client(api_key: str) -> Any:
@@ -230,24 +231,84 @@ class Mem0RememberStore(BaseRememberStore):
     def delete(self, *, memory_id: str) -> None:
         self.client.delete(memory_id)
 
+    def _record_from_item(self, item: dict[str, Any]) -> RememberItemRecord:
+        metadata = item.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        created_at = str(item.get("created_at") or item.get("createdAt") or "")
+        updated_at = str(item.get("updated_at") or item.get("updatedAt") or created_at)
+        return RememberItemRecord(
+            id=str(item.get("id", "")),
+            source_memory_id=str(item.get("id", "")),
+            memory=str(item.get("memory") or item.get("text") or ""),
+            original_text=str(metadata.get("original_text") or ""),
+            created_at=format_local_datetime(created_at) if created_at else "",
+            updated_at=format_local_datetime(updated_at) if updated_at else "",
+        )
+
+    def update(
+        self,
+        *,
+        memory_id: str,
+        memory: str,
+        original_text: str = "",
+    ) -> RememberItemRecord:
+        items = self.get_all()
+        existing = next((item for item in items if str(item.get("id", "")) == memory_id), None)
+        if existing is None:
+            raise RuntimeError(f"memory not found: {memory_id}")
+
+        metadata: dict[str, Any] = {}
+        existing_metadata = existing.get("metadata")
+        if isinstance(existing_metadata, dict):
+            metadata.update(existing_metadata)
+        metadata["original_text"] = str(original_text or "").strip()
+
+        if hasattr(self.client, "update"):
+            try:
+                response = self.client.update(
+                    memory_id,
+                    memory,
+                    metadata=metadata,
+                    **self._write_scope_kwargs(),
+                )
+                candidates = _extract_mem0_results(response)
+                if candidates:
+                    return self._record_from_item(candidates[0])
+            except TypeError:
+                pass
+
+        self.client.delete(memory_id)
+        kwargs = self._write_scope_kwargs()
+        kwargs["metadata"] = metadata
+        response = self.client.add([{"role": "user", "content": memory}], **kwargs)
+        candidates = _extract_mem0_results(response)
+        if candidates:
+            return self._record_from_item(candidates[0])
+
+        refreshed = self.get_all()
+        newest = next(
+            (
+                item
+                for item in refreshed
+                if str(item.get("memory") or item.get("text") or "") == memory
+            ),
+            None,
+        )
+        if newest is None:
+            newest = {
+                "id": memory_id,
+                "memory": memory,
+                "metadata": metadata,
+                "created_at": existing.get("created_at") or existing.get("createdAt") or "",
+                "updated_at": existing.get("updated_at") or existing.get("updatedAt") or "",
+            }
+        return self._record_from_item(newest)
+
     def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
         response = self.client.get_all(**self._read_scope_kwargs())
         items = _extract_mem0_results(response)
-        records = []
-        for item in items[offset : offset + limit]:
-            metadata = item.get("metadata", {})
-            if not isinstance(metadata, dict):
-                metadata = {}
-            records.append(
-                RememberItemRecord(
-                    id=str(item.get("id", "")),
-                    source_memory_id=str(item.get("id", "")),
-                    memory=str(item.get("memory") or item.get("text") or ""),
-                    original_text=str(metadata.get("original_text") or ""),
-                    created_at=str(item.get("created_at") or ""),
-                )
-            )
-        return records
+        return [self._record_from_item(item) for item in items[offset : offset + limit]]
 
     def get_all(self) -> list[dict[str, Any]]:
         response = self.client.get_all(**self._read_scope_kwargs())

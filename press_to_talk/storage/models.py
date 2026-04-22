@@ -37,6 +37,7 @@ class RememberItemRecord:
     memory: str
     original_text: str
     created_at: str
+    updated_at: str = ""
 
 
 @dataclass
@@ -92,6 +93,15 @@ class BaseRememberStore:
         raise NotImplementedError
 
     def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
+        raise NotImplementedError
+
+    def update(
+        self,
+        *,
+        memory_id: str,
+        memory: str,
+        original_text: str = "",
+    ) -> RememberItemRecord:
         raise NotImplementedError
 
 

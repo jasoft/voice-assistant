@@ -139,6 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {prog_name} memory search --query 'usb'\n"
             f"  {prog_name} memory search --query '\"usb\" OR \"测试版\"' | jq -r '.results[] | \"\\(.memory)\\t\\(.created_at)\"'\n"
             f"  {prog_name} memory list --limit 20\n"
+            f"  {prog_name} memory update --id 8eb8825167ad406ba2501e83c2eb24c8 --memory \"护照在卧室第二层抽屉\" --original-text \"帮我改成护照在卧室第二层抽屉\"\n"
             f"  {prog_name} memory delete --id 8eb8825167ad406ba2501e83c2eb24c8\n"
         ),
     )
@@ -197,6 +198,27 @@ def build_parser() -> argparse.ArgumentParser:
         "--id",
         required=True,
         help="Unique memory id to delete.",
+    )
+    m_update = memory_sub.add_parser(
+        "update",
+        help="Update one memory entry by id",
+        description="Update exactly one memory entry using its unique id.",
+        formatter_class=AgentHelpFormatter,
+    )
+    m_update.add_argument(
+        "--id",
+        required=True,
+        help="Unique memory id to update.",
+    )
+    m_update.add_argument(
+        "--memory",
+        required=True,
+        help="Updated canonical memory text to store.",
+    )
+    m_update.add_argument(
+        "--original-text",
+        default="",
+        help="Optional updated raw source text associated with the memory.",
     )
     m_list = memory_sub.add_parser(
         "list",
@@ -369,6 +391,13 @@ def main(argv: list[str] | None = None) -> int:
                 elif args.command == "delete":
                     store.delete(memory_id=args.id)
                     print(json.dumps({"deleted": args.id}, ensure_ascii=False))
+                elif args.command == "update":
+                    record = store.update(
+                        memory_id=args.id,
+                        memory=args.memory,
+                        original_text=args.original_text,
+                    )
+                    print(json.dumps({"updated": asdict(record)}, ensure_ascii=False))
                 elif args.command == "list":
                     records = store.list_all(limit=args.limit, offset=args.offset)
                     print(json.dumps([asdict(record) for record in records], ensure_ascii=False))
