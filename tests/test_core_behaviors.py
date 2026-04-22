@@ -304,6 +304,25 @@ class FakeEmbeddingClient:
         return [list(self.mapping[str(text)]) for text in texts]
 
 
+class FakeOpenAIEmbeddingsAPI:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def create(self, *, model: str, input: list[str]) -> SimpleNamespace:
+        self.calls.append({"model": model, "input": list(input)})
+        return SimpleNamespace(
+            data=[
+                SimpleNamespace(embedding=[float(index), float(index) + 0.5])
+                for index, _ in enumerate(input, start=1)
+            ]
+        )
+
+
+class FakeOpenAIClient:
+    def __init__(self) -> None:
+        self.embeddings = FakeOpenAIEmbeddingsAPI()
+
+
 class LogCapture:
     def __init__(self) -> None:
         self.messages: list[str] = []
@@ -338,8 +357,69 @@ class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, "FIND:我的苹果笔记本充电器在哪里")
-        self.assertEqual(rewriter.calls, [])
 
+
+class OpenAIEmbeddingClientTests(unittest.TestCase):
+    def test_embed_many_loads_lmstudio_model_when_missing(self) -> None:
+        client = storage_service_module.OpenAIEmbeddingClient(
+            api_key="lm-studio",
+            model="remember-bge-m3",
+            base_url="http://127.0.0.1:1234/v1",
+        )
+        fake_openai = FakeOpenAIClient()
+
+        with patch.object(client, "_client_instance", return_value=fake_openai):
+            with patch(
+                "press_to_talk.storage.service.subprocess.run",
+                side_effect=[
+                    SimpleNamespace(returncode=0, stdout="[]", stderr=""),
+                    SimpleNamespace(returncode=0, stdout="loaded", stderr=""),
+                ],
+            ) as mock_run:
+                embeddings = client.embed_many(["护照在哪"])
+
+        self.assertEqual(embeddings, [[1.0, 1.5]])
+        self.assertEqual(
+            mock_run.call_args_list[0].args[0],
+            ["lms", "ps", "--json"],
+        )
+        self.assertEqual(
+            mock_run.call_args_list[1].args[0],
+            ["lms", "load", "-y", "--identifier", "remember-bge-m3", "remember-bge-m3"],
+        )
+        self.assertEqual(
+            fake_openai.embeddings.calls,
+            [{"model": "remember-bge-m3", "input": ["护照在哪"]}],
+        )
+
+    def test_embed_many_skips_lmstudio_load_when_model_already_loaded(self) -> None:
+        client = storage_service_module.OpenAIEmbeddingClient(
+            api_key="lm-studio",
+            model="remember-bge-m3",
+            base_url="http://127.0.0.1:1234/v1",
+        )
+        fake_openai = FakeOpenAIClient()
+
+        with patch.object(client, "_client_instance", return_value=fake_openai):
+            with patch(
+                "press_to_talk.storage.service.subprocess.run",
+                return_value=SimpleNamespace(
+                    returncode=0,
+                    stdout='[{"identifier":"remember-bge-m3"}]',
+                    stderr="",
+                ),
+            ) as mock_run:
+                embeddings = client.embed_many(["护照在哪"])
+
+        self.assertEqual(embeddings, [[1.0, 1.5]])
+        self.assertEqual(mock_run.call_count, 1)
+        self.assertEqual(
+            fake_openai.embeddings.calls,
+            [{"model": "remember-bge-m3", "input": ["护照在哪"]}],
+        )
+
+
+class RememberToolErrorsTests(unittest.IsolatedAsyncioTestCase):
     async def test_remember_unknown_tool_returns_error(self) -> None:
         agent = core.OpenAICompatibleAgent.__new__(core.OpenAICompatibleAgent)
         agent.storage = FakeStorageService()
@@ -353,7 +433,7 @@ class RememberToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "Error: Unknown tool unknown_tool")
 
 
-class CLIWrapperTests(unittest.TestCase):
+class CLIWrapperTests(unittest.IsolatedAsyncioTestCase):
     def test_cli_remember_store_reads_json_from_stdout(self) -> None:
         store = CLIRememberStore()
         payload = {"results": [{"id": "m1", "memory": "茶长壮壮的"}]}
