@@ -165,6 +165,10 @@ def load_storage_config() -> StorageConfig:
             "PTT_EMBEDDING_MODEL",
             str(embedding_cfg.get("model", "remember-bge-m3")),
         ).strip(),
+        embedding_load_model=env_str(
+            "PTT_EMBEDDING_LOAD_MODEL",
+            str(embedding_cfg.get("load_model", "text-embedding-bge-m3")),
+        ).strip(),
         embedding_max_results=max(
             1,
             env_int("PTT_EMBEDDING_MAX_RESULTS", int(embedding_cfg.get("max_results", 5))),
@@ -386,9 +390,10 @@ class LLMMemoryTranslator:
 
 
 class OpenAIEmbeddingClient:
-    def __init__(self, *, api_key: str, model: str, base_url: str) -> None:
+    def __init__(self, *, api_key: str, model: str, load_model: str = "", base_url: str) -> None:
         self.api_key = api_key.strip() or "lm-studio"
         self.model = model.strip()
+        self.load_model = load_model.strip() or self.model
         self.base_url = base_url.strip()
         self._client: Any | None = None
         self._lmstudio_model_ready = False
@@ -405,7 +410,7 @@ class OpenAIEmbeddingClient:
         return self._client
 
     def _uses_local_lmstudio(self) -> bool:
-        if not self.model:
+        if not self.load_model:
             return False
         if not self.base_url:
             return False
@@ -442,18 +447,22 @@ class OpenAIEmbeddingClient:
     def _ensure_lmstudio_model_loaded(self) -> None:
         if self._lmstudio_model_ready or not self._uses_local_lmstudio():
             return
-        if self.model in self._loaded_lmstudio_identifiers():
+        loaded_identifiers = self._loaded_lmstudio_identifiers()
+        if self.model in loaded_identifiers or self.load_model in loaded_identifiers:
             self._lmstudio_model_ready = True
             return
         result = subprocess.run(
-            ["lms", "load", "-y", "--identifier", self.model, self.model],
+            ["lms", "load", "-y", "--identifier", self.model, self.load_model],
             capture_output=True,
             text=True,
             check=False,
         )
         if result.returncode != 0:
             stderr = str(result.stderr or "").strip()
-            raise RuntimeError(f"failed to load LM Studio model {self.model}: {stderr or result.returncode}")
+            raise RuntimeError(
+                f"failed to load LM Studio model {self.load_model} as {self.model}: "
+                f"{stderr or result.returncode}"
+            )
         self._lmstudio_model_ready = True
 
     def embed_many(self, texts: list[str]) -> list[list[float]]:
@@ -532,6 +541,7 @@ class StorageService:
         return OpenAIEmbeddingClient(
             api_key=self.config.embedding_api_key,
             model=self.config.embedding_model,
+            load_model=self.config.embedding_load_model,
             base_url=self.config.embedding_base_url,
         )
 

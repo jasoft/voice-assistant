@@ -364,6 +364,7 @@ class OpenAIEmbeddingClientTests(unittest.TestCase):
         client = storage_service_module.OpenAIEmbeddingClient(
             api_key="lm-studio",
             model="remember-bge-m3",
+            load_model="text-embedding-bge-m3",
             base_url="http://127.0.0.1:1234/v1",
         )
         fake_openai = FakeOpenAIClient()
@@ -385,7 +386,7 @@ class OpenAIEmbeddingClientTests(unittest.TestCase):
         )
         self.assertEqual(
             mock_run.call_args_list[1].args[0],
-            ["lms", "load", "-y", "--identifier", "remember-bge-m3", "remember-bge-m3"],
+            ["lms", "load", "-y", "--identifier", "remember-bge-m3", "text-embedding-bge-m3"],
         )
         self.assertEqual(
             fake_openai.embeddings.calls,
@@ -396,6 +397,7 @@ class OpenAIEmbeddingClientTests(unittest.TestCase):
         client = storage_service_module.OpenAIEmbeddingClient(
             api_key="lm-studio",
             model="remember-bge-m3",
+            load_model="text-embedding-bge-m3",
             base_url="http://127.0.0.1:1234/v1",
         )
         fake_openai = FakeOpenAIClient()
@@ -417,6 +419,29 @@ class OpenAIEmbeddingClientTests(unittest.TestCase):
             fake_openai.embeddings.calls,
             [{"model": "remember-bge-m3", "input": ["护照在哪"]}],
         )
+
+    def test_embed_many_skips_load_when_lmstudio_model_key_already_loaded(self) -> None:
+        client = storage_service_module.OpenAIEmbeddingClient(
+            api_key="lm-studio",
+            model="remember-bge-m3",
+            load_model="text-embedding-bge-m3",
+            base_url="http://127.0.0.1:1234/v1",
+        )
+        fake_openai = FakeOpenAIClient()
+
+        with patch.object(client, "_client_instance", return_value=fake_openai):
+            with patch(
+                "press_to_talk.storage.service.subprocess.run",
+                return_value=SimpleNamespace(
+                    returncode=0,
+                    stdout='[{"identifier":"text-embedding-bge-m3"}]',
+                    stderr="",
+                ),
+            ) as mock_run:
+                embeddings = client.embed_many(["护照在哪"])
+
+        self.assertEqual(embeddings, [[1.0, 1.5]])
+        self.assertEqual(mock_run.call_count, 1)
 
 
 class RememberToolErrorsTests(unittest.IsolatedAsyncioTestCase):
