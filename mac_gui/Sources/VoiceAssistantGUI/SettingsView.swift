@@ -8,9 +8,7 @@ struct SettingsView: View {
     @State private var searchText = ""
     @State private var isLoading = false
     @State private var page = 0
-    @State private var editingEntry: MemoryEntry?
-    @State private var editingMemory = ""
-    @State private var editingOriginalText = ""
+    @State private var editingDraft: MemoryEditDraft?
     @State private var saveError = ""
     let pageSize = 20
 
@@ -34,8 +32,15 @@ struct SettingsView: View {
             page = 0
             loadMemories() 
         }
-        .sheet(item: $editingEntry) { entry in
-            editSheet(entry: entry)
+        .sheet(isPresented: Binding(
+            get: { editingDraft != nil },
+            set: { presented in
+                if !presented {
+                    editingDraft = nil
+                }
+            }
+        )) {
+            editSheet()
         }
     }
 
@@ -148,20 +153,18 @@ struct SettingsView: View {
     }
 
     private func beginEditing(_ entry: MemoryEntry) {
-        editingMemory = entry.memory
-        editingOriginalText = entry.originalText
+        editingDraft = MemoryEditDraft(entry: entry)
         saveError = ""
-        editingEntry = entry
     }
 
     @ViewBuilder
-    private func editSheet(entry: MemoryEntry) -> some View {
+    private func editSheet() -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("编辑记忆").font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("记忆内容")
-                TextEditor(text: $editingMemory)
+                TextEditor(text: draftBinding(\.memory))
                     .frame(minHeight: 110)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
@@ -171,7 +174,7 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("原始文本")
-                TextEditor(text: $editingOriginalText)
+                TextEditor(text: draftBinding(\.originalText))
                     .frame(minHeight: 110)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
@@ -188,31 +191,48 @@ struct SettingsView: View {
             HStack {
                 Spacer()
                 Button("取消") {
-                    editingEntry = nil
+                    editingDraft = nil
                 }
                 Button("保存") {
-                    saveEdit(entry)
+                    saveEdit()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(editingMemory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    (editingDraft?.memory ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .isEmpty
+                )
             }
         }
         .padding(20)
         .frame(width: 520, height: 380)
     }
 
-    private func saveEdit(_ entry: MemoryEntry) {
-        let memory = editingMemory.trimmingCharacters(in: .whitespacesAndNewlines)
-        let originalText = editingOriginalText.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func draftBinding(_ keyPath: WritableKeyPath<MemoryEditDraft, String>) -> Binding<String> {
+        Binding(
+            get: {
+                editingDraft?[keyPath: keyPath] ?? ""
+            },
+            set: { newValue in
+                guard editingDraft != nil else { return }
+                editingDraft?[keyPath: keyPath] = newValue
+            }
+        )
+    }
+
+    private func saveEdit() {
+        guard let draft = editingDraft else { return }
+        let memory = draft.memory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let originalText = draft.originalText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !memory.isEmpty else {
             saveError = "记忆内容不能为空"
             return
         }
         Task {
             do {
-                try await store.update(id: entry.id, memory: memory, originalText: originalText)
+                try await store.update(id: draft.id, memory: memory, originalText: originalText)
                 await MainActor.run {
-                    editingEntry = nil
+                    editingDraft = nil
                     saveError = ""
                 }
                 loadMemories()
