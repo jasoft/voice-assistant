@@ -6,6 +6,7 @@ import sys
 import time
 import uuid
 import logging
+import inspect
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -56,6 +57,12 @@ def log(msg: str, *, level: str = "info") -> None:
     if level_val < _GLOBAL_LOG_LEVEL:
         return
 
+    # Get caller info
+    caller_frame = inspect.stack()[1]
+    caller_file = Path(caller_frame.filename).name
+    caller_line = caller_frame.lineno
+    location = f"{caller_file}:{caller_line}"
+
     # High-contrast color mapping for Warp
     level_colors = {
         "DEBUG": "#00afff",   # Bright Sky Blue
@@ -83,16 +90,16 @@ def log(msg: str, *, level: str = "info") -> None:
     text_color = level_colors.get(normalized_level, "white")
     ts = time.strftime("%H:%M:%S")
     
-    # Format: HH:MM:SS [LEVEL] ICON Message
+    # Format: HH:MM:SS [LEVEL] [FILE:LINE] ICON Message
     # Disable highlighting to ensure text_color is strictly followed
     _CONSOLE.print(
-        f"[dim green]{ts}[/] [{style}] {normalized_level:5} [/] {icon} [{text_color}]{msg}[/]",
+        f"[dim green]{ts}[/] [{style}] {normalized_level:5} [/] [dim cyan]{location:20}[/] {icon} [{text_color}]{msg}[/]",
         highlight=False
     )
 
     # 2. File Output (Pure text)
     ts_full = time.strftime("%Y-%m-%d %H:%M:%S")
-    file_line = f"[{ts_full}] [openclaw-ptt] [{normalized_level}] {msg}"
+    file_line = f"[{ts_full}] [{location}] [{normalized_level}] {msg}"
     with _LOG_WRITE_LOCK:
         if _SESSION_LOG_FILE is not None:
             _SESSION_LOG_FILE.write(file_line + "\n")

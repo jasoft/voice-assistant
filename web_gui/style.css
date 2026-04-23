@@ -162,10 +162,80 @@ main::-webkit-scrollbar {
 }
 
 .card-content {
-    font-size: 18px;
-    font-weight: 600;
-    line-height: 1.4;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.6;
     color: var(--text-main);
+}
+
+/* Markdown styles */
+.markdown-body {
+    word-break: break-word;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+    margin-top: 16px;
+    margin-bottom: 8px;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.markdown-body h1 { font-size: 1.4em; }
+.markdown-body h2 { font-size: 1.2em; }
+.markdown-body h3 { font-size: 1.1em; }
+
+.markdown-body p {
+    margin-top: 0;
+    margin-bottom: 12px;
+}
+
+.markdown-body ul, .markdown-body ol {
+    padding-left: 20px;
+    margin-top: 0;
+    margin-bottom: 12px;
+}
+
+.markdown-body li {
+    margin-top: 4px;
+}
+
+.markdown-body code {
+    padding: 2px 4px;
+    margin: 0;
+    font-size: 85%;
+    background-color: rgba(175, 184, 193, 0.2);
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.markdown-body pre {
+    padding: 12px;
+    overflow: auto;
+    font-size: 85%;
+    line-height: 1.45;
+    background-color: #f6f8fa;
+    border-radius: 6px;
+    margin-bottom: 12px;
+}
+
+.markdown-body pre code {
+    background-color: transparent;
+    padding: 0;
+}
+
+.markdown-body blockquote {
+    padding: 0 1em;
+    color: #657b83;
+    border-left: .25em solid #dfe2e5;
+    margin: 0 0 12px 0;
+}
+
+/* Timer styles */
+#thinking-timer {
+    background: rgba(0, 0, 0, 0.05);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
 }
 
 .card-footer {

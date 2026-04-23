@@ -7,20 +7,49 @@ public final class SessionViewModel: ObservableObject {
     @Published public private(set) var state = SessionState()
     @Published public private(set) var countdownSeconds: Int? = nil
     @Published public private(set) var isPinnedOpen = false
+    @Published public private(set) var thinkingElapsed: Double = 0.0
 
     private var countdownTimer: Timer?
+    private var thinkingTimer: Timer?
 
     public init() {}
 
     public func apply(jsonLine: String) {
         do {
             try state.apply(jsonLine: jsonLine)
+            
+            // Handle thinking timer
+            handleThinkingTimer(status: state.status)
+
             if case .done = state.status, state.autoCloseSeconds > 0 {
                 startCountdown(seconds: state.autoCloseSeconds)
             }
         } catch {
             state.status = .error(message: "GUI 解析事件失败")
         }
+    }
+
+    private func handleThinkingTimer(status: AssistantStatus) {
+        switch status {
+        case .thinking:
+            if thinkingTimer == nil {
+                thinkingElapsed = 0.0
+                thinkingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                    Task { @MainActor in
+                        self?.thinkingElapsed += 0.1
+                    }
+                }
+            }
+        case .speaking, .done, .error, .idle, .cancelled:
+            stopThinkingTimer()
+        default:
+            break
+        }
+    }
+
+    private func stopThinkingTimer() {
+        thinkingTimer?.invalidate()
+        thinkingTimer = nil
     }
 
     public func stopCountdown() {
@@ -31,6 +60,8 @@ public final class SessionViewModel: ObservableObject {
 
     public func resetForNewSession() {
         stopCountdown()
+        stopThinkingTimer()
+        thinkingElapsed = 0.0
         state = SessionState()
     }
 

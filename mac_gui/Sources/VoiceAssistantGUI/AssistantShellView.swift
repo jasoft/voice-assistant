@@ -127,6 +127,12 @@ struct AssistantShellView: View {
                                             .font(.system(size: 12, weight: .bold, design: .rounded))
                                             .tracking(0.6)
                                             .foregroundStyle(responseStatusTint)
+                                        
+                                        if model.session.thinkingElapsed > 0 {
+                                            Text(String(format: "%.1fs", model.session.thinkingElapsed))
+                                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                                .foregroundStyle(responseStatusTint.opacity(0.7))
+                                        }
                                     }
                                 }
 

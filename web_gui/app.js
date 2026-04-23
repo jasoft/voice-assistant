@@ -64,6 +64,9 @@ function addTranscriptCard(text) {
     mainContent.scrollTop = mainContent.scrollHeight;
 }
 
+let thinkingTimer;
+let thinkingStartTime;
+
 function addResponseCard() {
     const card = document.createElement('div');
     card.id = 'response-card';
@@ -71,7 +74,7 @@ function addResponseCard() {
     card.innerHTML = `
         <div class="card-header">
             <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
-            智能回答
+            智能回答 <span id="thinking-timer" style="float: right; font-weight: normal; color: #888; font-size: 0.8em;">0.0s</span>
         </div>
         <div class="card-footer" id="response-footer">
             <div class="thinking-dots">
@@ -79,18 +82,41 @@ function addResponseCard() {
             </div>
             正在准备回答
         </div>
-        <div class="card-content" id="response-content" style="display:none;"></div>
+        <div class="card-content markdown-body" id="response-content" style="display:none;"></div>
     `;
     cardsContainer.appendChild(card);
     mainContent.scrollTop = mainContent.scrollHeight;
+    
+    // 启动计时器
+    thinkingStartTime = Date.now();
+    const timerEl = document.getElementById('thinking-timer');
+    thinkingTimer = setInterval(() => {
+        const elapsed = (Date.now() - thinkingStartTime) / 1000;
+        timerEl.innerText = elapsed.toFixed(1) + 's';
+    }, 100);
+    
     return card;
 }
 
 function updateResponseCard(reply) {
+    // 停止计时器
+    if (thinkingTimer) {
+        clearInterval(thinkingTimer);
+        const elapsed = (Date.now() - thinkingStartTime) / 1000;
+        const timerEl = document.getElementById('thinking-timer');
+        if (timerEl) timerEl.innerText = elapsed.toFixed(1) + 's';
+        thinkingTimer = null;
+    }
+
     const content = document.getElementById('response-content');
     const footer = document.getElementById('response-footer');
     if (content && footer) {
-        content.innerText = reply;
+        // 使用 marked 渲染 Markdown
+        if (window.marked) {
+            content.innerHTML = marked.parse(reply);
+        } else {
+            content.innerText = reply;
+        }
         content.style.display = 'block';
         footer.innerHTML = '回答完成';
         footer.style.color = '#128540';
@@ -128,17 +154,7 @@ async function sendAudioToBackend(blob) {
 
             if (execData.status === 'success' && execData.reply) {
                 updateResponseCard(execData.reply);
-                updateStatus('正在回答', 'speaking');
-                
-                if (execData.audio_url) {
-                    const audio = new Audio(execData.audio_url);
-                    audio.onended = () => {
-                        updateStatus('就绪', 'idle');
-                    };
-                    audio.play();
-                } else {
-                    updateStatus('就绪', 'idle');
-                }
+                updateStatus('就绪', 'idle');
             } else {
                 updateStatus('就绪', 'idle');
             }

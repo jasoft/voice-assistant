@@ -40,7 +40,7 @@ dev = [
 ]
 
 [tool.poe.tasks]
-web = "python3 -m press_to_talk.web_app"
+web = "tunelo port 10021 --relay wp2.ursoftware.com:4433 -- python3 -m press_to_talk.web_app"
 ptt = "ptt-voice --text-input"
 voice = "ptt-voice"
 doctor = "ptt-voice doctor"
