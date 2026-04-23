@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hosting = NSHostingView(rootView: rootView)
 
         let window = BorderlessWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 390, height: 820),
+            contentRect: NSRect(x: 0, y: 0, width: 1120, height: 720),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -67,7 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let visible = screen.visibleFrame
         let x = visible.maxX - window.frame.width - 24
-        let y = visible.minY + 24
+        let y = visible.midY - (window.frame.height / 2)
         window.setFrameOrigin(NSPoint(x: x, y: y))
     }
 }

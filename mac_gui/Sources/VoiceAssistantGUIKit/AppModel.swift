@@ -15,6 +15,7 @@ public final class AppModel: ObservableObject {
     @Published public var isLoadingHistory = false
     @Published public var historyError: String?
     @Published public var historyQuery = ""
+    @Published public var draftInput = ""
 
     private let bridge: PTTProcessBridge
     private let forwardedArgs: [String]
@@ -49,6 +50,27 @@ public final class AppModel: ObservableObject {
         bridge.start(additionalArgs: forwardedArgs, workingDirectory: workingDirectory)
     }
 
+    public func submitTextInput() {
+        let prompt = draftInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else {
+            return
+        }
+        submitTextInput(prompt)
+        draftInput = ""
+    }
+
+    public func submitTextInput(_ prompt: String) {
+        session.stopCountdown()
+        session.resetForNewSession()
+        screenMode = .live
+        bridge.stop()
+        bridge.startTextInput(
+            text: prompt,
+            additionalArgs: forwardedArgs,
+            workingDirectory: workingDirectory
+        )
+    }
+
     public func stopRecording() {
         session.stopCountdown()
         bridge.stopRecording()
@@ -61,6 +83,43 @@ public final class AppModel: ObservableObject {
 
     public func keepWindowOpen() {
         session.pinOpen()
+    }
+
+    public var canSubmitTextInput: Bool {
+        switch session.state.status {
+        case .idle, .done, .error, .cancelled:
+            return true
+        default:
+            return false
+        }
+    }
+
+    public var canStartRecording: Bool {
+        canSubmitTextInput
+    }
+
+    public var canInterruptCurrentRun: Bool {
+        switch session.state.status {
+        case .recording, .transcribing, .thinking, .speaking:
+            return true
+        default:
+            return false
+        }
+    }
+
+    public func interruptCurrentRun() {
+        keepWindowOpen()
+        switch session.state.status {
+        case .recording:
+            stopRecording()
+        case .speaking:
+            stopSpeaking()
+        case .transcribing, .thinking:
+            bridge.stop()
+            session.resetForNewSession()
+        default:
+            break
+        }
     }
 
     public func toggleHistory() {

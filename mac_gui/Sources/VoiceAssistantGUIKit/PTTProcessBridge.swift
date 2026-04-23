@@ -33,7 +33,27 @@ public final class PTTProcessBridge {
         return args
     }
 
+    nonisolated static func launchArguments(additionalArgs: [String], textInput: String) -> [String] {
+        var args = launchArguments(additionalArgs: additionalArgs)
+        args.append(contentsOf: ["--text-input", textInput])
+        return args
+    }
+
     public func start(additionalArgs: [String], workingDirectory: URL) {
+        startProcess(
+            arguments: Self.launchArguments(additionalArgs: additionalArgs),
+            workingDirectory: workingDirectory
+        )
+    }
+
+    public func startTextInput(text: String, additionalArgs: [String], workingDirectory: URL) {
+        startProcess(
+            arguments: Self.launchArguments(additionalArgs: additionalArgs, textInput: text),
+            workingDirectory: workingDirectory
+        )
+    }
+
+    private func startProcess(arguments: [String], workingDirectory: URL) {
         generation += 1
         let currentGeneration = generation
         stdoutBuffer = Data()
@@ -48,7 +68,7 @@ public final class PTTProcessBridge {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
 
-        process.arguments = Self.launchArguments(additionalArgs: additionalArgs)
+        process.arguments = arguments
         process.currentDirectoryURL = resolvedWorkingDirectory
         var environment = ProcessInfo.processInfo.environment
         environment["PTT_GUI_CONTROL_DIR"] = controlDirectory.path

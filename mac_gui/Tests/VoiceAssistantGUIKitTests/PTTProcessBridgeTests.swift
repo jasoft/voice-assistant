@@ -31,4 +31,23 @@ struct PTTProcessBridgeTests {
             "intent",
         ])
     }
+
+    @Test
+    func launchArgumentsAppendDirectTextInput() {
+        let arguments = PTTProcessBridge.launchArguments(
+            additionalArgs: ["--execution-mode", "intent"],
+            textInput: "明天天气怎么样"
+        )
+
+        #expect(arguments == [
+            "uv",
+            "run",
+            "press-to-talk",
+            "--gui-events",
+            "--execution-mode",
+            "intent",
+            "--text-input",
+            "明天天气怎么样",
+        ])
+    }
 }
