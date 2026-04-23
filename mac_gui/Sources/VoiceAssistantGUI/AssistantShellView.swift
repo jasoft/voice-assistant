@@ -29,32 +29,44 @@ struct AssistantShellView: View {
                 .padding(.horizontal, 18)
                 .padding(.top, 16)
 
-            Spacer(minLength: compactStage ? 10 : 16)
+            if showsCenterStage {
+                centerStageContent
+            } else {
+                responseStageContent
+            }
+        }
+        .frame(width: cardWidth, height: cardHeight)
+        .background(dialogBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .animation(.spring(response: 0.3, dampingFraction: 0.84), value: model.session.state.status)
+    }
+
+    private var centerStageContent: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
 
             if showsListeningWave {
                 ListeningDotsView(status: model.session.state.status)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 10)
             }
 
-            OrbStageView(status: model.session.state.status, compact: compactStage)
+            OrbStageView(status: model.session.state.status, compact: false)
                 .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
-                .frame(height: compactStage ? 96 : 132)
+                .frame(width: 180, height: 180)
 
-            VStack(spacing: compactStage ? 8 : 12) {
-                Text(mainTitle)
-                    .font(.system(size: compactStage ? 18 : 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.15))
+            Text(mainTitle)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.15))
+                .multilineTextAlignment(.center)
+                .padding(.top, 14)
+
+            if let subtitle = mainSubtitle {
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(red: 0.60, green: 0.61, blue: 0.67))
                     .multilineTextAlignment(.center)
-
-                if let subtitle = mainSubtitle {
-                    Text(subtitle)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(red: 0.60, green: 0.61, blue: 0.67))
-                        .multilineTextAlignment(.center)
-                }
+                    .padding(.top, 8)
             }
-            .padding(.horizontal, 28)
-            .padding(.top, compactStage ? 4 : 10)
 
             if let errorMessage = visibleErrorMessage {
                 errorBanner(message: errorMessage)
@@ -62,40 +74,51 @@ struct AssistantShellView: View {
                     .padding(.top, 14)
             }
 
-            if showTranscriptBubble {
-                transcriptBubble
-                    .padding(.horizontal, 18)
-                    .padding(.top, 14)
-            }
-
-            if showReplyCard {
-                replyCard
-                    .padding(.horizontal, 18)
-                    .padding(.top, 12)
-            }
-
-            if showComposer {
-                composer
-                    .padding(.horizontal, 18)
-                    .padding(.top, showContinueButton ? 12 : 18)
-            }
-
-            if showContinueButton {
-                continueButton
-                    .padding(.top, 12)
-                    .padding(.bottom, 16)
-            } else if showQuickActions {
-                quickActions
-                    .padding(.horizontal, 18)
-                    .padding(.top, 14)
-                    .padding(.bottom, 18)
-            } else {
-                Spacer(minLength: 16)
-            }
+            Spacer(minLength: 0)
         }
-        .frame(width: cardWidth, height: cardHeight)
-        .background(dialogBackground)
-        .animation(.spring(response: 0.3, dampingFraction: 0.84), value: model.session.state.status)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+    }
+
+    private var responseStageContent: some View {
+        VStack(spacing: 0) {
+            ScrollView(showsIndicators: true) {
+                VStack(spacing: 12) {
+                    if showTranscriptBubble {
+                        transcriptBubble
+                    }
+
+                    if showReplyCard {
+                        replyCard
+                    }
+
+                    if let errorMessage = visibleErrorMessage {
+                        errorBanner(message: errorMessage)
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+                .padding(.bottom, 16)
+                .frame(maxWidth: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            VStack(spacing: 12) {
+                if showComposer {
+                    composer
+                }
+
+                if showContinueButton {
+                    continueButton
+                } else if showQuickActions {
+                    quickActions
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var historyCard: some View {
@@ -202,6 +225,7 @@ struct AssistantShellView: View {
                 )
                 .textSelection(.enabled)
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var replyCard: some View {
@@ -345,11 +369,13 @@ struct AssistantShellView: View {
     }
 
     private var quickActions: some View {
-        HStack(spacing: 12) {
-            QuickActionChip(emoji: "🗺️", title: "打开访达")
-            QuickActionChip(emoji: "🎵", title: "播放轻音乐")
-            QuickActionChip(emoji: "⏰", title: "设置一个明天上午9点的闹钟")
-            QuickActionChip(emoji: "⛅️", title: "查询明天天气")
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                QuickActionChip(emoji: "🗺️", title: "打开访达")
+                QuickActionChip(emoji: "🎵", title: "播放轻音乐")
+                QuickActionChip(emoji: "⏰", title: "设置一个明天上午9点的闹钟")
+                QuickActionChip(emoji: "⛅️", title: "查询明天天气")
+            }
         }
     }
 
@@ -409,22 +435,11 @@ struct AssistantShellView: View {
     }
 
     private var cardWidth: CGFloat {
-        compactStage ? 410 : 740
+        740
     }
 
     private var cardHeight: CGFloat {
-        switch model.session.state.status {
-        case .idle:
-            return 430
-        case .recording:
-            return 248
-        case .transcribing, .thinking:
-            return 220
-        case .speaking, .done:
-            return 392
-        case .error, .cancelled:
-            return 360
-        }
+        430
     }
 
     private var showSettingsButton: Bool {
@@ -479,6 +494,15 @@ struct AssistantShellView: View {
 
     private var showComposer: Bool {
         !compactStage
+    }
+
+    private var showsCenterStage: Bool {
+        switch model.session.state.status {
+        case .recording, .transcribing, .thinking:
+            return true
+        default:
+            return false
+        }
     }
 
     private var showQuickActions: Bool {
