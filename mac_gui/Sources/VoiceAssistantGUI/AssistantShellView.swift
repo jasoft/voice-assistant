@@ -9,8 +9,12 @@ struct AssistantShellView: View {
 
     var body: some View {
         ZStack {
-            wallpaperBackground
-            mainStage
+            Color.clear
+            if model.screenMode == .history {
+                historyCard
+            } else {
+                liveCard
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
@@ -19,139 +23,49 @@ struct AssistantShellView: View {
         })
     }
 
-    private var wallpaperBackground: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.99, green: 0.95, blue: 0.96),
-                    Color(red: 0.89, green: 0.87, blue: 0.96),
-                    Color(red: 0.84, green: 0.90, blue: 0.99)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            PolygonShape(points: [
-                CGPoint(x: -120, y: -40),
-                CGPoint(x: 220, y: 130),
-                CGPoint(x: 380, y: 310),
-                CGPoint(x: -120, y: 650)
-            ])
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color(red: 1.00, green: 0.60, blue: 0.52),
-                        Color(red: 0.96, green: 0.26, blue: 0.33)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .opacity(0.95)
-            .blur(radius: 1.5)
-            .offset(x: -160, y: -70)
-
-            PolygonShape(points: [
-                CGPoint(x: 720, y: 40),
-                CGPoint(x: 1080, y: -30),
-                CGPoint(x: 1200, y: 300),
-                CGPoint(x: 840, y: 430)
-            ])
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.77, green: 0.86, blue: 1.00),
-                        Color(red: 0.56, green: 0.73, blue: 1.00)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .opacity(0.9)
-            .blur(radius: 1.5)
-            .offset(x: 120, y: -40)
-
-            PolygonShape(points: [
-                CGPoint(x: 120, y: 420),
-                CGPoint(x: 520, y: 290),
-                CGPoint(x: 820, y: 520),
-                CGPoint(x: 380, y: 760)
-            ])
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.45, green: 0.28, blue: 0.63),
-                        Color(red: 0.25, green: 0.29, blue: 0.59)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .opacity(0.62)
-            .blur(radius: 2)
-            .offset(x: -80, y: 110)
-        }
-    }
-
-    private var mainStage: some View {
-        VStack {
-            Spacer()
-            Group {
-                switch model.screenMode {
-                case .history:
-                    historyCard
-                case .live:
-                    liveCard
-                }
-            }
-            Spacer()
-            dockHint
-        }
-    }
-
     private var liveCard: some View {
         VStack(spacing: 0) {
-            cardTopBar
-                .padding(.horizontal, 22)
-                .padding(.top, 18)
+            topBar
+                .padding(.horizontal, 18)
+                .padding(.top, 16)
 
-            Spacer(minLength: compactStage ? 10 : 22)
+            Spacer(minLength: compactStage ? 10 : 16)
 
             if showsListeningWave {
-                listeningWave
-                    .padding(.bottom, compactStage ? 4 : 10)
+                ListeningDotsView(status: model.session.state.status)
+                    .padding(.bottom, 8)
             }
 
-            RecordingOrbView(status: model.session.state.status, compact: compactStage)
+            OrbStageView(status: model.session.state.status, compact: compactStage)
                 .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
-                .frame(height: compactStage ? 92 : 138)
+                .frame(height: compactStage ? 96 : 132)
 
-            VStack(spacing: compactStage ? 8 : 14) {
+            VStack(spacing: compactStage ? 8 : 12) {
                 Text(mainTitle)
-                    .font(.system(size: compactStage ? 20 : 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.16))
+                    .font(.system(size: compactStage ? 18 : 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.15))
                     .multilineTextAlignment(.center)
 
                 if let subtitle = mainSubtitle {
                     Text(subtitle)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(red: 0.57, green: 0.58, blue: 0.65))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(red: 0.60, green: 0.61, blue: 0.67))
                         .multilineTextAlignment(.center)
                 }
             }
-            .padding(.horizontal, 30)
+            .padding(.horizontal, 28)
+            .padding(.top, compactStage ? 4 : 10)
 
             if let errorMessage = visibleErrorMessage {
                 errorBanner(message: errorMessage)
-                    .padding(.horizontal, 26)
+                    .padding(.horizontal, 18)
                     .padding(.top, 14)
             }
 
             if showTranscriptBubble {
                 transcriptBubble
-                    .padding(.horizontal, 22)
-                    .padding(.top, 18)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 14)
             }
 
             if showReplyCard {
@@ -163,21 +77,25 @@ struct AssistantShellView: View {
             if showComposer {
                 composer
                     .padding(.horizontal, 18)
-                    .padding(.top, compactStage ? 16 : 22)
+                    .padding(.top, showContinueButton ? 12 : 18)
             }
 
-            if showQuickActions {
+            if showContinueButton {
+                continueButton
+                    .padding(.top, 12)
+                    .padding(.bottom, 16)
+            } else if showQuickActions {
                 quickActions
                     .padding(.horizontal, 18)
                     .padding(.top, 14)
                     .padding(.bottom, 18)
             } else {
-                Spacer(minLength: 18)
+                Spacer(minLength: 16)
             }
         }
-        .frame(width: liveCardWidth, height: liveCardHeight)
-        .background(cardBackground)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: model.session.state.status)
+        .frame(width: cardWidth, height: cardHeight)
+        .background(dialogBackground)
+        .animation(.spring(response: 0.3, dampingFraction: 0.84), value: model.session.state.status)
     }
 
     private var historyCard: some View {
@@ -207,7 +125,6 @@ struct AssistantShellView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color(red: 0.31, green: 0.38, blue: 0.80))
             }
-            .padding(.bottom, 2)
 
             historySearchField
 
@@ -231,12 +148,9 @@ struct AssistantShellView: View {
                     }
 
                     ForEach(model.historyEntries) { entry in
-                        HistoryEntryCard(
-                            entry: entry,
-                            onDelete: {
-                                model.deleteHistoryEntry(entry)
-                            }
-                        )
+                        HistoryEntryCard(entry: entry, onDelete: {
+                            model.deleteHistoryEntry(entry)
+                        })
                     }
                 }
                 .padding(.vertical, 4)
@@ -244,12 +158,12 @@ struct AssistantShellView: View {
         }
         .padding(20)
         .frame(width: 780, height: 520)
-        .background(cardBackground)
+        .background(dialogBackground)
     }
 
-    private var cardTopBar: some View {
+    private var topBar: some View {
         HStack {
-            topBarButton(symbol: "xmark") {
+            iconButton(symbol: "xmark") {
                 model.keepWindowOpen()
                 NSApp.terminate(nil)
             }
@@ -257,18 +171,18 @@ struct AssistantShellView: View {
             Spacer()
 
             if showSettingsButton {
-                topBarButton(symbol: "gearshape") {
+                iconButton(symbol: "gearshape") {
                     SettingsWindowController.show(store: MemoryStore(workingDirectory: model.workingDirectory))
                 }
             }
         }
     }
 
-    private func topBarButton(symbol: String, action: @escaping () -> Void) -> some View {
+    private func iconButton(symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(red: 0.47, green: 0.48, blue: 0.55))
+                .foregroundStyle(Color(red: 0.46, green: 0.47, blue: 0.54))
                 .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
@@ -276,12 +190,12 @@ struct AssistantShellView: View {
 
     private var transcriptBubble: some View {
         HStack {
-            Spacer(minLength: 40)
+            Spacer(minLength: 36)
             Text(model.session.state.transcript)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(red: 0.14, green: 0.15, blue: 0.20))
+                .foregroundStyle(Color(red: 0.16, green: 0.16, blue: 0.21))
                 .padding(.horizontal, 18)
-                .padding(.vertical, 11)
+                .padding(.vertical, 10)
                 .background(
                     Capsule(style: .continuous)
                         .fill(Color(red: 0.92, green: 0.94, blue: 0.98))
@@ -291,13 +205,13 @@ struct AssistantShellView: View {
     }
 
     private var replyCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             if showWeatherStyleReply {
                 weatherStyleReply
             } else {
                 Text(replyPlainText)
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color(red: 0.16, green: 0.16, blue: 0.20))
+                    .foregroundStyle(Color(red: 0.16, green: 0.16, blue: 0.21))
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -317,7 +231,7 @@ struct AssistantShellView: View {
                 .padding(.vertical, 13)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white.opacity(0.82))
+                        .fill(Color.white.opacity(0.84))
                 )
             }
             .buttonStyle(.plain)
@@ -325,16 +239,7 @@ struct AssistantShellView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.98, green: 0.98, blue: 0.99),
-                            Color(red: 0.95, green: 0.96, blue: 0.99)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(Color(red: 0.97, green: 0.97, blue: 0.99))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .stroke(Color.white.opacity(0.95), lineWidth: 1)
@@ -346,9 +251,9 @@ struct AssistantShellView: View {
         HStack(alignment: .center, spacing: 14) {
             Text("⛅️")
                 .font(.system(size: 34))
-                .frame(width: 52)
+                .frame(width: 50)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .lastTextBaseline, spacing: 8) {
                     Text(primaryTemperature)
                         .font(.system(size: 34, weight: .bold, design: .rounded))
@@ -356,7 +261,6 @@ struct AssistantShellView: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Color(red: 0.24, green: 0.24, blue: 0.30))
                 }
-
                 Text(replyPlainText)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(red: 0.25, green: 0.25, blue: 0.31))
@@ -379,7 +283,7 @@ struct AssistantShellView: View {
 
     private var composer: some View {
         HStack(spacing: 12) {
-            TextField("点击说话，或输入内容…", text: $model.draftInput, axis: .vertical)
+            TextField("点击说话，或输入内容...", text: $model.draftInput, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Color(red: 0.20, green: 0.20, blue: 0.24))
@@ -395,8 +299,8 @@ struct AssistantShellView: View {
                 ZStack {
                     Circle()
                         .fill(Color.white)
-                        .frame(width: 46, height: 46)
-                        .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 5)
+                        .frame(width: 44, height: 44)
+                        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 5)
                     Image(systemName: composerPrimarySymbol)
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Color(red: 0.45, green: 0.47, blue: 0.54))
@@ -408,12 +312,36 @@ struct AssistantShellView: View {
         .padding(.vertical, 14)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(red: 0.98, green: 0.95, blue: 0.96).opacity(0.88))
+                .fill(Color(red: 0.98, green: 0.95, blue: 0.96))
                 .overlay(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .stroke(Color.white.opacity(0.95), lineWidth: 1)
                 )
         )
+    }
+
+    private var continueButton: some View {
+        Button(action: {
+            model.keepWindowOpen()
+            model.draftInput = ""
+            inputFocused = false
+            model.startRecording()
+        }) {
+            HStack(spacing: 10) {
+                Text("继续询问")
+                    .font(.system(size: 14, weight: .semibold))
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 14, weight: .bold))
+            }
+            .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.24))
+            .padding(.horizontal, 24)
+            .padding(.vertical, 11)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.84))
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var quickActions: some View {
@@ -452,54 +380,23 @@ struct AssistantShellView: View {
         )
     }
 
-    private var listeningWave: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 18.0)) { timeline in
-            let tick = timeline.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 7) {
-                ForEach(0..<24, id: \.self) { index in
-                    Circle()
-                        .fill(Color(red: 0.36, green: 0.49, blue: 0.92).opacity(dotOpacity(index: index, tick: tick)))
-                        .frame(width: 3.5, height: 3.5)
-                }
-            }
-        }
-    }
-
-    private func dotOpacity(index: Int, tick: Double) -> Double {
-        let value = sin(tick * 3.5 + Double(index) * 0.42)
-        return 0.25 + ((value + 1) / 2) * 0.75
-    }
-
-    private var dockHint: some View {
+    private var dialogBackground: some View {
         RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(Color.white.opacity(0.18))
-            .frame(width: 860, height: 96)
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
-            )
-            .padding(.bottom, 20)
-            .blur(radius: 0.2)
-            .opacity(0.72)
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 26, style: .continuous)
             .fill(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.76),
-                        Color(red: 0.98, green: 0.95, blue: 0.96).opacity(0.64)
+                        Color.white.opacity(0.88),
+                        Color(red: 0.99, green: 0.95, blue: 0.96).opacity(0.80)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color.white.opacity(0.95), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 20, x: 0, y: 10)
+            .shadow(color: Color.black.opacity(0.10), radius: 24, x: 0, y: 14)
     }
 
     private var compactStage: Bool {
@@ -511,20 +408,20 @@ struct AssistantShellView: View {
         }
     }
 
-    private var liveCardWidth: CGFloat {
+    private var cardWidth: CGFloat {
         compactStage ? 410 : 740
     }
 
-    private var liveCardHeight: CGFloat {
+    private var cardHeight: CGFloat {
         switch model.session.state.status {
         case .idle:
             return 430
         case .recording:
-            return 250
+            return 248
         case .transcribing, .thinking:
-            return 230
+            return 220
         case .speaking, .done:
-            return 370
+            return 392
         case .error, .cancelled:
             return 360
         }
@@ -555,7 +452,7 @@ struct AssistantShellView: View {
         case .speaking:
             return "正在回答..."
         case .done:
-            return "已经为你准备好了结果"
+            return ""
         case .error:
             return "这轮执行失败了"
         case .cancelled:
@@ -565,22 +462,18 @@ struct AssistantShellView: View {
 
     private var mainSubtitle: String? {
         switch model.session.state.status {
-        case .idle:
-            return nil
-        case .recording:
-            return nil
-        case .transcribing:
-            return "正在整理语音内容"
         case .thinking:
             return "正在查询天气信息"
+        case .transcribing:
+            return "正在整理语音内容"
         case .speaking:
             return "正在朗读结果"
-        case .done:
-            return nil
         case .error:
             return "你可以重新说一次，或者直接输入内容。"
         case .cancelled:
             return "可以立刻开始下一轮。"
+        default:
+            return nil
         }
     }
 
@@ -589,12 +482,7 @@ struct AssistantShellView: View {
     }
 
     private var showQuickActions: Bool {
-        switch model.session.state.status {
-        case .idle:
-            return true
-        default:
-            return false
-        }
+        model.session.state.status == .idle
     }
 
     private var showTranscriptBubble: Bool {
@@ -608,6 +496,11 @@ struct AssistantShellView: View {
         default:
             return false
         }
+    }
+
+    private var showContinueButton: Bool {
+        if case .done = model.session.state.status { return true }
+        return false
     }
 
     private var visibleErrorMessage: String? {
@@ -633,9 +526,7 @@ struct AssistantShellView: View {
 
     private var secondaryTemperature: String {
         let values = extractTemperatures()
-        if values.count >= 2 {
-            return "\(values[1])°C"
-        }
+        if values.count >= 2 { return "\(values[1])°C" }
         return "18°C"
     }
 
@@ -664,9 +555,7 @@ struct AssistantShellView: View {
     }
 
     private var composerPrimarySymbol: String {
-        if model.canInterruptCurrentRun {
-            return "stop.fill"
-        }
+        if model.canInterruptCurrentRun { return "stop.fill" }
         let trimmed = model.draftInput.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "mic.fill" : "arrow.up"
     }
@@ -726,17 +615,198 @@ private struct QuickActionChip: View {
     }
 }
 
-private struct PolygonShape: Shape {
-    let points: [CGPoint]
+private struct ListeningDotsView: View {
+    let status: AssistantStatus
 
-    func path(in rect: CGRect) -> Path {
-        guard let first = points.first else { return Path() }
-        var path = Path()
-        path.move(to: first)
-        for point in points.dropFirst() {
-            path.addLine(to: point)
+    private var activeLevel: Double {
+        if case .recording(.active(let level)) = status {
+            return level
         }
-        path.closeSubpath()
+        return 0
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { timeline in
+            let tick = timeline.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 7) {
+                ForEach(0..<24, id: \.self) { index in
+                    let pulse = sin(tick * (4.6 + activeLevel * 6) + Double(index) * 0.52)
+                    let opacity = 0.28 + ((pulse + 1) / 2) * (0.24 + activeLevel * 0.56)
+                    let scale = 0.8 + ((pulse + 1) / 2) * (0.14 + activeLevel * 0.58)
+                    Circle()
+                        .fill(Color(red: 0.36, green: 0.49, blue: 0.92).opacity(opacity))
+                        .frame(width: 3.5, height: 3.5)
+                        .scaleEffect(scale)
+                }
+            }
+        }
+    }
+}
+
+private struct OrbStageView: View {
+    let status: AssistantStatus
+    let compact: Bool
+
+    @State private var smoothedLevel: Double = 0
+
+    private var size: CGFloat { compact ? 78 : 116 }
+    private var ringSize: CGFloat { size + (compact ? 12 : 16) }
+    private var glowSize: CGFloat { compact ? 118 : 170 }
+
+    private var timeoutProgress: Double {
+        if case .recording(.ending(let progress)) = status {
+            return max(0.02, progress)
+        }
+        return 0
+    }
+
+    private var activeLevel: Double {
+        if case .recording(.active(let level)) = status {
+            return level
+        }
+        return 0
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            let breathing = 1.0 + 0.03 * sin(t * 2.0)
+            let wobble = activeLevel > 0 ? sin(t * 6.4) * activeLevel * 4.0 : 0
+
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color(red: 0.31, green: 0.93, blue: 1.00).opacity(0.24 + activeLevel * 0.24),
+                                Color(red: 0.83, green: 0.37, blue: 0.97).opacity(0.20 + activeLevel * 0.18),
+                                Color.clear
+                            ],
+                            center: .center,
+                            startRadius: 8,
+                            endRadius: glowSize / 2
+                        )
+                    )
+                    .frame(width: glowSize, height: glowSize)
+                    .scaleEffect(breathing * (1 + smoothedLevel * 0.18))
+                    .blur(radius: compact ? 8 : 12)
+
+                if timeoutProgress > 0 {
+                    Circle()
+                        .trim(from: 0, to: timeoutProgress)
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 1.00, green: 0.88, blue: 0.32),
+                                    Color(red: 0.97, green: 0.68, blue: 0.15)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            style: StrokeStyle(lineWidth: compact ? 5 : 6, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: ringSize, height: ringSize)
+                } else {
+                    Circle()
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 1.00, green: 0.61, blue: 0.83),
+                                    Color(red: 0.26, green: 0.89, blue: 1.00)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: compact ? 4 : 5
+                        )
+                        .frame(width: ringSize, height: ringSize)
+                        .blur(radius: 0.4)
+                }
+
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.23, green: 0.19, blue: 0.49),
+                                Color(red: 0.12, green: 0.41, blue: 0.73),
+                                Color(red: 0.18, green: 0.70, blue: 0.87)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: size, height: size)
+                    .scaleEffect(1 + smoothedLevel * 0.08)
+                    .offset(x: wobble * 0.3, y: -wobble * 0.18)
+
+                SiriRibbonShape()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.86),
+                                Color(red: 0.64, green: 0.93, blue: 0.96).opacity(0.92),
+                                Color(red: 0.92, green: 0.70, blue: 0.98).opacity(0.88)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: compact ? 48 + smoothedLevel * 10 : 74 + smoothedLevel * 14,
+                           height: compact ? 20 + smoothedLevel * 3 : 30 + smoothedLevel * 5)
+                    .rotationEffect(.degrees(wobble))
+            }
+        }
+        .onAppear { smoothedLevel = 0 }
+        .onChange(of: status) { _, newValue in
+            if case .recording(.active(let level)) = newValue {
+                withAnimation(.spring(response: 0.18, dampingFraction: 0.72)) {
+                    smoothedLevel = level
+                }
+            } else {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    smoothedLevel = 0
+                }
+            }
+        }
+    }
+}
+
+private struct SiriRibbonShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let midY = rect.midY
+        path.move(to: CGPoint(x: 0, y: midY))
+        path.addCurve(
+            to: CGPoint(x: rect.width * 0.28, y: midY - rect.height * 0.18),
+            control1: CGPoint(x: rect.width * 0.07, y: rect.height * 0.18),
+            control2: CGPoint(x: rect.width * 0.18, y: rect.height * 0.02)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.width * 0.52, y: midY + rect.height * 0.14),
+            control1: CGPoint(x: rect.width * 0.38, y: rect.height * 0.84),
+            control2: CGPoint(x: rect.width * 0.44, y: rect.height * 0.88)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.width, y: midY),
+            control1: CGPoint(x: rect.width * 0.70, y: rect.height * 0.02),
+            control2: CGPoint(x: rect.width * 0.88, y: rect.height * 0.82)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.width * 0.56, y: midY - rect.height * 0.12),
+            control1: CGPoint(x: rect.width * 0.86, y: rect.height * 0.26),
+            control2: CGPoint(x: rect.width * 0.68, y: rect.height * 0.16)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.width * 0.30, y: midY + rect.height * 0.16),
+            control1: CGPoint(x: rect.width * 0.48, y: rect.height * 0.84),
+            control2: CGPoint(x: rect.width * 0.36, y: rect.height * 0.92)
+        )
+        path.addCurve(
+            to: CGPoint(x: 0, y: midY),
+            control1: CGPoint(x: rect.width * 0.18, y: rect.height * 0.12),
+            control2: CGPoint(x: rect.width * 0.08, y: rect.height * 0.84)
+        )
         return path
     }
 }
@@ -792,138 +862,6 @@ private final class MarkdownTextView: NSTextView {
         font = .systemFont(ofSize: fontSize, weight: .medium)
         self.textColor = textColor
         invalidateIntrinsicContentSize()
-    }
-}
-
-private struct RecordingOrbView: View {
-    let status: AssistantStatus
-    let compact: Bool
-
-    @State private var smoothedLevel: Double = 0.0
-
-    private var normalizedLevel: Double {
-        pow(max(0.0, min(smoothedLevel, 1.0)), 0.6)
-    }
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            let breathing = 1.0 + 0.03 * sin(t * 2.1)
-            let size: CGFloat = compact ? 78 : 120
-            let glowSize: CGFloat = compact ? 112 : 170
-
-            ZStack {
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                Color(red: 0.31, green: 0.93, blue: 1.00).opacity(0.34),
-                                Color(red: 0.83, green: 0.37, blue: 0.97).opacity(0.26),
-                                Color.clear
-                            ],
-                            center: .center,
-                            startRadius: 8,
-                            endRadius: glowSize / 2
-                        )
-                    )
-                    .frame(width: glowSize, height: glowSize)
-                    .scaleEffect(breathing * (1 + normalizedLevel * 0.14))
-                    .blur(radius: compact ? 8 : 12)
-
-                Circle()
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 1.00, green: 0.61, blue: 0.83),
-                                Color(red: 0.26, green: 0.89, blue: 1.00)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: compact ? 4 : 5
-                    )
-                    .frame(width: size + 8, height: size + 8)
-                    .blur(radius: 0.5)
-
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.23, green: 0.19, blue: 0.49),
-                                Color(red: 0.12, green: 0.41, blue: 0.73),
-                                Color(red: 0.18, green: 0.70, blue: 0.87)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: size, height: size)
-
-                SiriRibbonShape()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.86),
-                                Color(red: 0.64, green: 0.93, blue: 0.96).opacity(0.92),
-                                Color(red: 0.92, green: 0.70, blue: 0.98).opacity(0.88)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(width: compact ? 48 : 74, height: compact ? 20 : 30)
-                    .blur(radius: 0.5)
-            }
-        }
-        .onAppear { smoothedLevel = 0 }
-        .onChange(of: status) { _, newValue in
-            if case .recording(.active(let level)) = newValue {
-                withAnimation(.spring(response: 0.18, dampingFraction: 0.7)) {
-                    smoothedLevel = level
-                }
-            } else {
-                smoothedLevel = 0
-            }
-        }
-    }
-}
-
-private struct SiriRibbonShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let midY = rect.midY
-        path.move(to: CGPoint(x: 0, y: midY))
-        path.addCurve(
-            to: CGPoint(x: rect.width * 0.28, y: midY - rect.height * 0.18),
-            control1: CGPoint(x: rect.width * 0.07, y: rect.height * 0.18),
-            control2: CGPoint(x: rect.width * 0.18, y: rect.height * 0.02)
-        )
-        path.addCurve(
-            to: CGPoint(x: rect.width * 0.52, y: midY + rect.height * 0.14),
-            control1: CGPoint(x: rect.width * 0.38, y: rect.height * 0.84),
-            control2: CGPoint(x: rect.width * 0.44, y: rect.height * 0.88)
-        )
-        path.addCurve(
-            to: CGPoint(x: rect.width, y: midY),
-            control1: CGPoint(x: rect.width * 0.70, y: rect.height * 0.02),
-            control2: CGPoint(x: rect.width * 0.88, y: rect.height * 0.82)
-        )
-        path.addCurve(
-            to: CGPoint(x: rect.width * 0.56, y: midY - rect.height * 0.12),
-            control1: CGPoint(x: rect.width * 0.86, y: rect.height * 0.26),
-            control2: CGPoint(x: rect.width * 0.68, y: rect.height * 0.16)
-        )
-        path.addCurve(
-            to: CGPoint(x: rect.width * 0.30, y: midY + rect.height * 0.16),
-            control1: CGPoint(x: rect.width * 0.48, y: rect.height * 0.84),
-            control2: CGPoint(x: rect.width * 0.36, y: rect.height * 0.92)
-        )
-        path.addCurve(
-            to: CGPoint(x: 0, y: midY),
-            control1: CGPoint(x: rect.width * 0.18, y: rect.height * 0.12),
-            control2: CGPoint(x: rect.width * 0.08, y: rect.height * 0.84)
-        )
-        return path
     }
 }
 

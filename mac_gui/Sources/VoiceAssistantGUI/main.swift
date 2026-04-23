@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hosting = NSHostingView(rootView: rootView)
 
         let window = BorderlessWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 980, height: 760),
+            contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
