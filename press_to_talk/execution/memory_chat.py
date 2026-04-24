@@ -10,7 +10,7 @@ from ..models.history import build_storage_config
 from ..storage import StorageService
 from ..utils.logging import log, log_llm_prompt, log_multiline
 from ..utils.shell import parse_json_output
-from ..utils.text import strip_think_tags
+from ..utils.text import strip_think_tags, current_time_text
 
 
 def _format_memory_context_items(items: list[dict[str, Any]]) -> str:
@@ -108,11 +108,13 @@ class MemoryChatExecutionRunner:
         intent: dict[str, str],
         memory_context: str,
     ) -> list[dict[str, str]]:
+        time_text = current_time_text()
         return [
             {
                 "role": "system",
                 "content": (
                     "你是本地语音助手 chat-mode 的最终回答链路。"
+                    f"当前时间：{time_text}。"
                     "先参考我提供的相关记忆回答。"
                     "如果相关记忆不足，继续根据你的知识和联网检索能力回答问题。"
                     "不要因为没命中记忆就直接回复信息不足。"
