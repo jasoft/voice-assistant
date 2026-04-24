@@ -59,6 +59,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
 
+            // Enter (Return): Start recording if idle and input is empty
+            if event.keyCode == 36 {
+                if self.model.canStartRecording && self.model.screenMode == .live && self.model.draftInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.model.startRecording()
+                    return nil
+                }
+            }
+
             if event.keyCode == 53 {
                 self.model.handleEscapeKey()
                 return nil
