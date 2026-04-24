@@ -75,10 +75,12 @@ struct AssistantShellView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            if showsListeningWave {
+            ZStack {
                 ListeningDotsView(status: model.session.state.status)
-                    .padding(.bottom, 10)
+                    .opacity(showsListeningWave ? 1 : 0)
             }
+            .frame(height: 28)
+            .padding(.bottom, 10)
 
             OrbStageView(status: model.session.state.status, compact: false)
                 .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
@@ -90,13 +92,14 @@ struct AssistantShellView: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 14)
 
-            if let subtitle = mainSubtitle {
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(red: 0.60, green: 0.61, blue: 0.67))
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 8)
-            }
+            Text(mainSubtitle ?? " ")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(red: 0.60, green: 0.61, blue: 0.67))
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .opacity(mainSubtitle == nil ? 0 : 1)
+                .frame(height: 18)
+                .padding(.top, 8)
 
             if let errorMessage = visibleErrorMessage {
                 errorBanner(message: errorMessage)
@@ -133,23 +136,32 @@ struct AssistantShellView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            VStack(spacing: 12) {
+            bottomActionBar
+                .padding(.horizontal, 18)
+                .padding(.bottom, 16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var bottomActionBar: some View {
+        if showComposer || showStopSpeakingButton || showContinueButton {
+            HStack(spacing: 12) {
                 if showComposer {
                     composer
                 }
 
                 if showStopSpeakingButton {
                     stopSpeakingButton
+                    Spacer(minLength: 0)
                 }
 
                 if showContinueButton {
+                    Spacer(minLength: 0)
                     continueButton
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 16)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var historyCard: some View {
@@ -245,22 +257,54 @@ struct AssistantShellView: View {
     private var transcriptBubble: some View {
         HStack {
             Spacer(minLength: 36)
-            Text(model.session.state.transcript)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(red: 0.16, green: 0.16, blue: 0.21))
-                .padding(.horizontal, 18)
-                .padding(.vertical, 10)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color(red: 0.92, green: 0.94, blue: 0.98))
-                )
-                .textSelection(.enabled)
+            VStack(alignment: .trailing, spacing: 5) {
+                Text("你问")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.57, green: 0.60, blue: 0.68))
+                Text(model.session.state.transcript)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.13, green: 0.15, blue: 0.20))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color(red: 0.91, green: 0.94, blue: 0.99))
+                    )
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(Color(red: 0.82, green: 0.86, blue: 0.96), lineWidth: 1)
+                    )
+                    .textSelection(.enabled)
+            }
         }
         .frame(maxWidth: .infinity)
     }
 
     private var replyCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 0.12, green: 0.48, blue: 0.86))
+                        .frame(width: 26, height: 26)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color.white)
+                }
+                Text("回答结果")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(red: 0.10, green: 0.11, blue: 0.16))
+                Spacer()
+                if case .speaking = model.session.state.status {
+                    Text("朗读中")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.12, green: 0.48, blue: 0.86))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule(style: .continuous).fill(Color(red: 0.90, green: 0.95, blue: 1.00)))
+                }
+            }
+
             MarkdownBodyText(
                 text: replyPlainText,
                 fontSize: 15,
@@ -282,19 +326,24 @@ struct AssistantShellView: View {
                 .padding(.vertical, 13)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white.opacity(0.84))
+                        .fill(Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color(red: 0.86, green: 0.88, blue: 0.94), lineWidth: 1)
+                        )
                 )
             }
             .buttonStyle(.plain)
         }
-        .padding(14)
+        .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(red: 0.97, green: 0.97, blue: 0.99))
+                .fill(Color(red: 0.98, green: 0.985, blue: 1.00))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.white.opacity(0.95), lineWidth: 1)
+                        .stroke(Color(red: 0.86, green: 0.88, blue: 0.94), lineWidth: 1)
                 )
+                .shadow(color: Color.black.opacity(0.04), radius: 14, x: 0, y: 8)
         )
     }
 
@@ -384,6 +433,7 @@ struct AssistantShellView: View {
             )
         }
         .buttonStyle(.plain)
+        .help("停止当前语音朗读，保留回答结果")
     }
 
     private var quickActions: some View {

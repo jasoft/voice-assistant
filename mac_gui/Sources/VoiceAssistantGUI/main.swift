@@ -29,11 +29,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.isOpaque = true
-        window.backgroundColor = .white
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.hasShadow = true
         window.level = .floating
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        hosting.wantsLayer = true
+        hosting.layer?.cornerRadius = 24
+        hosting.layer?.cornerCurve = .continuous
+        hosting.layer?.masksToBounds = true
         window.contentView = hosting
         window.makeKeyAndOrderFront(nil)
         positionBottomRight(window: window)
