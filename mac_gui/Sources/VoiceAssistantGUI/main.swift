@@ -42,8 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             if event.keyCode == 53 {
-                self.model.keepWindowOpen()
-                NSApp.terminate(nil)
+                self.model.handleEscapeKey()
                 return nil
             }
             return event

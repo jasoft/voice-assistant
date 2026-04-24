@@ -122,6 +122,20 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    public func handleEscapeKey() {
+        keepWindowOpen()
+        screenMode = .live
+        switch session.state.status {
+        case .recording, .transcribing, .thinking, .speaking:
+            bridge.stop()
+            session.resetForNewSession()
+        case .done, .error, .cancelled:
+            session.resetForNewSession()
+        case .idle:
+            break
+        }
+    }
+
     public func toggleHistory() {
         screenMode = screenMode == .history ? .live : .history
         if screenMode == .history {
