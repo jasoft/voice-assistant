@@ -8,6 +8,11 @@ from openai import AsyncOpenAI
 from .intent import IntentExecutionRunner
 from ..models.history import build_storage_config
 from ..storage import StorageService
+from ..utils.env import (
+    WORKFLOW_CONFIG_PATH,
+    expand_env_placeholders,
+    load_json_file,
+)
 from ..utils.logging import log, log_llm_prompt, log_multiline
 from ..utils.shell import parse_json_output
 from ..utils.text import strip_think_tags, current_time_text
@@ -38,6 +43,11 @@ class MemoryChatExecutionRunner:
         self.model = str(cfg.llm_model)
         self.summary_model = str(getattr(cfg, "llm_summarize_model", "") or self.model)
         self._storage_service: StorageService | None = None
+        self._load_workflow_config()
+
+    def _load_workflow_config(self) -> None:
+        workflow_data = load_json_file(WORKFLOW_CONFIG_PATH)
+        self.workflow = expand_env_placeholders(workflow_data)
 
     def _storage(self) -> StorageService:
         if self._storage_service is None:
@@ -45,16 +55,14 @@ class MemoryChatExecutionRunner:
         return self._storage_service
 
     async def _analyze_intent_async(self, transcript: str) -> dict[str, str]:
+        prompts = self.workflow.get("prompts", {})
+        intent_cfg = prompts.get("memory_chat_intent", {})
+        system_prompt = intent_cfg.get("system_prompt", "你是语音助手意图分析器。")
+        
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "你是语音助手 chat-mode 的意图分析器。"
-                    "只做最小判断，把当前问题判断成 record 或 chat。"
-                    "record 表示用户明确要记录、保存、更新某条**新的**事实信息；"
-                    "如果是询问、查询、列出、翻阅已有的记录，务必输出 chat。"
-                    '只返回 JSON，例如 {"intent":"chat","notes":"开放问答"}。'
-                ),
+                "content": system_prompt,
             },
             {"role": "user", "content": transcript},
         ]
@@ -89,10 +97,19 @@ class MemoryChatExecutionRunner:
             log(f"memory-chat intent analysis failed: {exc}")
             return {"intent": "chat", "notes": ""}
 
-    def _memory_context_items(self, transcript: str) -> list[dict[str, Any]]:
+    def _memory_context_items(
+        self, 
+        transcript: str, 
+        start_date: str | None = None, 
+        end_date: str | None = None
+    ) -> list[dict[str, Any]]:
         try:
             remember_store = self._storage().remember_store()
-            raw = remember_store.find(query=transcript)
+            raw = remember_store.find(
+                query=transcript,
+                start_date=start_date,
+                end_date=end_date
+            )
             extracted = remember_store.extract_summary_items(raw)
         except Exception:
             log("memory-chat memory search failed")
@@ -108,19 +125,17 @@ class MemoryChatExecutionRunner:
         intent: dict[str, str],
         memory_context: str,
     ) -> list[dict[str, str]]:
+        prompts = self.workflow.get("prompts", {})
+        summary_cfg = prompts.get("memory_chat_summary", {})
+        system_prompt_tpl = summary_cfg.get("system_prompt", "你是本地语音助手。")
+        
         time_text = current_time_text()
+        system_prompt = system_prompt_tpl.replace("${PTT_CURRENT_TIME}", time_text)
+        
         return [
             {
                 "role": "system",
-                "content": (
-                    "你是本地语音助手 chat-mode 的最终回答链路。"
-                    f"当前时间：{time_text}。"
-                    "先参考我提供的相关记忆回答。"
-                    "如果相关记忆不足，继续根据你的知识和联网检索能力回答问题。"
-                    "不要因为没命中记忆就直接回复信息不足。"
-                    "只有在你确实无法确认时，再明确说明不确定。"
-                    "回答保持简短、直接、适合语音播报。"
-                ),
+                "content": system_prompt,
             },
             {
                 "role": "user",
@@ -133,15 +148,32 @@ class MemoryChatExecutionRunner:
             },
         ]
 
-    async def run_async(self, transcript: str) -> str:
-        # 1. 首先尝试意图分析，看是否是记录请求
-        intent = await self._analyze_intent_async(transcript)
+    async def run_async(
+        self, 
+        transcript: str, 
+        pre_extracted_intent: dict[str, Any] | None = None
+    ) -> str:
+        # 1. 意图分析：如果外部没传，才自己分析
+        if pre_extracted_intent:
+            intent = pre_extracted_intent
+        else:
+            intent = await self._analyze_intent_async(transcript)
+
         if intent.get("intent") == "record":
             log("memory-chat routing record intent to structured record flow")
             return await IntentExecutionRunner(self.cfg).run_async(transcript)
 
         # 2. 如果不是记录，说明是查询类。先查数据库内容。
-        items = self._memory_context_items(transcript)
+        # 提取日期范围
+        args = intent.get("args", {})
+        start_date = args.get("start_date")
+        end_date = args.get("end_date")
+        
+        items = self._memory_context_items(
+            transcript, 
+            start_date=start_date, 
+            end_date=end_date
+        )
         
         # 3. 判断是否命中记忆
         if not items:
@@ -149,6 +181,9 @@ class MemoryChatExecutionRunner:
             # 在没有命中记忆的情况下，如果用户明确处于 memory-chat 模式（意图分析结果通常也是 chat），
             # 那么我们会进入兜底回答流程。
             memory_context = "没有命中相关记忆。"
+            if start_date or end_date:
+                date_info = f"{start_date or ''} 到 {end_date or ''}".strip(" 到 ")
+                memory_context = f"在 {date_info} 期间没有命中相关记忆。"
         else:
             memory_context = _format_memory_context_items(items)
             log_multiline("memory-chat memory context", memory_context)

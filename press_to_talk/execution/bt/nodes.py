@@ -40,7 +40,14 @@ class IsEmptyTranscript(Condition):
 
 class SetEmptyTranscriptReplyAction(Action):
     async def tick(self, bb: Blackboard) -> Status:
-        bb.reply = "大王，我没有听到您说话。请重新按住录音键尝试。"
+        from ...utils.env import WORKFLOW_CONFIG_PATH, load_json_file
+        try:
+            workflow = load_json_file(WORKFLOW_CONFIG_PATH)
+            prompts = workflow.get("prompts", {})
+            reply_cfg = prompts.get("empty_speech_reply", {})
+            bb.reply = reply_cfg.get("text", "大王，我没有听到您说话。请重新按住录音键尝试。")
+        except Exception:
+            bb.reply = "大王，我没有听到您说话。请重新按住录音键尝试。"
         return Status.SUCCESS
 
 class ExtractIntentAction(Action):
@@ -110,8 +117,8 @@ class LLMChatFallbackAction(Action):
         from ...execution.memory_chat import MemoryChatExecutionRunner
         runner = MemoryChatExecutionRunner(bb.cfg)
         try:
-            # Reuse fallback chat logic
-            bb.reply = await runner.run_async(bb.transcript)
+            # Reuse fallback chat logic, passing pre-extracted intent to preserve dates
+            bb.reply = await runner.run_async(bb.transcript, pre_extracted_intent=bb.intent)
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
