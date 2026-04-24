@@ -32,6 +32,17 @@ class IsHermesMode(Condition):
             return Status.SUCCESS
         return Status.FAILURE
 
+class IsEmptyTranscript(Condition):
+    async def tick(self, bb: Blackboard) -> Status:
+        if not bb.transcript or not bb.transcript.strip():
+            return Status.SUCCESS
+        return Status.FAILURE
+
+class SetEmptyTranscriptReplyAction(Action):
+    async def tick(self, bb: Blackboard) -> Status:
+        bb.reply = "大王，我没有听到您说话。请重新按住录音键尝试。"
+        return Status.SUCCESS
+
 class ExtractIntentAction(Action):
     async def tick(self, bb: Blackboard) -> Status:
         from ...agent.agent import OpenAICompatibleAgent

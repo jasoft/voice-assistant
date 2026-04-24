@@ -166,31 +166,18 @@ def main(argv: list[str] | None = None) -> int:
             log_timing("end chime dispatched")
 
             if audio is None:
-                log("录音结束，未检测到有效语音")
-                events.emit("status", phase="no_speech")
-                events.emit("error", message="没有收到任何语音")
-                return 0
+                log("录音结束，未检测到有效语音; proceeding to execution layer for empty handling")
+                transcript = ""
+            else:
+                write_wav(cfg.audio_file, audio, cfg.sample_rate, cfg.channels)
+                log(f"audio saved: {cfg.audio_file}")
+                session_peak_level, session_mean_level = recorder.get_audio_level_stats()
 
-            write_wav(cfg.audio_file, audio, cfg.sample_rate, cfg.channels)
-            log(f"audio saved: {cfg.audio_file}")
-            session_peak_level, session_mean_level = recorder.get_audio_level_stats()
-
-            events.emit("status", phase="transcribing")
-            transcript = run_stt(cfg.stt_url, cfg.stt_token, cfg.audio_file)
-            if not transcript:
-                log("no speech detected from stt")
-                events.emit("status", phase="transcribe_empty")
-                events.emit("error", message="没有检测到语音")
-                if cfg.no_tts:
-                    return 1
-                events.emit("status", phase="speaking")
-                speak_text("没有检测到语音")
-                events.emit(
-                    "status",
-                    phase="done",
-                    auto_close_seconds=cfg.gui_auto_close_seconds,
-                )
-                return 1
+                events.emit("status", phase="transcribing")
+                transcript = run_stt(cfg.stt_url, cfg.stt_token, cfg.audio_file)
+                if not transcript:
+                    log("no speech detected from stt; proceeding to execution layer for empty handling")
+                    transcript = ""
 
         log(f"transcript: {transcript}")
         events.emit("transcript", text=transcript)

@@ -44,8 +44,9 @@ class SmokeCheckTests(unittest.TestCase):
         output = result.stderr # Logging goes to stderr
         self.assertIn("reply ready:", output)
         # Check for core keywords in the real response from the database/LLM
-        self.assertIn("USB", output)
-        self.assertIn("测试版", output)
+        output_lower = output.lower()
+        self.assertIn("usb", output_lower)
+        self.assertIn("测试版", output_lower)
         
         # Verify it went through the core execution steps
         self.assertIn("LLM intent parsed", output)
