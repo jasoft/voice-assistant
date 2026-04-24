@@ -138,6 +138,10 @@ struct AssistantShellView: View {
                     composer
                 }
 
+                if showStopSpeakingButton {
+                    stopSpeakingButton
+                }
+
                 if showContinueButton {
                     continueButton
                 }
@@ -357,6 +361,27 @@ struct AssistantShellView: View {
         .buttonStyle(.plain)
     }
 
+    private var stopSpeakingButton: some View {
+        Button(action: {
+            model.stopSpeaking()
+        }) {
+            HStack(spacing: 10) {
+                Image(systemName: "speaker.slash.fill")
+                    .font(.system(size: 14, weight: .bold))
+                Text("打断语音输出")
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 11)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(red: 0.18, green: 0.19, blue: 0.24))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     private var quickActions: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
@@ -513,6 +538,11 @@ struct AssistantShellView: View {
 
     private var showContinueButton: Bool {
         if case .done = model.session.state.status { return true }
+        return false
+    }
+
+    private var showStopSpeakingButton: Bool {
+        if case .speaking = model.session.state.status { return true }
         return false
     }
 
