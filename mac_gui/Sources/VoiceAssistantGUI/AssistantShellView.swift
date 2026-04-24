@@ -311,29 +311,6 @@ struct AssistantShellView: View {
                 textColor: NSColor.labelColor.withAlphaComponent(0.92)
             )
             .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button(action: {}) {
-                HStack {
-                    Text(primaryActionTitle)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.24))
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color(red: 0.58, green: 0.59, blue: 0.66))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 13)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color(red: 0.86, green: 0.88, blue: 0.94), lineWidth: 1)
-                        )
-                )
-            }
-            .buttonStyle(.plain)
         }
         .padding(16)
         .background(
@@ -615,10 +592,6 @@ struct AssistantShellView: View {
 
     private var replyPlainText: String {
         model.session.state.status.replyText
-    }
-
-    private var primaryActionTitle: String {
-        "查看详细结果"
     }
 
     private var composerPrimarySymbol: String {
