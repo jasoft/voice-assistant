@@ -9,7 +9,7 @@ struct AssistantShellView: View {
 
     var body: some View {
         ZStack {
-            Color.clear
+            Color.white
             if model.screenMode == .history {
                 historyCard
             } else {
@@ -397,19 +397,10 @@ struct AssistantShellView: View {
 
     private var dialogBackground: some View {
         RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.88),
-                        Color(red: 0.99, green: 0.95, blue: 0.96).opacity(0.80)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
+            .fill(Color.white)
             .overlay(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.white.opacity(0.95), lineWidth: 1)
+                    .stroke(Color(red: 0.88, green: 0.89, blue: 0.93), lineWidth: 1)
             )
             .shadow(color: Color.black.opacity(0.10), radius: 24, x: 0, y: 14)
     }
