@@ -939,7 +939,9 @@ private final class MarkdownTextView: NSTextView {
         } else {
             textStorage?.setAttributedString(NSAttributedString(string: text))
         }
-        font = .systemFont(ofSize: fontSize, weight: .medium)
+        
+        // 使用 regular 字重，避免过于黑粗
+        self.font = .systemFont(ofSize: fontSize, weight: .regular)
         self.textColor = textColor
         invalidateIntrinsicContentSize()
     }
