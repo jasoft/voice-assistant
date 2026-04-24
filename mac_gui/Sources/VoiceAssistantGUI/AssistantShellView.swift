@@ -24,21 +24,51 @@ struct AssistantShellView: View {
     }
 
     private var liveCard: some View {
-        VStack(spacing: 0) {
-            topBar
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
-
-            if showsCenterStage {
+        ZStack(alignment: .top) {
+            if showsIdleStage {
+                idleStageContent
+            } else if showsCenterStage {
                 centerStageContent
             } else {
                 responseStageContent
             }
+
+            topBar
+                .padding(.horizontal, 18)
+                .padding(.top, 16)
         }
         .frame(width: cardWidth, height: cardHeight)
         .background(dialogBackground)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: model.session.state.status)
+    }
+
+    private var idleStageContent: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            OrbStageView(status: model.session.state.status, compact: false)
+                .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
+                .frame(width: 150, height: 150)
+
+            Text(mainTitle)
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.15))
+                .multilineTextAlignment(.center)
+                .padding(.top, 12)
+
+            Spacer(minLength: 18)
+
+            composer
+                .padding(.horizontal, 18)
+
+            quickActions
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+                .padding(.bottom, 18)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.top, 44)
     }
 
     private var centerStageContent: some View {
@@ -78,7 +108,6 @@ struct AssistantShellView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 24)
-        .padding(.bottom, 24)
     }
 
     private var responseStageContent: some View {
@@ -98,7 +127,7 @@ struct AssistantShellView: View {
                     }
                 }
                 .padding(.horizontal, 18)
-                .padding(.top, 14)
+                .padding(.top, 58)
                 .padding(.bottom, 16)
                 .frame(maxWidth: .infinity)
             }
@@ -111,8 +140,6 @@ struct AssistantShellView: View {
 
                 if showContinueButton {
                     continueButton
-                } else if showQuickActions {
-                    quickActions
                 }
             }
             .padding(.horizontal, 18)
@@ -230,16 +257,12 @@ struct AssistantShellView: View {
 
     private var replyCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if showWeatherStyleReply {
-                weatherStyleReply
-            } else {
-                Text(replyPlainText)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color(red: 0.16, green: 0.16, blue: 0.21))
-                    .lineSpacing(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-            }
+            MarkdownBodyText(
+                text: replyPlainText,
+                fontSize: 15,
+                textColor: NSColor.labelColor.withAlphaComponent(0.92)
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: {}) {
                 HStack {
@@ -269,40 +292,6 @@ struct AssistantShellView: View {
                         .stroke(Color.white.opacity(0.95), lineWidth: 1)
                 )
         )
-    }
-
-    private var weatherStyleReply: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Text("⛅️")
-                .font(.system(size: 34))
-                .frame(width: 50)
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .lastTextBaseline, spacing: 8) {
-                    Text(primaryTemperature)
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                    Text(secondaryTemperature)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(red: 0.24, green: 0.24, blue: 0.30))
-                }
-                Text(replyPlainText)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(red: 0.25, green: 0.25, blue: 0.31))
-                    .lineLimit(3)
-            }
-
-            Spacer(minLength: 0)
-
-            VStack(alignment: .trailing, spacing: 8) {
-                Text(weatherSummaryLabel)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(red: 0.22, green: 0.23, blue: 0.28))
-                Text("空气质量  良")
-                Text("东南风 2 级")
-            }
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color(red: 0.35, green: 0.36, blue: 0.42))
-        }
     }
 
     private var composer: some View {
@@ -493,7 +482,12 @@ struct AssistantShellView: View {
     }
 
     private var showComposer: Bool {
-        !compactStage
+        switch model.session.state.status {
+        case .error, .cancelled:
+            return true
+        default:
+            return false
+        }
     }
 
     private var showsCenterStage: Bool {
@@ -503,6 +497,10 @@ struct AssistantShellView: View {
         default:
             return false
         }
+    }
+
+    private var showsIdleStage: Bool {
+        model.session.state.status == .idle
     }
 
     private var showQuickActions: Bool {
@@ -538,44 +536,8 @@ struct AssistantShellView: View {
         model.session.state.status.replyText
     }
 
-    private var showWeatherStyleReply: Bool {
-        let lower = replyPlainText.lowercased()
-        return replyPlainText.contains("天气") || replyPlainText.contains("温度") || lower.contains("°c")
-    }
-
-    private var primaryTemperature: String {
-        let values = extractTemperatures()
-        return values.first.map { "\($0)°C" } ?? "28°C"
-    }
-
-    private var secondaryTemperature: String {
-        let values = extractTemperatures()
-        if values.count >= 2 { return "\(values[1])°C" }
-        return "18°C"
-    }
-
-    private var weatherSummaryLabel: String {
-        if replyPlainText.contains("多云") { return "多云" }
-        if replyPlainText.contains("晴") { return "晴" }
-        if replyPlainText.contains("雨") { return "有雨" }
-        return "天气"
-    }
-
-    private func extractTemperatures() -> [Int] {
-        let pattern = #"(-?\d{1,2})\s*°?\s*C"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return []
-        }
-        let nsrange = NSRange(replyPlainText.startIndex..., in: replyPlainText)
-        return regex.matches(in: replyPlainText, options: [], range: nsrange).compactMap { match in
-            guard match.numberOfRanges > 1,
-                  let range = Range(match.range(at: 1), in: replyPlainText) else { return nil }
-            return Int(replyPlainText[range])
-        }
-    }
-
     private var primaryActionTitle: String {
-        showWeatherStyleReply ? "查看详细天气预报" : "查看详细结果"
+        "查看详细结果"
     }
 
     private var composerPrimarySymbol: String {
