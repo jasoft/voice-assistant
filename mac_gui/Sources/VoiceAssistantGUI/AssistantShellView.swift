@@ -364,12 +364,16 @@ struct AssistantShellView: View {
             Button(action: composerPrimaryAction) {
                 ZStack {
                     Circle()
-                        .fill(Color.white)
+                        .fill(Color(red: 0.91, green: 0.94, blue: 0.99))
                         .frame(width: 44, height: 44)
-                        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 5)
+                        .overlay(
+                            Circle()
+                                .stroke(Color(red: 0.82, green: 0.86, blue: 0.96), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.04), radius: 10, x: 0, y: 5)
                     Image(systemName: composerPrimarySymbol)
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(red: 0.45, green: 0.47, blue: 0.54))
+                        .foregroundStyle(Color(red: 0.12, green: 0.48, blue: 0.86))
                 }
             }
             .buttonStyle(.plain)
@@ -378,26 +382,26 @@ struct AssistantShellView: View {
         .padding(.vertical, 14)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(red: 0.98, green: 0.95, blue: 0.96))
+                .fill(Color(red: 0.98, green: 0.985, blue: 1.00))
                 .overlay(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(Color.white.opacity(0.95), lineWidth: 1)
+                        .stroke(Color(red: 0.86, green: 0.88, blue: 0.94), lineWidth: 1)
                 )
+                .shadow(color: Color.black.opacity(0.035), radius: 14, x: 0, y: 8)
         )
     }
 
     private var continueButton: some View {
         Button(action: {
-            model.keepWindowOpen()
             model.draftInput = ""
             inputFocused = false
-            model.startRecording()
+            model.startNewConversation()
         }) {
             HStack(spacing: 10) {
-                Text("新的对话")
-                    .font(.system(size: 14, weight: .semibold))
                 Image(systemName: "mic.fill")
                     .font(.system(size: 14, weight: .bold))
+                Text("新的对话")
+                    .font(.system(size: 14, weight: .semibold))
             }
             .foregroundStyle(Color(red: 0.18, green: 0.19, blue: 0.24))
             .padding(.horizontal, 24)
@@ -589,8 +593,12 @@ struct AssistantShellView: View {
     }
 
     private var showContinueButton: Bool {
-        if case .done = model.session.state.status { return true }
-        return false
+        switch model.session.state.status {
+        case .speaking, .done:
+            return true
+        default:
+            return false
+        }
     }
 
     private var showStopSpeakingButton: Bool {

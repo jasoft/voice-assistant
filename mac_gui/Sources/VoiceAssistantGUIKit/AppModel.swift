@@ -50,6 +50,14 @@ public final class AppModel: ObservableObject {
         bridge.start(additionalArgs: forwardedArgs, workingDirectory: workingDirectory)
     }
 
+    public func startNewConversation() {
+        keepWindowOpen()
+        if case .speaking = session.state.status {
+            bridge.stopSpeechPlayback()
+        }
+        startRecording()
+    }
+
     public func submitTextInput() {
         let prompt = draftInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else {
