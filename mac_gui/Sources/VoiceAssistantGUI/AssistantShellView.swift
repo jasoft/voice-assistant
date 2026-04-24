@@ -486,8 +486,6 @@ struct AssistantShellView: View {
 
     private var mainSubtitle: String? {
         switch model.session.state.status {
-        case .thinking:
-            return "正在查询天气信息"
         case .transcribing:
             return "正在整理语音内容"
         case .speaking:
