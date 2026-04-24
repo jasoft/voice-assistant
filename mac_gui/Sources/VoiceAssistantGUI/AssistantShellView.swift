@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import VoiceAssistantGUIKit
+@preconcurrency import MarkdownUI
 
 struct AssistantShellView: View {
     @ObservedObject var model: AppModel
@@ -9,14 +10,13 @@ struct AssistantShellView: View {
 
     var body: some View {
         ZStack {
-            Color.white
             if model.screenMode == .history {
                 historyCard
             } else {
                 liveCard
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: cardWidth, height: cardHeight)
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded {
             model.keepWindowOpen()
@@ -217,7 +217,7 @@ struct AssistantShellView: View {
             }
         }
         .padding(20)
-        .frame(width: 780, height: 520)
+        .frame(width: cardWidth, height: cardHeight)
         .background(dialogBackground)
     }
 
@@ -231,8 +231,17 @@ struct AssistantShellView: View {
             Spacer()
 
             if showSettingsButton {
-                iconButton(symbol: "gearshape") {
-                    SettingsWindowController.show(store: MemoryStore(workingDirectory: model.workingDirectory))
+                HStack(spacing: 4) {
+                    iconButton(symbol: "clock.arrow.circlepath") {
+                        model.keepWindowOpen()
+                        model.toggleHistory()
+                    }
+                    .help("查看历史记录")
+
+                    iconButton(symbol: "gearshape") {
+                        SettingsWindowController.show(store: MemoryStore(workingDirectory: model.workingDirectory))
+                    }
+                    .help("系统设置")
                 }
             }
         }
@@ -891,60 +900,45 @@ private struct SiriRibbonShape: Shape {
     }
 }
 
-private struct MarkdownBodyText: NSViewRepresentable {
+private struct MarkdownBodyText: View {
     let text: String
     let fontSize: CGFloat
     let textColor: NSColor
 
-    func makeNSView(context: Context) -> MarkdownTextView {
-        let textView = MarkdownTextView()
-        textView.drawsBackground = false
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.textContainerInset = NSSize(width: 0, height: 2)
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
-        return textView
-    }
-
-    func updateNSView(_ nsView: MarkdownTextView, context: Context) {
-        nsView.setMarkdownText(text, fontSize: fontSize, textColor: textColor)
+    var body: some View {
+        Markdown(text)
+            .markdownTheme(.voiceAssistant)
+            .markdownTextStyle {
+                FontSize(fontSize)
+                ForegroundColor(Color(nsColor: textColor))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-private final class MarkdownTextView: NSTextView {
-    override var intrinsicContentSize: NSSize {
-        guard let textContainer, let layoutManager else { return super.intrinsicContentSize }
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
-        return NSSize(width: NSView.noIntrinsicMetric, height: ceil(usedRect.height + textContainerInset.height * 2))
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        invalidateIntrinsicContentSize()
-    }
-
-    func setMarkdownText(_ text: String, fontSize: CGFloat, textColor: NSColor) {
-        if let attributed = try? AttributedString(
-            markdown: text,
-            options: AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .full,
-                failurePolicy: .returnPartiallyParsedIfPossible
-            )
-        ) {
-            textStorage?.setAttributedString(NSAttributedString(attributed))
-        } else {
-            textStorage?.setAttributedString(NSAttributedString(string: text))
+extension Theme {
+    @MainActor
+    static let voiceAssistant = Theme()
+        .text {
+            FontSize(15)
         }
-        
-        // 使用 regular 字重，避免过于黑粗
-        self.font = .systemFont(ofSize: fontSize, weight: .regular)
-        self.textColor = textColor
-        invalidateIntrinsicContentSize()
-    }
+        .paragraph { configuration in
+            configuration.label
+                .lineSpacing(4)
+                .padding(.bottom, 8)
+        }
+        .list { configuration in
+            configuration.label
+                .padding(.leading, 8)
+                .padding(.bottom, 8)
+        }
+        .listItem { configuration in
+            configuration.label
+                .padding(.bottom, 4)
+        }
+        .strong {
+            FontWeight(.semibold)
+        }
 }
 
 private struct HistoryStyleCard<Content: View>: View {
