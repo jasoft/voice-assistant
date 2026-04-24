@@ -51,10 +51,7 @@ struct AssistantShellView: View {
                 .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
                 .frame(width: 150, height: 150)
 
-            Text(mainTitle)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.15))
-                .multilineTextAlignment(.center)
+            statusTitleView(fontSize: 28, weight: .bold)
                 .padding(.top, 12)
 
             Spacer(minLength: 18)
@@ -86,10 +83,7 @@ struct AssistantShellView: View {
                 .matchedGeometryEffect(id: "recording-orb", in: orbNamespace)
                 .frame(width: 180, height: 180)
 
-            Text(mainTitle)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.15))
-                .multilineTextAlignment(.center)
+            statusTitleView(fontSize: 20, weight: .bold)
                 .padding(.top, 14)
 
             Text(mainSubtitle ?? " ")
@@ -496,22 +490,45 @@ struct AssistantShellView: View {
         return false
     }
 
-    private var mainTitle: String {
+    private var mainTitleBase: String {
         switch model.session.state.status {
         case .idle:
             return "你好，有什么可以帮你？"
         case .recording:
-            return "正在聆听..."
+            return "正在聆听"
         case .transcribing, .thinking:
-            return "正在思考..."
+            return "正在思考"
         case .speaking:
-            return "正在回答..."
+            return "正在回答"
         case .done:
             return ""
         case .error:
             return "这轮执行失败了"
         case .cancelled:
             return "这一轮已取消"
+        }
+    }
+
+    @ViewBuilder
+    private func statusTitleView(fontSize: CGFloat, weight: Font.Weight) -> some View {
+        HStack(alignment: .bottom, spacing: 0) {
+            Text(mainTitleBase)
+            if showsLoadingDots {
+                DotAnimationView()
+                    .offset(y: -fontSize * 0.12)
+            }
+        }
+        .font(.system(size: fontSize, weight: weight, design: .rounded))
+        .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.15))
+        .multilineTextAlignment(.center)
+    }
+
+    private var showsLoadingDots: Bool {
+        switch model.session.state.status {
+        case .recording, .transcribing, .thinking, .speaking:
+            return true
+        default:
+            return false
         }
     }
 
@@ -630,6 +647,24 @@ struct AssistantShellView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color(red: 0.99, green: 0.90, blue: 0.92))
         )
+    }
+}
+
+private struct DotAnimationView: View {
+    @State private var activeDot = 0
+    let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<3) { index in
+                Text(".")
+                    .opacity(activeDot == index ? 1.0 : 0.3)
+                    .animation(.easeInOut(duration: 0.3), value: activeDot)
+            }
+        }
+        .onReceive(timer) { _ in
+            activeDot = (activeDot + 1) % 3
+        }
     }
 }
 
