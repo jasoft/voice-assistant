@@ -535,7 +535,9 @@ struct AssistantShellView: View {
     private var mainSubtitle: String? {
         switch model.session.state.status {
         case .transcribing:
-            return "正在整理语音内容"
+            return "正在整理语音内容 (\(String(format: "%.1fs", model.session.thinkingElapsed)))"
+        case .thinking:
+            return "正在思考 (\(String(format: "%.1fs", model.session.thinkingElapsed)))"
         case .speaking:
             return "正在朗读结果"
         case .error:
@@ -745,16 +747,19 @@ private struct OrbStageView: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
+            let isThinking = status == .thinking || status == .transcribing
+            
             let breathing = 1.0 + 0.03 * sin(t * 2.0)
-            let wobble = activeLevel > 0 ? sin(t * 6.4) * activeLevel * 4.0 : 0
+            let thinkingPulse = isThinking ? 0.05 * sin(t * 1.5) : 0
+            let wobble = activeLevel > 0 ? sin(t * 6.4) * activeLevel * 4.0 : (isThinking ? sin(t * 1.8) * 1.2 : 0)
 
             ZStack {
                 Circle()
                     .fill(
                         RadialGradient(
                             colors: [
-                                Color(red: 0.31, green: 0.93, blue: 1.00).opacity(0.24 + activeLevel * 0.24),
-                                Color(red: 0.83, green: 0.37, blue: 0.97).opacity(0.20 + activeLevel * 0.18),
+                                Color(red: 0.31, green: 0.93, blue: 1.00).opacity(0.24 + activeLevel * 0.24 + (isThinking ? 0.12 : 0)),
+                                Color(red: 0.83, green: 0.37, blue: 0.97).opacity(0.20 + activeLevel * 0.18 + (isThinking ? 0.10 : 0)),
                                 Color.clear
                             ],
                             center: .center,
@@ -763,7 +768,7 @@ private struct OrbStageView: View {
                         )
                     )
                     .frame(width: glowSize, height: glowSize)
-                    .scaleEffect(breathing * (1 + smoothedLevel * 0.18))
+                    .scaleEffect((breathing + thinkingPulse) * (1 + smoothedLevel * 0.18))
                     .blur(radius: compact ? 8 : 12)
 
                 if timeoutProgress > 0 {
@@ -812,7 +817,7 @@ private struct OrbStageView: View {
                         )
                     )
                     .frame(width: size, height: size)
-                    .scaleEffect(1 + smoothedLevel * 0.08)
+                    .scaleEffect(1 + smoothedLevel * 0.08 + thinkingPulse)
                     .offset(x: wobble * 0.3, y: -wobble * 0.18)
 
                 SiriRibbonShape()
@@ -827,8 +832,8 @@ private struct OrbStageView: View {
                             endPoint: .trailing
                         )
                     )
-                    .frame(width: compact ? 48 + smoothedLevel * 10 : 74 + smoothedLevel * 14,
-                           height: compact ? 20 + smoothedLevel * 3 : 30 + smoothedLevel * 5)
+                    .frame(width: compact ? 48 + (smoothedLevel + (isThinking ? 0.1 : 0)) * 10 : 74 + (smoothedLevel + (isThinking ? 0.1 : 0)) * 14,
+                           height: compact ? 20 + (smoothedLevel + (isThinking ? 0.05 : 0)) * 3 : 30 + (smoothedLevel + (isThinking ? 0.05 : 0)) * 5)
                     .rotationEffect(.degrees(wobble))
             }
         }
