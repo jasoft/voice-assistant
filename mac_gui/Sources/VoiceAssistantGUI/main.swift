@@ -46,6 +46,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
+            
+            // Cmd+Q: Quit
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "q" {
+                NSApp.terminate(nil)
+                return nil
+            }
+            
+            // Cmd+W: Close (perform close if key window)
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "w" {
+                self.window?.close()
+                return nil
+            }
+
             if event.keyCode == 53 {
                 self.model.handleEscapeKey()
                 return nil
