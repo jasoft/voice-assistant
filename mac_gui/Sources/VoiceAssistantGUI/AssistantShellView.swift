@@ -345,7 +345,7 @@ struct AssistantShellView: View {
             model.startRecording()
         }) {
             HStack(spacing: 10) {
-                Text("继续询问")
+                Text("新的对话")
                     .font(.system(size: 14, weight: .semibold))
                 Image(systemName: "mic.fill")
                     .font(.system(size: 14, weight: .bold))
@@ -356,6 +356,10 @@ struct AssistantShellView: View {
             .background(
                 Capsule(style: .continuous)
                     .fill(Color.white.opacity(0.84))
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(Color(red: 0.78, green: 0.80, blue: 0.88), lineWidth: 1)
+                    )
             )
         }
         .buttonStyle(.plain)
