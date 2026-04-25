@@ -120,6 +120,21 @@ def load_storage_config() -> StorageConfig:
     configured_backend = str(storage_cfg.get("provider", "mem0")).strip() or "mem0"
     default_model = env_str("PTT_MODEL", "qwen/qwen3-32b")
 
+    h_path = env_str("PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)).strip() or str(DEFAULT_HISTORY_DB_PATH)
+    r_path = env_str(
+        "PTT_REMEMBER_DB_PATH",
+        str(sqlite_cfg.get("db_path", str(DEFAULT_REMEMBER_DB_PATH))),
+    ).strip() or str(DEFAULT_REMEMBER_DB_PATH)
+
+    # Normalize paths to be absolute
+    h_path_obj = Path(h_path)
+    if not h_path_obj.is_absolute():
+        h_path_obj = (APP_ROOT / h_path_obj).resolve()
+    
+    r_path_obj = Path(r_path)
+    if not r_path_obj.is_absolute():
+        r_path_obj = (APP_ROOT / r_path_obj).resolve()
+
     config = StorageConfig(
         backend=str(env_str("PTT_REMEMBER_BACKEND", configured_backend)).strip()
         or configured_backend,
@@ -128,13 +143,8 @@ def load_storage_config() -> StorageConfig:
         mem0_app_id=app_id,
         mem0_min_score=env_float("MEM0_MIN_SCORE", float(mem0_cfg.get("min_score", 0.8))),
         mem0_max_items=max(1, env_int("MEM0_MAX_ITEMS", int(mem0_cfg.get("max_items", global_max_results)))),
-        history_db_path=env_str("PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)).strip()
-        or str(DEFAULT_HISTORY_DB_PATH),
-        remember_db_path=env_str(
-            "PTT_REMEMBER_DB_PATH",
-            str(sqlite_cfg.get("db_path", str(DEFAULT_REMEMBER_DB_PATH))),
-        ).strip()
-        or str(DEFAULT_REMEMBER_DB_PATH),
+        history_db_path=str(h_path_obj),
+        remember_db_path=str(r_path_obj),
         remember_max_results=max(
             1,
             env_int("PTT_REMEMBER_MAX_RESULTS", int(sqlite_cfg.get("max_results", global_max_results))),
@@ -432,9 +442,17 @@ class StorageService:
             normalized.remember_db_path = str(DEFAULT_REMEMBER_DB_PATH)
         
         # All Peewee models share the same global 'db' instance, so paths MUST match
-        if normalized.history_db_path != normalized.remember_db_path:
-            log(f"Warning: history_db_path and remember_db_path are different. Using {normalized.remember_db_path} for all storage.", level="warning")
-            normalized.history_db_path = normalized.remember_db_path
+        h_path_abs = Path(normalized.history_db_path).expanduser().resolve()
+        r_path_abs = Path(normalized.remember_db_path).expanduser().resolve()
+        
+        if h_path_abs != r_path_abs:
+            log(f"Warning: history_db_path and remember_db_path are different. Using {r_path_abs} for all storage.", level="warning")
+            normalized.history_db_path = str(r_path_abs)
+            normalized.remember_db_path = str(r_path_abs)
+        else:
+            # Update paths to resolved absolute strings
+            normalized.history_db_path = str(h_path_abs)
+            normalized.remember_db_path = str(r_path_abs)
             
         self.config = normalized
 
