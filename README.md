@@ -1,167 +1,96 @@
-# press-to-talk
+# Press-to-Talk (PTT) 语音助手系统指南
 
-`press-to-talk` 已整理成标准 `uv` Python 包，可直接安装和运行，并通过外部 `qwen-tts` 播报回复。
+`press-to-talk` 是一个标准化的 `uv` Python 包，集成了语音录制、意图识别、长短期记忆管理及 HTTP API 服务。
 
-运行前先在仓库根目录准备 `.env`。
+---
 
-## 运行方式
+## 🚀 快速开始
 
-在 [`voice-assistant`](/Users/weiwang/Projects/voice-assistant) 目录下：
-
+### 1. 环境准备
+确保已安装 `uv`，并在根目录创建 `.env` 文件，配置以下核心变量：
 ```bash
-uv run press-to-talk --help
-uv run press-to-talk
-uv run python -m press_to_talk --help
-uv run press-to-talk --text-input "帮我记住充电器是黑色的" --no-tts
-uv run press-to-talk --text-input "帮我找下护照在哪" --execution-mode database --classify-only --no-tts
-uv run press-to-talk --text-input "usb测试版在哪" --no-tts
-uv run press-to-talk --execution-mode database --text-input "usb测试版在哪" --no-tts
-uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
+OPENAI_API_KEY=你的_api_key
+OPENAI_BASE_URL=你的_base_url
+PTT_STT_URL=你的_stt_服务地址
+PTT_STT_TOKEN=你的_stt_鉴权令牌
 ```
 
-默认会直接调用系统里可用的 `qwen-tts` 命令，并使用 `--play --speaker serena --stream` 播报回复。
-
-默认执行模式就是 `memory-chat`：先按当前问题检索相关记忆，把命中的记忆作为上下文，再直接调用当前配置的 OpenAI-compatible 模型回答，不再经过 `hermes chat`。如果你需要严格只查内部数据库、不允许自动兜底聊天，可以显式传 `--execution-mode database`。`intent` 仍然保留为 `database` 的兼容别名。`hermes` 模式也继续保留，只有显式指定 `--execution-mode hermes` 时才会调用外部 `hermes chat`。
-
-## 记忆功能
-
-`press-to-talk` 里的 `remember` 流程会先把用户原话归纳成一条可长期保存和检索的“记忆句”，再落库。数据库主查询字段不再拆成 `name/content/type`，而是统一围绕 `Memory` 检索。
-
-默认 provider 现在由 [`workflow_config.json`](/Users/weiwang/Projects/voice-assistant/workflow_config.json) 的 `storage.provider` 控制。当前默认配置是 `sqlite_fts5`：写入时同时保存抽取后的 `memory` 和用户原始表达 `original_text`，查询时先走 SQLite FTS5，全量命不中再用 `LIKE` 兜底；如果打开 `groq_query_rewrite.enabled`，会先调用当前 OpenAI-compatible / Groq 模型把原始问句拆成少量关键词再检索。上层 `remember_add` / `remember_find` 接口不变。
-
-如果把 `storage.provider` 切回 `mem0`，项目会固定使用 `user_id=soj`（可通过 `MEM0_USER_ID` 覆盖）和 `app_id=voice-assistant`，保存记忆时写入抽取后的记忆句并附带用户原话，查询时直接用用户原始问句检索，再把 `mem0` 返回里分数大于阈值的结果交给当前模型总结成中文回复。
-
-可调参数：
-
-- `MEM0_USER_ID`：mem0 用户作用域，默认 `soj`
-- `MEM0_APP_ID`：mem0 app 作用域，默认 `voice-assistant`
-- `MEM0_MIN_SCORE`：mem0 结果最低分数阈值，默认 `0.8`
-- `MEM0_MAX_ITEMS`：最终喂给总结模型的最大条数，默认 `3`
-- `storage.provider`：remember provider，可选 `sqlite_fts5` / `mem0`
-- `storage.sqlite_fts5.db_path`：SQLite remember 库路径
-- `storage.sqlite_fts5.max_results`：remember 查询最多返回多少条
-- `storage.sqlite_fts5.groq_query_rewrite.enabled`：是否先用 Groq/OpenAI-compatible 模型拆关键词
-- `storage.sqlite_fts5.groq_query_rewrite.model`：查询改写使用的模型名
-
-`remember` 的脚本源码默认来自外部兄弟仓库 `ursoft-skills`：实际默认路径是 `/Users/weiwang/Projects/ursoft-skills/skills/remember/scripts/manage_items.py`。项目优先读取 `URSOFT_REMEMBER_SCRIPT`，同时兼容旧变量 `OPENCLAW_REMEMBER_SCRIPT`。
-
-示例：
-
+### 2. 初始化数据库与迁移
+首次运行或升级后，请执行迁移脚本以支持多用户隔离和 Peewee ORM：
 ```bash
-uv run press-to-talk --text-input "帮我记住充电宝是黑色的" --no-tts
-uv run press-to-talk --text-input "记一下我妈生日是6月3号" --no-tts
-uv run press-to-talk --text-input "记录一下，我今天安装了显示器的增高板" --no-tts
+uv run python3 scripts/migrate_v2_peewee.py
 ```
 
-## 环境变量
+---
 
-- `OPENAI_API_KEY`：兼容 OpenAI 协议的 API Key
-- `OPENAI_BASE_URL`：兼容 OpenAI 协议的服务地址
-- `BRAVE_API_KEY`：Brave Search API Key
-- `PTT_STT_URL` / `PTT_STT_TOKEN`：STT 服务地址和鉴权
-- `PTT_MODEL`：意图抽取、关键词拆分等非最终总结步骤使用的模型名
-- `PTT_SUMMERIZE_MODEL`：最终总结回复使用的模型名；不设置时回退到 `PTT_MODEL`
-- `PTT_LOG_DIR`：运行日志目录，默认写到项目根目录下的 `logs/`
-- `MEM0_API_KEY`：托管版 mem0 API Key
-- `MEM0_USER_ID`：mem0 用户 ID，默认 `soj`
-- `PTT_HISTORY_DB_PATH`：历史记录 SQLite 路径，默认 `data/voice_assistant_store.sqlite3`
-- `PTT_REMEMBER_BACKEND`：覆盖 remember provider
-- `PTT_REMEMBER_DB_PATH`：覆盖 sqlite remember 库路径
-- `PTT_REMEMBER_MAX_RESULTS`：覆盖 sqlite remember 返回条数
-- `PTT_GROQ_REWRITE_ENABLED`：覆盖查询改写开关
-- `PTT_GROQ_REWRITE_MODEL`：覆盖查询改写模型
-- `URSOFT_REMEMBER_SCRIPT`：覆盖默认 remember 脚本路径
-- `OPENCLAW_REMEMBER_SCRIPT`：旧变量名，仍兼容，但建议迁移到 `URSOFT_REMEMBER_SCRIPT`
-- 其余录音阈值、TTS 参数、输出路径也都支持从 `.env` 覆盖
+## 💻 常用运行命令
 
-## 开发说明
+系统提供了多个 CLI 工具，可以通过 `uv run <command>` 直接调用。
 
-- CLI 入口：`press-to-talk`
-- Python 模块入口：`press_to_talk`
-- 兼容旧脚本：`python ptt_voice.py`
-- TTS 使用：`qwen-tts`
-- 文字测试：`--text-input` 或 `--text-file` 可直接跳过录音和 STT
-- 静默测试：`--no-tts` 可跳过语音播报，只验证意图和工具链路
-- 分类测试：`--execution-mode database --classify-only` 只输出意图标签
-- 回归样本：`--intent-samples-file testdata/intent_samples.jsonl`
-- 记忆语义：`record` 覆盖位置、日期、特征、事件、备注，不再局限于 location
-- 运行日志：每次启动都会自动写一份会话日志到 `logs/`
-- 数据后端：支持 `sqlite_fts5` 和 `mem0`
+### 🎙 语音交互 (Voice CLI)
+核心交互入口，支持实时录音或文本注入。
+- **启动实时录音交互**：`uv run ptt-voice`
+- **纯文本测试（跳过录音）**：`uv run ptt-voice --text-input "查询壮壮的记录" --no-tts`
+- **查看帮助**：`uv run ptt-voice --help`
 
-## Remember Provider
+### 🌐 HTTP API 服务
+提供基于 FastAPI 的 Swagger 接口，支持多用户隔离。
+- **启动 API 服务**：`uv run ptt-api --port 8000`
+- **访问文档**：启动后访问 `http://localhost:8000/docs`
 
-默认 `workflow_config.json` 已切到 `sqlite_fts5`，配置示例：
+### 🔑 令牌管理 (Token Manager)
+管理 API 访问令牌及关联的用户 ID。
+- **列出所有令牌**：`uv run ptt-token list`
+- **创建新用户令牌**：`uv run ptt-token add <user_id> --desc "备注信息"`
+- **删除令牌**：`uv run ptt-token delete <token_string>`
 
-```json
-{
-  "storage": {
-    "provider": "sqlite_fts5",
-    "sqlite_fts5": {
-      "db_path": "data/voice_assistant_store.sqlite3",
-      "max_results": 3,
-      "groq_query_rewrite": {
-        "enabled": true,
-        "model": "qwen/qwen3-32b"
-      }
-    }
-  }
-}
-```
+### 📦 存储管理 (Storage CLI)
+直接操作底层的历史记录和记忆数据。
+- **查看历史列表**：`uv run ptt-storage history list`
+- **搜索记忆**：`uv run ptt-storage memory search "关键词"`
 
-如果要启用查询改写，需要在 `.env` 里准备 Groq 或兼容 OpenAI 协议的鉴权：
+---
 
-```bash
-GROQ_API_KEY=你的_groq_key
-GROQ_BASE_URL=https://api.groq.com/openai/v1
-PTT_GROQ_MODEL=qwen/qwen3-32b
-```
+## 🛠 开发与测试工具
 
-文本链路测试：
+系统内置了 `poethepoet` 任务执行器，简化常用操作：
 
-```bash
-uv run press-to-talk --text-input "帮我记住护照在书房抽屉里" --no-tts
-uv run press-to-talk --text-input "护照在哪" --no-tts
-```
+| 命令 | 对应功能 |
+| :--- | :--- |
+| `uv run poe voice` | 启动标准语音交互 |
+| `uv run poe ptt` | 启动文本注入测试 (默认 "你好") |
+| `uv run poe api` | 启动 HTTP API 服务 |
+| `uv run poe token` | 运行令牌管理器 |
+| `uv run poe storage` | 运行存储管理器 |
+| `uv run poe test` | 运行全量单元测试 (`pytest`) |
+| `uv run poe doctor` | 运行系统诊断，检查音频设备和依赖 |
 
-`remember_find` 拿到的原始响应会保留统一的 JSON 结构，再提取记忆正文、时间、score、metadata 等重点字段，随后交给当前模型整理成适合播报的中文回答。
+---
 
-如果你仍要走 `mem0`，把 `storage.provider` 改成 `mem0`，并在 `.env` 里至少放这些：
+## 🧠 核心架构说明
 
-```bash
-MEM0_API_KEY=你的_mem0_key
-MEM0_USER_ID=soj
-```
+### 1. 执行模式 (`--execution-mode`)
+- **`memory-chat` (默认)**：全能模式。先检索相关记忆，再结合上下文进行对话。
+- **`database`**：纯工具模式。只执行确定的数据库增删改查，不进行发散聊天。
+- **`hermes`**：强制调用外部 Hermes 聊天引擎。
 
-如需把旧的无 `app_id` 记录迁移到 `app_id=voice-assistant`，可先 dry-run 再执行：
+### 2. 多用户隔离
+系统通过 `Authorization: Bearer <token>` 头部识别用户。
+- 每个 `user_id` 拥有独立的 **Session History**（会话历史）和 **Remember Entries**（记忆条目）。
+- 数据库底层通过 Peewee ORM 在所有查询中强制注入 `user_id` 过滤条件，确保公网环境下数据的绝对安全。
 
-```bash
-uv run python scripts/migrate_mem0_app_id.py
-uv run python scripts/migrate_mem0_app_id.py --apply
-```
+### 3. 记忆后端
+默认使用 `sqlite_fts5`，支持全文搜索和向量搜索（需配置 Embedding 服务）。
+- 配置文件：`workflow_config.json`
+- 数据库文件：`data/voice_assistant_store.sqlite3`
 
-## 历史记录
+---
 
-历史记录会写入本地 SQLite，默认路径是 `data/voice_assistant_store.sqlite3`。GUI 的 History 面板和 `ptt-storage history list` 都会读取这份库；如需自定义路径，可设置 `PTT_HISTORY_DB_PATH`。
+## ⚙️ 环境变量参考
+详细变量列表见原 `README.md` 或 `.env.example`。
+- `PTT_MODEL`：主逻辑模型。
+- `PTT_SUMMERIZE_MODEL`：总结回复模型。
+- `PTT_HISTORY_DB_PATH`：数据库路径。
 
-## 回归测试
-
-```bash
-uv run press-to-talk --intent-samples-file testdata/intent_samples.jsonl
-```
-
-这个模式会逐条跑样本，输出每条预测的意图并给出总匹配数。适合在改提示词、改工具参数、改 Skill 文案后做快速回归。
-
-如需手动运行真实 mem0 e2e 测试，可显式打开开关：
-
-```bash
-PTT_RUN_E2E=1 uv run python tests/mem0_e2e.py
-```
-
-这组测试默认不会自动运行，只有你手动带上 `PTT_RUN_E2E=1` 才会访问云端。
-
-## 依赖
-
-- `numpy`
-- `qwen-tts`
-- `sounddevice`
-- 系统命令：`curl`、`openclaw`
+---
+<tts>大王，全新的 README 指南已写好，所有运行命令一目了然！</tts>

@@ -28,6 +28,7 @@ press-to-talk = "press_to_talk.cli:run_as_console_script"
 ptt-voice = "press_to_talk.cli:run_as_console_script"
 ptt-storage = "press_to_talk.storage.cli_app:run_as_console_script"
 ptt-api = "press_to_talk.api.main:run_server"
+ptt-token = "press_to_talk.storage.token_manager:main"
 
 [tool.uv]
 package = true
@@ -47,4 +48,6 @@ ptt = "ptt-voice --text-input"
 voice = "ptt-voice"
 doctor = "ptt-voice doctor"
 storage = "ptt-storage"
+token = "ptt-token"
+api = "ptt-api"
 test = "pytest"
