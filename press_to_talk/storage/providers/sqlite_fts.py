@@ -272,18 +272,18 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             ",\n                tokenize='simple'" if self.use_simple_query else ""
         )
         
-        # Check if user_id column exists in FTS table
+        # Check if user_id column exists in FTS table using Peewee
         try:
-            cursor = conn.execute(f"PRAGMA table_info({self.fts_table_name})")
-            columns = [row["name"] for row in cursor.fetchall()]
+            cursor = db.execute_sql(f"PRAGMA table_info({self.fts_table_name})")
+            columns = [row[1] for row in cursor.fetchall()]
             if columns and "user_id" not in columns:
                 log(f"FTS table {self.fts_table_name} missing user_id column. Dropping and recreating.", level="warning")
-                conn.execute(f"DROP TABLE {self.fts_table_name}")
+                db.execute_sql(f"DROP TABLE {self.fts_table_name}")
         except Exception as e:
             log(f"Failed to check FTS table schema: {e}", level="debug")
 
         # RememberEntry table is already created by StorageService
-        conn.execute(
+        db.execute_sql(
             f"""
             CREATE VIRTUAL TABLE IF NOT EXISTS {self.fts_table_name}
             USING fts5(
@@ -295,7 +295,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             )
             """
         )
-        conn.execute(
+        db.execute_sql(
             f"""
             CREATE TABLE IF NOT EXISTS {self.embedding_table_name} (
                 item_id TEXT PRIMARY KEY,
@@ -307,12 +307,12 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             )
             """
         )
-        # Ensure user_id column exists for backward compatibility if table was created before
-        cursor = conn.execute(f"PRAGMA table_info({self.embedding_table_name})")
-        columns = [row["name"] for row in cursor.fetchall()]
-        if "user_id" not in columns:
-             conn.execute(f"ALTER TABLE {self.embedding_table_name} ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
-             conn.execute(f"UPDATE {self.embedding_table_name} SET user_id = ?", (self.user_id,))
+        # Ensure user_id column exists for backward compatibility using Peewee
+        cursor = db.execute_sql(f"PRAGMA table_info({self.embedding_table_name})")
+        cols = [row[1] for row in cursor.fetchall()]
+        if "user_id" not in cols:
+             db.execute_sql(f"ALTER TABLE {self.embedding_table_name} ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
+             db.execute_sql(f"UPDATE {self.embedding_table_name} SET user_id = ?", (self.user_id,))
 
         self._sync_fts_if_empty(conn)
 
@@ -320,13 +320,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
 
     def _sync_fts_if_empty(self, conn: sqlite3.Connection) -> None:
         """Sync FTS table from main table if it's empty."""
-        cursor = conn.execute(f"SELECT COUNT(*) FROM {self.fts_table_name}")
+        cursor = db.execute_sql(f"SELECT COUNT(*) FROM {self.fts_table_name}")
         if cursor.fetchone()[0] == 0:
             log(f"FTS table {self.fts_table_name} is empty. Syncing from {self.table_name}...", level="info")
             # We don't filter by user_id here because FTS table should eventually contain all users
             # but wait, the store instance is bound to one user_id. 
             # Actually, FTS table is shared. So we should sync all users.
-            conn.execute(
+            db.execute_sql(
                 f"""
                 INSERT INTO {self.fts_table_name} (memory, original_text, user_id, item_id)
                 SELECT memory, original_text, user_id, id FROM {self.table_name}
@@ -351,45 +351,41 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         source_text: str,
         embedding: list[float],
     ) -> None:
-        conn = self._connect()
-        with conn:
-            conn.execute(
-                    f"""
-                    INSERT INTO {self.embedding_table_name} (
-                        item_id,
-                        user_id,
-                        source_text,
-                        embedding_model,
-                        embedding_json,
-                        updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(item_id) DO UPDATE SET
-                        user_id = excluded.user_id,
-                        source_text = excluded.source_text,
-                        embedding_model = excluded.embedding_model,
-                        embedding_json = excluded.embedding_json,
-                        updated_at = excluded.updated_at
-                    """,
-                    (
-                        item_id,
-                        self.user_id,
-                        source_text,
-                        self.embedding_model,
-                        json.dumps(embedding),
-                        _now_iso(),
-                    ),
-                )
+        db.execute_sql(
+                f"""
+                INSERT INTO {self.embedding_table_name} (
+                    item_id,
+                    user_id,
+                    source_text,
+                    embedding_model,
+                    embedding_json,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(item_id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    source_text = excluded.source_text,
+                    embedding_model = excluded.embedding_model,
+                    embedding_json = excluded.embedding_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    item_id,
+                    self.user_id,
+                    source_text,
+                    self.embedding_model,
+                    json.dumps(embedding),
+                    _now_iso(),
+                ),
+            )
 
     def _delete_embedding_rows(self, *, item_ids: list[str]) -> None:
         if not item_ids:
             return
         placeholders = ", ".join("?" for _ in item_ids)
-        conn = self._connect()
-        with conn:
-            conn.execute(
-                    f"DELETE FROM {self.embedding_table_name} WHERE item_id IN ({placeholders}) AND user_id = ?",
-                    (*item_ids, self.user_id),
-                )
+        db.execute_sql(
+                f"DELETE FROM {self.embedding_table_name} WHERE item_id IN ({placeholders}) AND user_id = ?",
+                (*item_ids, self.user_id),
+            )
 
     def _sync_embedding_for_item(
         self,
@@ -415,8 +411,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
     def _sync_missing_embeddings(self) -> None:
         if not self._embedding_enabled():
             return
-        conn = self._connect()
-        rows = conn.execute(
+        cursor = db.execute_sql(
             f"""
             SELECT
                 items.id,
@@ -432,7 +427,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             ORDER BY items.updated_at DESC
             """,
             (self.embedding_model, self.user_id),
-        ).fetchall()
+        )
+        rows = cursor.fetchall()
         if not rows:
             return
         log(
@@ -479,8 +475,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 ensure_ascii=False,
             )
         )
-        conn = self._connect()
-        rows = conn.execute(
+        self._connect() # Ensure extension loaded
+        cursor = db.execute_sql(
             f"""
             SELECT
                 items.id,
@@ -498,7 +494,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             ORDER BY items.updated_at DESC
             """,
             (self.embedding_model, self.user_id),
-        ).fetchall()
+        )
+        rows = cursor.fetchall()
         scored_rows: list[tuple[float, sqlite3.Row]] = []
         all_candidates_log = []
         for row in rows:
@@ -611,13 +608,11 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             deleted_item_ids = [row.id for row in existing]
             if deleted_item_ids:
                 RememberEntry.delete().where(RememberEntry.id.in_(deleted_item_ids)).execute()
-                conn = self._connect()
-                with conn:
-                    placeholders = ", ".join("?" for _ in deleted_item_ids)
-                    conn.execute(
-                        f"DELETE FROM {self.fts_table_name} WHERE item_id IN ({placeholders}) AND user_id = ?",
-                        (*deleted_item_ids, self.user_id),
-                    )
+                placeholders = ", ".join("?" for _ in deleted_item_ids)
+                db.execute_sql(
+                    f"DELETE FROM {self.fts_table_name} WHERE item_id IN ({placeholders}) AND user_id = ?",
+                    (*deleted_item_ids, self.user_id),
+                )
 
         RememberEntry.create(
             id=item_id,
@@ -629,19 +624,17 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             updated_at=timestamp,
         )
 
-        conn = self._connect()
-        with conn:
-            conn.execute(
-                    f"""
-                    INSERT INTO {self.fts_table_name} (
-                        memory,
-                        original_text,
-                        user_id,
-                        item_id
-                    ) VALUES (?, ?, ?, ?)
-                    """,
-                    (stored_memory, stored_original_text, self.user_id, item_id),
-                )
+        db.execute_sql(
+            f"""
+            INSERT INTO {self.fts_table_name} (
+                memory,
+                original_text,
+                user_id,
+                item_id
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (stored_memory, stored_original_text, self.user_id, item_id),
+        )
 
         if deleted_item_ids:
             self._delete_embedding_rows(item_ids=deleted_item_ids)
@@ -727,35 +720,28 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         # 1. 优先处理日期范围查询（大王要求的偷懒模式）
         if start_date or end_date:
             log(f"remember search mode: date range ({start_date} to {end_date})")
-            conn = self._connect()
-            # 构造 SQL，加上安全阀（最多 100 条）
-            sql = f"SELECT id, memory, original_text, created_at, updated_at FROM {self.table_name} WHERE user_id = ?"
-            params: list[Any] = [self.user_id]
+            
+            q = RememberEntry.select().where(RememberEntry.user_id == self.user_id)
             if start_date:
-                # 我们假设日期是 YYYY-MM-DD 格式，直接字符串比较
-                sql += " AND created_at >= ?"
-                params.append(f"{start_date}T00:00:00")
+                q = q.where(RememberEntry.created_at >= f"{start_date}T00:00:00")
             if end_date:
-                sql += " AND created_at <= ?"
-                params.append(f"{end_date}T23:59:59")
+                q = q.where(RememberEntry.created_at <= f"{end_date}T23:59:59")
             
-            sql += " ORDER BY created_at DESC LIMIT 100"
-            
-            rows = conn.execute(sql, params).fetchall()
-            log(f"remember search date range rows: {len(rows)}")
+            q = q.order_by(RememberEntry.created_at.desc()).limit(100)
             
             results = [
                 {
-                    "id": str(row["id"]),
-                    "memory": str(row["memory"]),
-                    "original_text": str(row["original_text"]),
-                    "created_at": format_local_datetime(str(row["created_at"])),
-                    "updated_at": format_local_datetime(str(row["updated_at"])),
+                    "id": str(row.id),
+                    "memory": str(row.memory),
+                    "original_text": str(row.original_text),
+                    "created_at": format_local_datetime(str(row.created_at)),
+                    "updated_at": format_local_datetime(str(row.updated_at)),
                     "score": 1.0, # 时间范围查询默认高置信度，交给 LLM 筛选
-                    "metadata": {"original_text": str(row["original_text"])},
+                    "metadata": {"original_text": str(row.original_text)},
                 }
-                for row in rows
+                for row in q
             ]
+            log(f"remember search date range rows: {len(results)}")
             return json.dumps({"results": results}, ensure_ascii=False)
 
         # 2. 正常的关键词和向量搜索流程
@@ -791,10 +777,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             query,
         ) or _tokenize_for_match(query)
         log(f"remember search keywords: {json.dumps(keywords, ensure_ascii=False)}")
-        conn = self._connect()
-        match_sql = "?"
+        self._connect() # Ensure extension loaded
         log(f"remember search sql: fts5 match={match_query}")
-        rows = conn.execute(
+        
+        cursor = db.execute_sql(
             f"""
             SELECT
                 items.id,
@@ -810,7 +796,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             LIMIT ?
             """,
             (self.user_id, match_query, self.user_id, self.max_results),
-        ).fetchall()
+        )
+        rows = cursor.fetchall()
+        
         log(f"remember search fts5 rows: {len(rows)}")
         if not rows and keywords:
             log(
@@ -835,7 +823,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     )
                 )
             params.append(self.max_results)
-            rows = conn.execute(
+            cursor = db.execute_sql(
                 f"""
                 SELECT
                     id,
@@ -849,7 +837,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 LIMIT ?
                 """,
                 params,
-            ).fetchall()
+            )
+            rows = cursor.fetchall()
         primary_keywords = _reduce_filter_keywords(
             _sanitize_rewritten_keywords(keywords, query)
         )
@@ -942,17 +931,15 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             (RememberEntry.id == memory_id) & (RememberEntry.user_id == self.user_id)
         ).execute()
 
-        # Manual SQL for FTS and Embedding tables
-        conn = self._connect()
-        with conn:
-            conn.execute(
-                f"DELETE FROM {self.embedding_table_name} WHERE item_id = ? AND user_id = ?",
-                (memory_id, self.user_id),
-            )
-            conn.execute(
-                f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
-                (memory_id, self.user_id),
-            )
+        # Use Peewee database instance for FTS and Embedding tables
+        db.execute_sql(
+            f"DELETE FROM {self.embedding_table_name} WHERE item_id = ? AND user_id = ?",
+            (memory_id, self.user_id),
+        )
+        db.execute_sql(
+            f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
+            (memory_id, self.user_id),
+        )
 
     def update(
         self,
@@ -986,24 +973,22 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         entry.updated_at = updated_at
         entry.save()
 
-        # 2. Update FTS table using manual SQL
-        conn = self._connect()
-        with conn:
-            conn.execute(
-                f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
-                (memory_id, self.user_id),
-            )
-            conn.execute(
-                f"""
-                INSERT INTO {self.fts_table_name} (
-                    memory,
-                    original_text,
-                    user_id,
-                    item_id
-                ) VALUES (?, ?, ?, ?)
-                """,
-                (stored_memory, stored_original_text, self.user_id, memory_id),
-            )
+        # 2. Update FTS table using Peewee database instance
+        db.execute_sql(
+            f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
+            (memory_id, self.user_id),
+        )
+        db.execute_sql(
+            f"""
+            INSERT INTO {self.fts_table_name} (
+                memory,
+                original_text,
+                user_id,
+                item_id
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (stored_memory, stored_original_text, self.user_id, memory_id),
+        )
 
         if self._embedding_enabled():
             try:
@@ -1025,31 +1010,21 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         )
 
     def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
-        conn = self._connect()
-        rows = conn.execute(
-            f"""
-            SELECT
-                id,
-                source_memory_id,
-                memory,
-                original_text,
-                created_at,
-                updated_at
-            FROM {self.table_name}
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-            """,
-            (self.user_id, max(1, limit), max(0, offset)),
-        ).fetchall()
+        q = (
+            RememberEntry.select()
+            .where(RememberEntry.user_id == self.user_id)
+            .order_by(RememberEntry.created_at.desc())
+            .limit(max(1, limit))
+            .offset(max(0, offset))
+        )
         return [
             RememberItemRecord(
-                id=str(row["id"]),
-                source_memory_id=str(row["source_memory_id"]),
-                memory=str(row["memory"]),
-                original_text=str(row["original_text"]),
-                created_at=str(row["created_at"]),
-                updated_at=str(row["updated_at"]),
+                id=str(row.id),
+                source_memory_id=str(row.source_memory_id or ""),
+                memory=str(row.memory),
+                original_text=str(row.original_text),
+                created_at=str(row.created_at),
+                updated_at=str(row.updated_at),
             )
-            for row in rows
+            for row in q
         ]
