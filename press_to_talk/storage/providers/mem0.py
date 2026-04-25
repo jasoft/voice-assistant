@@ -239,11 +239,12 @@ class Mem0RememberStore(BaseRememberStore):
         updated_at = str(item.get("updated_at") or item.get("updatedAt") or created_at)
         return RememberItemRecord(
             id=str(item.get("id", "")),
-            source_memory_id=str(item.get("id", "")),
+            user_id=str(item.get("user_id") or self.user_id),
             memory=str(item.get("memory") or item.get("text") or ""),
             original_text=str(metadata.get("original_text") or ""),
             created_at=format_local_datetime(created_at) if created_at else "",
             updated_at=format_local_datetime(updated_at) if updated_at else "",
+            source_memory_id=str(item.get("id", "")),
         )
 
     def update(

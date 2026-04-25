@@ -1009,11 +1009,12 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         return [
             RememberItemRecord(
                 id=str(row.id),
-                source_memory_id=str(row.source_memory_id or ""),
+                user_id=str(row.user_id),
                 memory=str(row.memory),
                 original_text=str(row.original_text),
                 created_at=str(row.created_at),
                 updated_at=str(row.updated_at),
+                source_memory_id=str(row.source_memory_id or ""),
             )
             for row in q
         ]

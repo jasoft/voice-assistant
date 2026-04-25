@@ -291,9 +291,9 @@
             },
             "embedding_search": {
                 "enabled": true,
-                "base_url": "http://127.0.0.1:1234/v1",
-                "api_key": "lm-studio",
-                "model": "text-embedding-bge-m3",
+                "base_url": "http://docker.home:11434/v1",
+                "api_key": "ollama",
+                "model": "bge-m3",
                 "max_results": 5,
                 "min_score": 0.45,
                 "context_min_score": 0.55

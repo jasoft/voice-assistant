@@ -421,10 +421,18 @@ def main(argv: list[str] | None = None) -> int:
                         memory=args.memory,
                         original_text=args.original_text,
                     )
-                    print(json.dumps({"updated": asdict(record)}, ensure_ascii=False))
+                    d = asdict(record)
+                    d.pop("source_memory_id", None)
+                    print(json.dumps({"updated": d}, ensure_ascii=False))
                 elif args.command == "list":
                     records = store.list_all(limit=args.limit, offset=args.offset)
-                    print(json.dumps([asdict(record) for record in records], ensure_ascii=False))
+                    # Convert to dict and remove unwanted fields for display
+                    output_list = []
+                    for r in records:
+                        d = asdict(r)
+                        d.pop("source_memory_id", None)
+                        output_list.append(d)
+                    print(json.dumps(output_list, ensure_ascii=False))
 
         buffered = stderr_buffer.getvalue()
         if buffered:
