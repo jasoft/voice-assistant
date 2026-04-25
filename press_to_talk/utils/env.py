@@ -143,7 +143,14 @@ def expand_env_placeholders(value: Any) -> Any:
             if name in os.environ:
                 return os.environ[name]
             # Keep runtime tokens for later replacement
-            if name in ("PTT_CURRENT_TIME", "PTT_LOCATION", "PTT_DATE"):
+            if name in (
+                "PTT_CURRENT_TIME",
+                "PTT_LOCATION",
+                "PTT_DATE",
+                "INTENT_DESCRIPTIONS",
+                "INTENT_EXTRACTION_RULES",
+                "INTENT_JSON_SCHEMA",
+            ):
                 return match.group(0)
             return ""
 

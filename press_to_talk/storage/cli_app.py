@@ -319,6 +319,9 @@ def run_as_console_script() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from ..utils.env import load_env_files
+    load_env_files()
+
     parsed_argv = list(sys.argv[1:] if argv is None else argv)
     
     # Intercept 'doctor' for ptt-storage

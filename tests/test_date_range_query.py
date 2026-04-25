@@ -85,3 +85,27 @@ async def test_agent_date_extraction():
         payload = await agent._extract_intent_payload("我今天记了什么？")
         assert payload["args"]["start_date"] == "2026-04-20"
         assert payload["args"]["end_date"] == "2026-04-20"
+
+@pytest.mark.anyio
+async def test_agent_system_prompt_integrity():
+    from press_to_talk.models.config import parse_args
+    cfg = parse_args(["--api-key", "fake", "--base-url", "http://localhost:8000/v1", "--model", "fast"])
+    agent = OpenAICompatibleAgent(cfg)
+    
+    messages = agent._build_intent_extractor_messages("test")
+    system_msg = next(m for m in messages if m["role"] == "system")
+    content = system_msg["content"]
+    
+    # 验证关键部分不是空的
+    assert "意图列表：" in content
+    assert "- record:" in content
+    assert "- find:" in content
+    assert "规则：" in content
+    assert "1. record表示要记录或更新信息" in content
+    assert "JSON schema:" in content
+    assert '"intent":"record|find"' in content
+    
+    # 验证占位符已被替换（或者至少不在结果中以 ${} 形式存在，除非是故意的）
+    assert "${INTENT_DESCRIPTIONS}" not in content
+    assert "${INTENT_EXTRACTION_RULES}" not in content
+    assert "${INTENT_JSON_SCHEMA}" not in content
