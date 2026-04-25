@@ -34,6 +34,7 @@ class SQLiteHistoryStore(BaseHistoryStore):
             CREATE TABLE IF NOT EXISTS session_histories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL UNIQUE,
+                user_id TEXT NOT NULL DEFAULT 'soj',
                 started_at TEXT NOT NULL,
                 ended_at TEXT NOT NULL,
                 transcript TEXT NOT NULL,
@@ -51,6 +52,12 @@ class SQLiteHistoryStore(BaseHistoryStore):
             """
             CREATE INDEX IF NOT EXISTS idx_session_histories_started_at
             ON session_histories(started_at DESC)
+        """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_session_histories_user_id
+            ON session_histories(user_id)
             """
         )
         return conn
@@ -62,6 +69,7 @@ class SQLiteHistoryStore(BaseHistoryStore):
                     """
                     INSERT INTO session_histories (
                         session_id,
+                        user_id,
                         started_at,
                         ended_at,
                         transcript,
@@ -72,8 +80,9 @@ class SQLiteHistoryStore(BaseHistoryStore):
                         reopened_by_click,
                         mode,
                         created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id) DO UPDATE SET
+                        user_id = excluded.user_id,
                         started_at = excluded.started_at,
                         ended_at = excluded.ended_at,
                         transcript = excluded.transcript,
@@ -86,6 +95,7 @@ class SQLiteHistoryStore(BaseHistoryStore):
                     """,
                     (
                         entry.session_id,
+                        "soj", # Default user_id for SQLiteHistoryStore
                         entry.started_at,
                         entry.ended_at,
                         entry.transcript,
@@ -218,8 +228,12 @@ def migrate_history_table(
     source_conn = sqlite3.connect(source)
     source_conn.row_factory = sqlite3.Row
     try:
-        rows = source_conn.execute(
-            """
+        # Check if user_id exists in source
+        source_cursor = source_conn.execute("PRAGMA table_info(session_histories)")
+        columns = [row[1] for row in source_cursor.fetchall()]
+        has_user_id = "user_id" in columns
+
+        select_sql = """
             SELECT
                 session_id,
                 started_at,
@@ -232,10 +246,12 @@ def migrate_history_table(
                 reopened_by_click,
                 mode,
                 created_at
-            FROM session_histories
-            ORDER BY id ASC
-            """
-        ).fetchall()
+        """
+        if has_user_id:
+            select_sql = select_sql.replace("session_id,", "session_id, user_id,")
+
+        select_sql += " FROM session_histories ORDER BY id ASC"
+        rows = source_conn.execute(select_sql).fetchall()
     except sqlite3.OperationalError:
         source_conn.close()
         return 0
@@ -249,6 +265,7 @@ def migrate_history_table(
             CREATE TABLE IF NOT EXISTS session_histories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL UNIQUE,
+                user_id TEXT NOT NULL DEFAULT 'soj',
                 started_at TEXT NOT NULL,
                 ended_at TEXT NOT NULL,
                 transcript TEXT NOT NULL,
@@ -268,12 +285,20 @@ def migrate_history_table(
             ON session_histories(started_at DESC)
             """
         )
+        target_conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_session_histories_user_id
+            ON session_histories(user_id)
+            """
+        )
         with target_conn:
             for row in rows:
+                user_id = str(row["user_id"]) if has_user_id else "soj"
                 target_conn.execute(
                     """
                     INSERT INTO session_histories (
                         session_id,
+                        user_id,
                         started_at,
                         ended_at,
                         transcript,
@@ -284,8 +309,9 @@ def migrate_history_table(
                         reopened_by_click,
                         mode,
                         created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id) DO UPDATE SET
+                        user_id = excluded.user_id,
                         started_at = excluded.started_at,
                         ended_at = excluded.ended_at,
                         transcript = excluded.transcript,
@@ -299,6 +325,7 @@ def migrate_history_table(
                     """,
                     (
                         str(row["session_id"]),
+                        user_id,
                         str(row["started_at"]),
                         str(row["ended_at"]),
                         str(row["transcript"]),

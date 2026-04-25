@@ -368,23 +368,23 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
     def _sync_missing_embeddings(self) -> None:
         if not self._embedding_enabled():
             return
-        with contextlib.closing(self._connect()) as conn:
-            rows = conn.execute(
-                f"""
-                SELECT
-                    items.id,
-                    items.memory,
-                    items.original_text
-                FROM {self.table_name} items
-                LEFT JOIN {self.embedding_table_name} embeds
-                    ON embeds.item_id = items.id
-                    AND embeds.embedding_model = ?
-                WHERE embeds.item_id IS NULL
-                  AND items.user_id = ?
-                ORDER BY items.updated_at DESC
-                """,
-                (self.embedding_model, self.user_id),
-            ).fetchall()
+        conn = self._connect()
+        rows = conn.execute(
+            f"""
+            SELECT
+                items.id,
+                items.memory,
+                items.original_text
+            FROM {self.table_name} items
+            LEFT JOIN {self.embedding_table_name} embeds
+                ON embeds.item_id = items.id
+                AND embeds.embedding_model = ?
+            WHERE embeds.item_id IS NULL
+              AND items.user_id = ?
+            ORDER BY items.updated_at DESC
+            """,
+            (self.embedding_model, self.user_id),
+        ).fetchall()
         if not rows:
             return
         log(
@@ -431,24 +431,24 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 ensure_ascii=False,
             )
         )
-        with contextlib.closing(self._connect()) as conn:
-            rows = conn.execute(
-                f"""
-                SELECT
-                    items.id,
-                    items.memory,
-                    items.original_text,
-                    items.created_at,
-                    items.updated_at,
-                    embeds.embedding_json
-                FROM {self.embedding_table_name} embeds
-                JOIN {self.table_name} items ON items.id = embeds.item_id
-                WHERE embeds.embedding_model = ?
-                  AND items.user_id = ?
-                ORDER BY items.updated_at DESC
-                """,
-                (self.embedding_model, self.user_id),
-            ).fetchall()
+        conn = self._connect()
+        rows = conn.execute(
+            f"""
+            SELECT
+                items.id,
+                items.memory,
+                items.original_text,
+                items.created_at,
+                items.updated_at,
+                embeds.embedding_json
+            FROM {self.embedding_table_name} embeds
+            JOIN {self.table_name} items ON items.id = embeds.item_id
+            WHERE embeds.embedding_model = ?
+              AND items.user_id = ?
+            ORDER BY items.updated_at DESC
+            """,
+            (self.embedding_model, self.user_id),
+        ).fetchall()
         scored_rows: list[tuple[float, sqlite3.Row]] = []
         all_candidates_log = []
         for row in rows:
@@ -561,13 +561,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             deleted_item_ids = [row.id for row in existing]
             if deleted_item_ids:
                 RememberEntry.delete().where(RememberEntry.id.in_(deleted_item_ids)).execute()
-                with contextlib.closing(self._connect()) as conn:
-                    with conn:
-                        placeholders = ", ".join("?" for _ in deleted_item_ids)
-                        conn.execute(
-                            f"DELETE FROM {self.fts_table_name} WHERE item_id IN ({placeholders}) AND user_id = ?",
-                            (*deleted_item_ids, self.user_id),
-                        )
+                conn = self._connect()
+                with conn:
+                    placeholders = ", ".join("?" for _ in deleted_item_ids)
+                    conn.execute(
+                        f"DELETE FROM {self.fts_table_name} WHERE item_id IN ({placeholders}) AND user_id = ?",
+                        (*deleted_item_ids, self.user_id),
+                    )
 
         RememberEntry.create(
             id=item_id,
@@ -677,36 +677,36 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         # 1. 优先处理日期范围查询（大王要求的偷懒模式）
         if start_date or end_date:
             log(f"remember search mode: date range ({start_date} to {end_date})")
-            with contextlib.closing(self._connect()) as conn:
-                # 构造 SQL，加上安全阀（最多 100 条）
-                sql = f"SELECT id, memory, original_text, created_at, updated_at FROM {self.table_name} WHERE user_id = ?"
-                params: list[Any] = [self.user_id]
-                if start_date:
-                    # 我们假设日期是 YYYY-MM-DD 格式，直接字符串比较
-                    sql += " AND created_at >= ?"
-                    params.append(f"{start_date}T00:00:00")
-                if end_date:
-                    sql += " AND created_at <= ?"
-                    params.append(f"{end_date}T23:59:59")
-                
-                sql += " ORDER BY created_at DESC LIMIT 100"
-                
-                rows = conn.execute(sql, params).fetchall()
-                log(f"remember search date range rows: {len(rows)}")
-                
-                results = [
-                    {
-                        "id": str(row["id"]),
-                        "memory": str(row["memory"]),
-                        "original_text": str(row["original_text"]),
-                        "created_at": format_local_datetime(str(row["created_at"])),
-                        "updated_at": format_local_datetime(str(row["updated_at"])),
-                        "score": 1.0, # 时间范围查询默认高置信度，交给 LLM 筛选
-                        "metadata": {"original_text": str(row["original_text"])},
-                    }
-                    for row in rows
-                ]
-                return json.dumps({"results": results}, ensure_ascii=False)
+            conn = self._connect()
+            # 构造 SQL，加上安全阀（最多 100 条）
+            sql = f"SELECT id, memory, original_text, created_at, updated_at FROM {self.table_name} WHERE user_id = ?"
+            params: list[Any] = [self.user_id]
+            if start_date:
+                # 我们假设日期是 YYYY-MM-DD 格式，直接字符串比较
+                sql += " AND created_at >= ?"
+                params.append(f"{start_date}T00:00:00")
+            if end_date:
+                sql += " AND created_at <= ?"
+                params.append(f"{end_date}T23:59:59")
+            
+            sql += " ORDER BY created_at DESC LIMIT 100"
+            
+            rows = conn.execute(sql, params).fetchall()
+            log(f"remember search date range rows: {len(rows)}")
+            
+            results = [
+                {
+                    "id": str(row["id"]),
+                    "memory": str(row["memory"]),
+                    "original_text": str(row["original_text"]),
+                    "created_at": format_local_datetime(str(row["created_at"])),
+                    "updated_at": format_local_datetime(str(row["updated_at"])),
+                    "score": 1.0, # 时间范围查询默认高置信度，交给 LLM 筛选
+                    "metadata": {"original_text": str(row["original_text"])},
+                }
+                for row in rows
+            ]
+            return json.dumps({"results": results}, ensure_ascii=False)
 
         # 2. 正常的关键词和向量搜索流程
         match_query = self._match_query(query)
@@ -741,65 +741,65 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             query,
         ) or _tokenize_for_match(query)
         log(f"remember search keywords: {json.dumps(keywords, ensure_ascii=False)}")
-        with contextlib.closing(self._connect()) as conn:
-            match_sql = "?"
-            log(f"remember search sql: fts5 match={match_query}")
-            rows = conn.execute(
-                f"""
-                SELECT
-                    items.id,
-                    items.memory,
-                    items.original_text,
-                    items.created_at,
-                    items.updated_at
-                FROM {self.fts_table_name} fts
-                JOIN {self.table_name} items ON items.id = fts.item_id
-                WHERE fts.user_id = ? AND {self.fts_table_name} MATCH ?
-                  AND items.user_id = ?
-                ORDER BY bm25({self.fts_table_name}), items.updated_at DESC
-                LIMIT ?
-                """,
-                (self.user_id, match_query, self.user_id, self.max_results),
-            ).fetchall()
-            log(f"remember search fts5 rows: {len(rows)}")
-            if not rows and keywords:
+        conn = self._connect()
+        match_sql = "?"
+        log(f"remember search sql: fts5 match={match_query}")
+        rows = conn.execute(
+            f"""
+            SELECT
+                items.id,
+                items.memory,
+                items.original_text,
+                items.created_at,
+                items.updated_at
+            FROM {self.fts_table_name} fts
+            JOIN {self.table_name} items ON items.id = fts.item_id
+            WHERE fts.user_id = ? AND {self.fts_table_name} MATCH ?
+              AND items.user_id = ?
+            ORDER BY bm25({self.fts_table_name}), items.updated_at DESC
+            LIMIT ?
+            """,
+            (self.user_id, match_query, self.user_id, self.max_results),
+        ).fetchall()
+        log(f"remember search fts5 rows: {len(rows)}")
+        if not rows and keywords:
+            log(
+                "remember search fallback: "
+                + json.dumps(
+                    {"strategy": "like", "keywords": keywords},
+                    ensure_ascii=False,
+                )
+            )
+            like_clauses = " OR ".join(
+                "(memory LIKE ? OR original_text LIKE ?)" for _ in keywords
+            )
+            params: list[Any] = [self.user_id]
+            for keyword in keywords:
+                pattern = f"%{keyword}%"
+                params.extend([pattern, pattern])
                 log(
-                    "remember search fallback: "
+                    "remember search like keyword: "
                     + json.dumps(
-                        {"strategy": "like", "keywords": keywords},
+                        {"keyword": keyword, "pattern": pattern},
                         ensure_ascii=False,
                     )
                 )
-                like_clauses = " OR ".join(
-                    "(memory LIKE ? OR original_text LIKE ?)" for _ in keywords
-                )
-                params: list[Any] = [self.user_id]
-                for keyword in keywords:
-                    pattern = f"%{keyword}%"
-                    params.extend([pattern, pattern])
-                    log(
-                        "remember search like keyword: "
-                        + json.dumps(
-                            {"keyword": keyword, "pattern": pattern},
-                            ensure_ascii=False,
-                        )
-                    )
-                params.append(self.max_results)
-                rows = conn.execute(
-                    f"""
-                    SELECT
-                        id,
-                        memory,
-                        original_text,
-                        created_at,
-                        updated_at
-                    FROM {self.table_name}
-                    WHERE (user_id = ?) AND ({like_clauses})
-                    ORDER BY updated_at DESC
-                    LIMIT ?
-                    """,
-                    params,
-                ).fetchall()
+            params.append(self.max_results)
+            rows = conn.execute(
+                f"""
+                SELECT
+                    id,
+                    memory,
+                    original_text,
+                    created_at,
+                    updated_at
+                FROM {self.table_name}
+                WHERE (user_id = ?) AND ({like_clauses})
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
         primary_keywords = _reduce_filter_keywords(
             _sanitize_rewritten_keywords(keywords, query)
         )
@@ -887,20 +887,22 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         return extract_sqlite_summary_payload(raw_payload)
 
     def delete(self, *, memory_id: str) -> None:
+        # Use Peewee for main table
+        RememberEntry.delete().where(
+            (RememberEntry.id == memory_id) & (RememberEntry.user_id == self.user_id)
+        ).execute()
+
+        # Manual SQL for FTS and Embedding tables
         conn = self._connect()
         with conn:
             conn.execute(
-                    f"DELETE FROM {self.embedding_table_name} WHERE item_id = ?",
-                    (memory_id,),
-                )
-                conn.execute(
-                    f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
-                    (memory_id, self.user_id),
-                )
-                conn.execute(
-                    f"DELETE FROM {self.table_name} WHERE id = ? AND user_id = ?",
-                    (memory_id, self.user_id),
-                )
+                f"DELETE FROM {self.embedding_table_name} WHERE item_id = ?",
+                (memory_id,),
+            )
+            conn.execute(
+                f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
+                (memory_id, self.user_id),
+            )
 
     def update(
         self,
@@ -912,47 +914,47 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         stored_memory = str(memory or "").strip()
         stored_original_text = str(original_text or "").strip()
         updated_at = _now_iso()
+
+        # 1. Update main table using Peewee
+        entry = RememberEntry.get_or_none(
+            (RememberEntry.id == memory_id) & (RememberEntry.user_id == self.user_id)
+        )
+        if entry is None:
+            raise RuntimeError(f"memory not found: {memory_id}")
+
+        old_record = RememberItemRecord(
+            id=entry.id,
+            source_memory_id=entry.source_memory_id or "",
+            memory=entry.memory,
+            original_text=entry.original_text,
+            created_at=entry.created_at,
+            updated_at=entry.updated_at,
+        )
+
+        entry.memory = stored_memory
+        entry.original_text = stored_original_text
+        entry.updated_at = updated_at
+        entry.save()
+
+        # 2. Update FTS table using manual SQL
         conn = self._connect()
         with conn:
-                existing = conn.execute(
-                    f"""
-                    SELECT
-                        id,
-                        source_memory_id,
-                        memory,
-                        original_text,
-                        created_at,
-                        updated_at
-                    FROM {self.table_name}
-                    WHERE id = ? AND user_id = ?
-                    """,
-                    (memory_id, self.user_id),
-                ).fetchone()
-                if existing is None:
-                    raise RuntimeError(f"memory not found: {memory_id}")
-                conn.execute(
-                    f"""
-                    UPDATE {self.table_name}
-                    SET memory = ?, original_text = ?, updated_at = ?
-                    WHERE id = ? AND user_id = ?
-                    """,
-                    (stored_memory, stored_original_text, updated_at, memory_id, self.user_id),
-                )
-                conn.execute(
-                    f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
-                    (memory_id, self.user_id),
-                )
-                conn.execute(
-                    f"""
-                    INSERT INTO {self.fts_table_name} (
-                        memory,
-                        original_text,
-                        user_id,
-                        item_id
-                    ) VALUES (?, ?, ?, ?)
-                    """,
-                    (stored_memory, stored_original_text, self.user_id, memory_id),
-                )
+            conn.execute(
+                f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
+                (memory_id, self.user_id),
+            )
+            conn.execute(
+                f"""
+                INSERT INTO {self.fts_table_name} (
+                    memory,
+                    original_text,
+                    user_id,
+                    item_id
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (stored_memory, stored_original_text, self.user_id, memory_id),
+            )
+
         if self._embedding_enabled():
             try:
                 self._sync_embedding_for_item(
@@ -962,33 +964,34 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 )
             except Exception as exc:
                 log(f"remember embedding sync failed: {exc}")
+
         return RememberItemRecord(
-            id=str(existing["id"]),
-            source_memory_id=str(existing["source_memory_id"]),
+            id=old_record.id,
+            source_memory_id=old_record.source_memory_id,
             memory=stored_memory,
             original_text=stored_original_text,
-            created_at=str(existing["created_at"]),
+            created_at=old_record.created_at,
             updated_at=updated_at,
         )
 
     def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
-        with contextlib.closing(self._connect()) as conn:
-            rows = conn.execute(
-                f"""
-                SELECT
-                    id,
-                    source_memory_id,
-                    memory,
-                    original_text,
-                    created_at,
-                    updated_at
-                FROM {self.table_name}
-                WHERE user_id = ?
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (self.user_id, max(1, limit), max(0, offset)),
-            ).fetchall()
+        conn = self._connect()
+        rows = conn.execute(
+            f"""
+            SELECT
+                id,
+                source_memory_id,
+                memory,
+                original_text,
+                created_at,
+                updated_at
+            FROM {self.table_name}
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (self.user_id, max(1, limit), max(0, offset)),
+        ).fetchall()
         return [
             RememberItemRecord(
                 id=str(row["id"]),
