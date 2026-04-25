@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 import os
 import dataclasses
@@ -43,9 +43,34 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Press-to-Talk API", lifespan=lifespan)
 
+from enum import Enum
+
+class ExecutionMode(str, Enum):
+    MEMORY_CHAT = "memory-chat"
+    DATABASE = "database"
+    HERMES = "hermes"
+    INTENT = "intent"
+
 class QueryRequest(BaseModel):
-    query: str
-    mode: Optional[str] = None
+    query: str = Field(..., description="用户输入的自然语言查询语句。例如：'最近三天的记录'、'护照在哪？'。")
+    mode: Optional[ExecutionMode] = Field(
+        default=ExecutionMode.MEMORY_CHAT, 
+        description=(
+            "执行模式。决定了系统如何处理该查询：\n"
+            "- `memory-chat` (默认): 全能模式。先检索相关记忆，再结合上下文进行对话。\n"
+            "- `database`: 纯工具模式。只执行确定的数据库增删改查（如记录或精确搜索），不进行发散聊天。\n"
+            "- `hermes`: 强制调用外部 Hermes 聊天引擎。\n"
+            "- `intent`: `database` 模式的别名。"
+        )
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query": "最近三天的记录",
+                "mode": "memory-chat"
+            }
+        }
 
 class QueryResponse(BaseModel):
     reply: str
@@ -61,7 +86,7 @@ class MemoryItem(BaseModel):
     memory: str
     created_at: str
 
-@app.post("/v1/query", response_model=QueryResponse)
+@app.post("/v1/query", response_model=QueryResponse, summary="执行自然语言查询", description="接收用户的自然语言输入，并根据选定的模式进行意图识别、数据库操作或对话生成。")
 async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
     if base_config is None:
         raise HTTPException(status_code=500, detail="Server configuration error")
@@ -75,14 +100,14 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
         cfg.use_cli = False  # Ensure direct database access
         
         if req.mode:
-            cfg.execution_mode = req.mode
+            cfg.execution_mode = req.mode.value if hasattr(req.mode, "value") else req.mode
             
         reply = await execute_transcript_async(cfg, req.query)
         return QueryResponse(reply=reply)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/v1/history", response_model=List[HistoryItem])
+@app.post("/v1/history", response_model=List[HistoryItem], summary="获取会话历史记录", description="按时间倒序返回当前用户的最近 20 条会话历史记录（包含请求文本和助手回复）。")
 async def get_history(user_id: str = Depends(get_user_id)):
     try:
         histories = (SessionHistory
@@ -102,7 +127,7 @@ async def get_history(user_id: str = Depends(get_user_id)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/v1/memories", response_model=List[MemoryItem])
+@app.post("/v1/memories", response_model=List[MemoryItem], summary="获取长期记忆条目", description="按时间倒序返回当前用户的最近 50 条长期记忆记录。")
 async def get_memories(user_id: str = Depends(get_user_id)):
     try:
         memories = (RememberEntry
