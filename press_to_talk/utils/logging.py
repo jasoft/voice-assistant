@@ -43,7 +43,7 @@ def _normalize_level(level: str) -> str:
         normalized = "INFO"
     return normalized
 
-def log(msg: str, *, level: str = "info") -> None:
+def log(msg: str, *, level: str = "info", stack_depth: int = 1) -> None:
     normalized_level = _normalize_level(level)
     
     # Level numerical value check
@@ -58,7 +58,11 @@ def log(msg: str, *, level: str = "info") -> None:
         return
 
     # Get caller info
-    caller_frame = inspect.stack()[1]
+    frames = inspect.stack()
+    if stack_depth < len(frames):
+        caller_frame = frames[stack_depth]
+    else:
+        caller_frame = frames[-1]
     caller_file = Path(caller_frame.filename).name
     caller_line = caller_frame.lineno
     location = f"{caller_file}:{caller_line}"
@@ -108,10 +112,10 @@ def log(msg: str, *, level: str = "info") -> None:
 def log_multiline(title: str, content: str, *, level: str = "debug") -> None:
     normalized = content if content else "<empty>"
     # Log the title line
-    log(f"{title}:", level=level)
+    log(f"{title}:", level=level, stack_depth=2)
     # Log each content line with proper indentation to keep it clean
     for line in normalized.splitlines():
-        log(f"  {line}", level=level)
+        log(f"  {line}", level=level, stack_depth=2)
 
 def init_session_log(log_dir: Path, session_id: str | None = None) -> Path:
     global _SESSION_LOG_FILE, _SESSION_LOG_PATH

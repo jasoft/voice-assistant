@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from press_to_talk.utils.logging import log
+from press_to_talk.utils.logging import log, log_multiline
 from press_to_talk.utils.text import format_local_datetime
 
 from ..models import (
@@ -463,18 +463,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if not query_embeddings:
             return []
         query_vector = query_embeddings[0]
-        log(
-            "remember embedding input: "
-            + json.dumps(
-                {
-                    "query": query,
-                    "model": self.embedding_model,
-                    "max_results": self.embedding_max_results,
-                    "min_score": self.embedding_min_score,
-                },
-                ensure_ascii=False,
-            )
-        )
+        log(f"remember embedding search: query='{query}' model={self.embedding_model}")
+
         self._connect() # Ensure extension loaded
         cursor = db.execute_sql(
             f"""
@@ -510,33 +500,30 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             if score >= self.embedding_min_score:
                 scored_rows.append((score, row))
 
-        log(
-            "remember embedding candidates (all): "
-            + json.dumps(
-                sorted(all_candidates_log, key=lambda x: x["score"], reverse=True)[:10],
-                ensure_ascii=False,
-            ),
-            level="debug",
-        )
+        # Log Top 5 candidates if in debug mode
+        sorted_candidates = sorted(all_candidates_log, key=lambda x: x["score"], reverse=True)
+        if sorted_candidates:
+            candidates_text = "\n".join(
+                [f"  - [{c['score']:.4f}] {c['memory'][:80]}..." for c in sorted_candidates[:5]]
+            )
+            log_multiline("remember embedding candidates (top 5)", candidates_text, level="debug")
 
         scored_rows.sort(
             key=lambda item: (item[0], str(item[1]["updated_at"])), reverse=True
         )
         limited_rows = scored_rows[: self.embedding_max_results]
-        log(
-            "remember embedding results: "
-            + json.dumps(
+        
+        if limited_rows:
+            results_text = "\n".join(
                 [
-                    {
-                        "id": str(row["id"]),
-                        "memory": str(row["memory"]),
-                        "score": round(score, 4),
-                    }
+                    f"  - [{score:.4f}] id={row['id']} mem={str(row['memory']).replace('\\n', ' ')[:80]}..."
                     for score, row in limited_rows
-                ],
-                ensure_ascii=False,
+                ]
             )
-        )
+            log_multiline("Semantic Search Results", results_text, level="info")
+        else:
+            log("Semantic Search Results: <none>", level="info")
+
         return [
             {
                 "id": str(row["id"]),
@@ -572,16 +559,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             if float(row["embedding_score"]) < self.embedding_context_min_score
         ]
         if filtered_out:
-            log(
-                "remember embedding filtered: "
-                + json.dumps(
-                    {
-                        "query": query,
-                        "context_min_score": self.embedding_context_min_score,
-                        "filtered": filtered_out,
-                    },
-                    ensure_ascii=False,
-                )
+            filtered_text = "\n".join(
+                [f"  - [{r['embedding_score']:.4f}] {r['memory'][:80]}..." for r in filtered_out]
+            )
+            log_multiline(
+                f"remember embedding filtered (score < {self.embedding_context_min_score})",
+                filtered_text,
+                level="debug"
             )
         return accepted
 
@@ -777,9 +761,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             _keywords_from_match_query(match_query, query),
             query,
         ) or _tokenize_for_match(query)
-        log(f"remember search keywords: {json.dumps(keywords, ensure_ascii=False)}")
+        log(f"remember search keywords: {keywords}", level="debug")
         self._connect() # Ensure extension loaded
-        log(f"remember search sql: fts5 match={match_query}")
+        log(f"remember search sql: fts5 match={match_query}", level="debug")
         
         cursor = db.execute_sql(
             f"""
@@ -800,14 +784,11 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         )
         rows = cursor.fetchall()
         
-        log(f"remember search fts5 rows: {len(rows)}")
+        log(f"remember search fts5 rows: {len(rows)}", level="debug")
         if not rows and keywords:
             log(
-                "remember search fallback: "
-                + json.dumps(
-                    {"strategy": "like", "keywords": keywords},
-                    ensure_ascii=False,
-                )
+                f"remember search fallback: strategy=like keywords={keywords}",
+                level="debug"
             )
             like_clauses = " OR ".join(
                 "(memory LIKE ? OR original_text LIKE ?)" for _ in keywords
@@ -816,13 +797,6 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             for keyword in keywords:
                 pattern = f"%{keyword}%"
                 params.extend([pattern, pattern])
-                log(
-                    "remember search like keyword: "
-                    + json.dumps(
-                        {"keyword": keyword, "pattern": pattern},
-                        ensure_ascii=False,
-                    )
-                )
             params.append(self.max_results)
             cursor = db.execute_sql(
                 f"""
@@ -840,6 +814,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 params,
             )
             rows = cursor.fetchall()
+
         primary_keywords = _reduce_filter_keywords(
             _sanitize_rewritten_keywords(keywords, query)
         )
@@ -857,13 +832,17 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     for keyword in primary_keywords
                 )
             ]
-        log(f"remember search final rows: {len(filtered_rows)}")
-        for idx, row in enumerate(filtered_rows):
-            memory_preview = str(row["memory"]).replace("\n", " ")[:60]
-            original_preview = str(row["original_text"] or "").replace("\n", " ")[:60]
-            log(
-                f"  [{idx}] id={row['id']} mem={memory_preview}... | orig={original_preview}..."
+
+        if filtered_rows:
+            results_text = "\n".join(
+                [
+                    f"  - [{idx}] id={row['id']} mem={str(row['memory']).replace('\\n', ' ')[:80]}..."
+                    for idx, row in enumerate(filtered_rows)
+                ]
             )
+            log_multiline("Keyword Search Results", results_text, level="info")
+        else:
+            log("Keyword Search Results: <none>", level="info")
 
         results = [
             {
