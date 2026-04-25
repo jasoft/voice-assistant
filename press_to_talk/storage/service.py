@@ -149,10 +149,14 @@ def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
     local_config_user_id = str(storage_cfg.get("user_id", sqlite_cfg.get("user_id", "default"))).strip()
     mem0_config_user_id = str(mem0_cfg.get("user_id", "default")).strip()
 
+    # The effective base ID: either override, or environment, or config, or default
+    # Priority: Override > Env PTT_USER_ID > Config > default
+    base_user_id = user_id_override or str(env_str("PTT_USER_ID", local_config_user_id)).strip()
+
     config = StorageConfig(
         backend=str(env_str("PTT_REMEMBER_BACKEND", configured_backend)).strip()
         or configured_backend,
-        user_id=user_id_override or str(env_str("PTT_USER_ID", local_config_user_id)).strip(),
+        user_id=base_user_id,
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
         mem0_user_id=user_id_override or str(env_str("PTT_USER_ID", str(env_str("MEM0_USER_ID", mem0_config_user_id)))).strip(),
         mem0_app_id=app_id,
@@ -447,6 +451,18 @@ class OpenAIEmbeddingClient:
 class StorageService:
     def __init__(self, config: StorageConfig, use_cli: bool = True) -> None:
         normalized = StorageConfig(**config.__dict__)
+        
+        # Final fail-safe: if identity is 'default', try to pull from global environment
+        # to handle cases where nested components reload config incorrectly.
+        if normalized.user_id == "default":
+            env_id = os.environ.get("PTT_USER_ID", "").strip()
+            if env_id and env_id != "default":
+                normalized.user_id = env_id
+        
+        if normalized.mem0_user_id == "default":
+             env_id = os.environ.get("PTT_USER_ID", "").strip()
+             if env_id and env_id != "default":
+                normalized.mem0_user_id = env_id
         h_path = str(normalized.history_db_path or "").strip()
         r_path = str(normalized.remember_db_path or "").strip()
 

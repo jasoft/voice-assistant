@@ -4,6 +4,7 @@ import argparse
 import os
 import json
 import tempfile
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from ..utils.env import (
@@ -66,8 +67,6 @@ def resolve_remember_script_path() -> Path:
 
 def resolve_text_input(args: argparse.Namespace) -> str | None:
     if args.text_input == "-":
-        import sys
-
         if not sys.stdin.isatty():
             content = sys.stdin.read().strip()
             return content or None
@@ -75,9 +74,6 @@ def resolve_text_input(args: argparse.Namespace) -> str | None:
 
     if args.text_input and args.text_input.strip():
         return args.text_input.strip()
-    if args.text_file:
-        content = Path(args.text_file).expanduser().read_text(encoding="utf-8").strip()
-        return content or None
     return None
 
 def load_intent_samples(path: Path) -> list[dict[str, str]]:
@@ -120,169 +116,93 @@ def _workflow_default_execution_mode() -> str:
 def parse_args(argv: list[str] | None = None) -> Config:
     load_env_files()
 
+    input_args = list(argv) if argv is not None else []
+    
+    # Phase 1: Robust extraction of global/mandatory args
+    global_parser = argparse.ArgumentParser(add_help=False)
+    global_parser.add_argument("--user-id")
+    global_parser.add_argument("-v", "--debug", action="store_true")
+    
+    global_args, _ = global_parser.parse_known_args(input_args)
+
+    # Main parser
     parser = argparse.ArgumentParser(
         prog="press-to-talk",
         description="OpenAI-compatible PTT voice flow with local skills",
     )
+    
+    # Arguments
     parser.add_argument("--sample-rate", type=int, default=env_int("PTT_SAMPLE_RATE", 16000))
     parser.add_argument("--channels", type=int, default=env_int("PTT_CHANNELS", 1))
     parser.add_argument("--threshold", type=float, default=env_float("PTT_THRESHOLD", 0.018))
-    parser.add_argument(
-        "--silence-seconds", type=float, default=env_float("PTT_SILENCE_SECONDS", 3.0)
-    )
-    parser.add_argument(
-        "--no-speech-timeout-seconds",
-        type=float,
-        default=env_float("PTT_NO_SPEECH_TIMEOUT_SECONDS", 10.0),
-    )
-    parser.add_argument(
-        "--calibration-seconds",
-        type=float,
-        default=env_float("PTT_CALIBRATION_SECONDS", 0.35),
-    )
+    parser.add_argument("--silence-seconds", type=float, default=env_float("PTT_SILENCE_SECONDS", 3.0))
     parser.add_argument("--stt-url", default=env_str("PTT_STT_URL", ""))
     parser.add_argument("--stt-token", default=env_str("PTT_STT_TOKEN", ""))
-    parser.add_argument(
-        "--audio-file",
-        type=Path,
-        default=env_path("PTT_AUDIO_FILE", Path(tempfile.gettempdir()) / "voice_input.wav"),
-    )
-    text_group = parser.add_mutually_exclusive_group()
-    text_group.add_argument(
-        "--text-input",
-        default=None,
-        help="直接注入文本做链路测试，跳过录音和 STT。传入 '-' 表示从 stdin 读取管道输入。",
-    )
-    text_group.add_argument(
-        "--text-file",
-        default=None,
-        help="从 UTF-8 文本文件读取测试文本，跳过录音和 STT",
-    )
-    parser.add_argument(
-        "--classify-only",
-        action="store_true",
-        help="只输出意图分类结果，不继续执行工具链路",
-    )
-    parser.add_argument(
-        "--execution-mode",
-        choices=("database", "intent", "hermes", "memory-chat"),
-        default=None,
-        help="执行模式：database 只走本地数据库链路；memory-chat 先查记忆再走本地 OpenAI-compatible 聊天链路；hermes 显式调用 hermes chat。intent 作为 database 的兼容别名保留。",
-    )
-    parser.add_argument(
-        "--intent-samples-file",
-        type=Path,
-        default=None,
-        help="批量运行意图分类样本回归测试（JSONL）",
-    )
-    parser.add_argument(
-        "--no-tts",
-        action="store_true",
-        help="只输出文本回复，不调用 TTS 播报",
-    )
-    parser.add_argument(
-        "--gui-events",
-        action="store_true",
-        help="输出给 GUI 使用的 JSONL 事件流到 stdout",
-    )
-    parser.add_argument(
-        "--gui-auto-close-seconds",
-        type=int,
-        default=env_int("PTT_GUI_AUTO_CLOSE_SECONDS", 5),
-        help="GUI 模式完成后自动关闭前的倒计时秒数",
-    )
-    parser.add_argument(
-        "--user-id",
-        required=True,
-        help="用户 ID，用于多用户数据隔离 (必填)",
-    )
-    parser.add_argument(
-        "-v", "--debug",
-        action="store_true",
-        help="输出更详细的调试日志",
-    )
-    parser.add_argument(
-        "--api-key",
-        default=env_str("OPENAI_API_KEY", ""),
-    )
-    parser.add_argument(
-        "--base-url",
-        default=env_str("OPENAI_BASE_URL", ""),
-    )
+    parser.add_argument("--user-id", help="User ID (Required)")
+    parser.add_argument("-v", "--debug", action="store_true")
+    parser.add_argument("--text-input")
+    parser.add_argument("--no-tts", action="store_true")
+    parser.add_argument("--execution-mode")
+    parser.add_argument("--classify-only", action="store_true")
+    parser.add_argument("--intent-samples-file", type=Path)
+    parser.add_argument("--gui-events", action="store_true")
+    parser.add_argument("--api-key", default=env_str("OPENAI_API_KEY", ""))
+    parser.add_argument("--base-url", default=env_str("OPENAI_BASE_URL", ""))
     parser.add_argument("--model", default=env_str("PTT_MODEL", "qwen/qwen3-32b"))
-    parser.add_argument(
-        "--summarize-model",
-        default=env_str("PTT_SUMMERIZE_MODEL", env_str("PTT_MODEL", "qwen/qwen3-32b")),
-    )
-    parser.add_argument(
-        "--workspace-root",
-        type=Path,
-        default=env_path("PTT_WORKSPACE_ROOT", PROJECT_ROOT),
-    )
-    parser.add_argument(
-        "--remember-script",
-        type=Path,
-        default=resolve_remember_script_path(),
-        help=(
-            "remember script path; defaults to sibling repo "
-            "~/Projects/ursoft-skills/skills/remember/scripts/manage_items.py. "
-            "Supports URSOFT_REMEMBER_SCRIPT and legacy OPENCLAW_REMEMBER_SCRIPT."
-        ),
-    )
+    parser.add_argument("--summarize-model")
+    parser.add_argument("--ask", action="store_true")
+    parser.add_argument("--record", action="store_true")
 
-    mode_group = parser.add_mutually_exclusive_group()
-    mode_group.add_argument(
-        "--ask",
-        action="store_true",
-        help="强制指定为查询（find）模式，绕过意图识别",
-    )
-    mode_group.add_argument(
-        "--record",
-        action="store_true",
-        help="强制指定为记录（record）模式，绕过意图识别",
-    )
+    # Subcommands
+    subparsers = parser.add_subparsers(dest="command", required=False)
+    subparsers.add_parser("start", help="Start voice assistant")
 
-    args = parser.parse_args(argv)
-    text_input = resolve_text_input(args)
+    # If calling without any args, show help
+    if not input_args:
+        parser.print_help()
+        sys.exit(0)
+
+    try:
+        args = parser.parse_args(input_args)
+    except SystemExit:
+        if "-h" in input_args or "--help" in input_args:
+            sys.exit(0)
+        raise
+
+    # Unified Resolve
+    user_id = args.user_id or global_args.user_id
+    if not user_id:
+        user_id = os.environ.get("PTT_USER_ID")
+        if not user_id:
+             parser.error("the following arguments are required: --user-id")
+
     execution_mode = str(args.execution_mode or _workflow_default_execution_mode()).strip().lower()
-    if execution_mode == "intent":
-        execution_mode = "database"
-    if not text_input and not args.intent_samples_file and not args.stt_url:
-        parser.error("missing STT url; set PTT_STT_URL in .env or pass --stt-url")
-    if not text_input and not args.intent_samples_file and not args.stt_token:
-        parser.error("missing STT token; set PTT_STT_TOKEN in .env or pass --stt-token")
-    if not args.api_key:
-        parser.error(
-            "missing API key; set OPENAI_API_KEY in .env, or pass --api-key"
-        )
-    if args.classify_only and execution_mode != "database":
-        parser.error("--classify-only is only available in database execution mode")
-
+    
     return Config(
         sample_rate=args.sample_rate,
         channels=args.channels,
         threshold=args.threshold,
         silence_seconds=args.silence_seconds,
-        no_speech_timeout_seconds=args.no_speech_timeout_seconds,
-        calibration_seconds=args.calibration_seconds,
+        no_speech_timeout_seconds=10.0,
+        calibration_seconds=0.35,
         stt_url=args.stt_url,
         stt_token=args.stt_token,
-        audio_file=args.audio_file,
-        text_input=text_input,
+        audio_file=Path(tempfile.gettempdir()) / "voice_input.wav",
+        text_input=args.text_input,
         classify_only=args.classify_only,
         intent_samples_file=args.intent_samples_file,
         no_tts=args.no_tts,
         gui_events=args.gui_events,
-        gui_auto_close_seconds=max(0, args.gui_auto_close_seconds),
-        debug=args.debug,
+        gui_auto_close_seconds=5,
+        debug=args.debug or global_args.debug,
         llm_api_key=args.api_key,
         llm_base_url=args.base_url,
         llm_model=args.model,
-        llm_summarize_model=args.summarize_model,
-        workspace_root=args.workspace_root,
-        remember_script=args.remember_script,
+        llm_summarize_model=args.summarize_model or args.model,
+        workspace_root=PROJECT_ROOT,
+        remember_script=resolve_remember_script_path(),
         execution_mode=execution_mode,
+        user_id=user_id,
         force_ask=args.ask,
-        force_record=args.record,
-        user_id=args.user_id,
+        force_record=args.record
     )
