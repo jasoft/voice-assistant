@@ -36,6 +36,7 @@ class Config:
     workspace_root: Path
     remember_script: Path
     execution_mode: str
+    user_id: str = "soj"
 
 @dataclass
 class SessionHistory:
