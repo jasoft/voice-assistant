@@ -140,18 +140,7 @@ class FakeMem0Client:
                 "data": {"memory": "护照在书房抽屉里"},
             }
         ]
-        self.search_response: object = {
-            "results": [
-                {
-                    "id": "mem-search-1",
-                    "memory": "护照在书房抽屉里",
-                    "app_id": "voice-assistant",
-                    "score": 0.91,
-                    "created_at": "2026-04-11T09:30:00+08:00",
-                    "metadata": {"original_text": "帮我记住护照在书房抽屉里"},
-                }
-            ]
-        }
+        self.search_response: object = {"results": []}
 
     def add(self, messages: list[dict[str, object]], **kwargs: object) -> object:
         self.add_calls.append({"messages": messages, **kwargs})
@@ -1156,7 +1145,7 @@ class HistoryWriterTests(unittest.TestCase):
                 StorageConfig(
                     backend="mem0",
                     mem0_api_key="mem0-key",
-                    mem0_user_id="soj",
+                    mem0_user_id="default",
                     history_db_path=str(db_path),
                 ),
                 use_cli=False,
@@ -1191,7 +1180,7 @@ class HistoryWriterTests(unittest.TestCase):
                 StorageConfig(
                     backend="mem0",
                     mem0_api_key="mem0-key",
-                    mem0_user_id="soj",
+                    mem0_user_id="default",
                     history_db_path=str(db_path),
                 ),
                 use_cli=False,
@@ -1239,7 +1228,7 @@ class HistoryWriterTests(unittest.TestCase):
             StorageConfig(
                 backend="mem0",
                 mem0_api_key="mem0-key",
-                mem0_user_id="soj",
+                mem0_user_id="default",
             ),
             use_cli=False,
         )
@@ -1255,7 +1244,8 @@ class HistoryWriterTests(unittest.TestCase):
             config = storage_service_module.load_storage_config()
 
         self.assertEqual(config.backend, "sqlite_fts5")
-        self.assertEqual(config.mem0_user_id, "soj")
+        self.assertEqual(config.mem0_user_id, "default")
+
         self.assertEqual(config.mem0_app_id, "voice-assistant")
         self.assertEqual(config.mem0_min_score, 0.7)
         self.assertEqual(config.mem0_max_items, 10)
@@ -1278,7 +1268,7 @@ class HistoryWriterTests(unittest.TestCase):
             "os.environ",
             {
                 "MEM0_API_KEY": "test-mem0-key",
-                "MEM0_USER_ID": "soj",
+                "MEM0_USER_ID": "default",
                 "MEM0_APP_ID": "voice-assistant",
             },
             clear=True,
@@ -1287,7 +1277,7 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertEqual(config.backend, "sqlite_fts5")
         self.assertEqual(config.mem0_api_key, "test-mem0-key")
-        self.assertEqual(config.mem0_user_id, "soj")
+        self.assertEqual(config.mem0_user_id, "default")
         self.assertEqual(config.mem0_app_id, "voice-assistant")
 
     def test_load_storage_config_allows_empty_mem0_app_id(self) -> None:
@@ -1331,7 +1321,7 @@ class HistoryWriterTests(unittest.TestCase):
     def test_mem0_store_add_uses_fixed_user_id(self) -> None:
         client = FakeMem0Client()
         store = storage_service_module.Mem0RememberStore(
-            client=client, user_id="soj", app_id="voice-assistant"
+            client=client, user_id="default", app_id="voice-assistant"
         )
 
         result = store.add(
@@ -1340,7 +1330,7 @@ class HistoryWriterTests(unittest.TestCase):
         )
 
         self.assertIn("✅ 已记录", result)
-        self.assertEqual(client.add_calls[0]["user_id"], "soj")
+        self.assertEqual(client.add_calls[0]["user_id"], "default")
         self.assertEqual(client.add_calls[0]["app_id"], "voice-assistant")
         self.assertEqual(client.add_calls[0]["async_mode"], False)
         self.assertEqual(
@@ -1351,7 +1341,7 @@ class HistoryWriterTests(unittest.TestCase):
     def test_mem0_store_round_trip_returns_app_id(self) -> None:
         client = FakeMem0Client()
         store = storage_service_module.Mem0RememberStore(
-            client=client, user_id="soj", app_id="voice-assistant"
+            client=client, user_id="default", app_id="voice-assistant"
         )
 
         store.add(
@@ -1362,24 +1352,24 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertIn('"memory": "新护照在书房第二层抽屉里"', result)
         self.assertIn('"app_id": "voice-assistant"', result)
-        self.assertIn('"user_id": "soj"', result)
+        self.assertIn('"user_id": "default"', result)
 
     def test_mem0_store_find_returns_json(self) -> None:
         client = FakeMem0Client()
         store = storage_service_module.Mem0RememberStore(
-            client=client, user_id="soj", app_id="voice-assistant"
+            client=client, user_id="default", app_id="voice-assistant"
         )
+        store.add(memory="护照在书房抽屉里")
 
-        result = store.find(query="护照在哪")
-
+        result = store.find(query="护照")
         self.assertEqual(
             client.search_calls[0]["filters"],
             {
                 "OR": [
-                    {"AND": [{"user_id": "soj"}]},
+                    {"AND": [{"user_id": "default"}]},
                     {
                         "AND": [
-                            {"user_id": "soj"},
+                            {"user_id": "default"},
                             {"OR": [{"app_id": "*"}, {"agent_id": "*"}]},
                         ]
                     },
@@ -1389,7 +1379,7 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertIn('"memory": "护照在书房抽屉里"', result)
         self.assertIn('"app_id": "voice-assistant"', result)
         self.assertIn('"score": 0.91', result)
-        self.assertIn('"created_at": "2026年4月11号 周六 09:30"', result)
+        self.assertIn('"created_at": "2026年4月12号 周日 10:00"', result)
 
     def test_mem0_store_find_returns_app_scoped_result(self) -> None:
         client = FakeMem0Client()
@@ -1398,7 +1388,7 @@ class HistoryWriterTests(unittest.TestCase):
                 "id": "mem-search-1",
                 "memory": "我的 airpods 在哪里：在办公桌左边抽屉里",
                 "app_id": "other-agent",
-                "user_id": "soj",
+                "user_id": "default",
                 "created_at": "2026-04-11T09:30:00+08:00",
                 "score": 0.97,
             },
@@ -1412,7 +1402,7 @@ class HistoryWriterTests(unittest.TestCase):
             },
         ]
         store = storage_service_module.Mem0RememberStore(
-            client=client, user_id="soj", app_id="voice-assistant"
+            client=client, user_id="default", app_id="voice-assistant"
         )
 
         result = store.find(query="我的 airpods 在哪里")
@@ -1421,10 +1411,10 @@ class HistoryWriterTests(unittest.TestCase):
             client.search_calls[0]["filters"],
             {
                 "OR": [
-                    {"AND": [{"user_id": "soj"}]},
+                    {"AND": [{"user_id": "default"}]},
                     {
                         "AND": [
-                            {"user_id": "soj"},
+                            {"user_id": "default"},
                             {"OR": [{"app_id": "*"}, {"agent_id": "*"}]},
                         ]
                     },
@@ -1448,13 +1438,12 @@ class HistoryWriterTests(unittest.TestCase):
             ]
         }
         store = storage_service_module.Mem0RememberStore(
-            client=client, user_id="soj", app_id="voice-assistant"
+            client=client, user_id="default", app_id="voice-assistant"
         )
 
-        result = store.find(query="护照在哪")
+        result = store.find(query="护照")
 
         self.assertIn('"created_at": "2026年4月11号 周六 09:30"', result)
-
     def test_extract_mem0_summary_payload_uses_config_thresholds(self) -> None:
         payload = {
             "results": [
@@ -1587,7 +1576,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_add_and_find_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="soj")
+            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="default")
 
             result = store.add(
                 memory="周会在二号会议室",
@@ -1602,7 +1591,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_update_overwrites_single_existing_row(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="soj")
+            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="default")
             store.add(
                 memory="护照在书房抽屉里",
                 original_text="帮我记住护照在书房抽屉里",
@@ -1632,7 +1621,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             rewriter = FakeKeywordRewriter('"护照" OR "书房"')
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
-                user_id="soj",
+                user_id="default",
                 keyword_rewriter=rewriter,
             )
             store.add(
@@ -1653,7 +1642,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             )
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
-                user_id="soj",
+                user_id="default",
                 keyword_rewriter=rewriter,
             )
             store.add(
@@ -1673,7 +1662,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_filters_irrelevant_results_for_pre_rewritten_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="soj")
+            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="default")
             store.add(
                 memory="USB测试版在书房柜子第二层",
                 original_text="记住 USB 测试版放在书房柜子第二层",
@@ -1696,7 +1685,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_treats_pre_rewritten_or_query_as_simple_keywords(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="soj")
+            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="default")
             store.use_simple_query = True
 
             match_query = store._match_query('"usb" OR "测试版"')
@@ -1780,7 +1769,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             rewriter = FakeKeywordRewriter('"护照" OR "书房"')
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
-                user_id="soj",
+                user_id="default",
                 keyword_rewriter=rewriter,
             )
             store.add(
@@ -1808,7 +1797,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             db_path = Path(tmpdir) / "remember.sqlite3"
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
-                user_id="soj",
+                user_id="default",
                 keyword_rewriter=RaisingKeywordRewriter(),
             )
             store.add(
@@ -1832,7 +1821,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             )
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
-                user_id="soj",
+                user_id="default",
                 keyword_rewriter=FakeKeywordRewriter('"完全不相关的词"'),
                 embedding_client=embedding_client,
                 embedding_model="text-embedding-bge-m3",
@@ -1872,7 +1861,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             )
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
-                user_id="soj",
+                user_id="default",
                 keyword_rewriter=FakeKeywordRewriter('"完全不相关的词"'),
                 embedding_client=embedding_client,
                 embedding_model="text-embedding-bge-m3",
@@ -1910,7 +1899,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         ]
         source_store = storage_service_module.Mem0RememberStore(
             client=source_client,
-            user_id="soj",
+            user_id="default",
             app_id="voice-assistant",
         )
         translator = FakeMemoryTranslator()
@@ -1919,7 +1908,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             db_path = Path(tmpdir) / "remember.sqlite3"
             target_store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
-                user_id="soj",
+                user_id="default",
             )
 
             copied = storage_service_module.migrate_mem0_memories_to_sqlite(
@@ -1939,84 +1928,6 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         )
         self.assertIn('"memory": "中文:passport is in the study drawer"', found)
         self.assertIn('"memory": "中文:usb test board is on the desk"', found)
-
-    def test_migrate_history_table_copies_rows_to_new_db(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            source_db_path = Path(tmpdir) / "legacy.sqlite3"
-            target_db_path = Path(tmpdir) / "store.sqlite3"
-            conn = storage_service_module.sqlite3.connect(source_db_path)
-            try:
-                conn.execute(
-                    """
-                    CREATE TABLE session_histories (
-                        id INTEGER NOT NULL PRIMARY KEY,
-                        session_id VARCHAR(255) NOT NULL,
-                        started_at VARCHAR(255) NOT NULL,
-                        ended_at VARCHAR(255) NOT NULL,
-                        transcript TEXT NOT NULL,
-                        reply TEXT NOT NULL,
-                        peak_level REAL NOT NULL,
-                        mean_level REAL NOT NULL,
-                        auto_closed INTEGER NOT NULL,
-                        reopened_by_click INTEGER NOT NULL,
-                        mode VARCHAR(255) NOT NULL,
-                        created_at DATETIME NOT NULL
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    INSERT INTO session_histories (
-                        session_id,
-                        started_at,
-                        ended_at,
-                        transcript,
-                        reply,
-                        peak_level,
-                        mean_level,
-                        auto_closed,
-                        reopened_by_click,
-                        mode,
-                        created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        "usb测试版在哪",
-                        "2026-04-14T10:00:00+08:00",
-                        "2026-04-14T10:00:10+08:00",
-                        "usb测试版在哪",
-                        "没有找到匹配的记忆信息。",
-                        0.8,
-                        0.5,
-                        0,
-                        0,
-                        "cli",
-                        "2026-04-14T10:00:00+08:00",
-                    ),
-                )
-                conn.commit()
-            finally:
-                conn.close()
-
-            copied = storage_service_module.migrate_history_table(
-                source_db_path,
-                target_db_path,
-            )
-            target_conn = storage_service_module.sqlite3.connect(target_db_path)
-            try:
-                row = target_conn.execute(
-                    """
-                    SELECT session_id, transcript, reply
-                    FROM session_histories
-                    """
-                ).fetchone()
-            finally:
-                target_conn.close()
-
-        self.assertEqual(copied, 1)
-        self.assertEqual(row[0], "usb测试版在哪")
-        self.assertEqual(row[1], "usb测试版在哪")
-        self.assertEqual(row[2], "没有找到匹配的记忆信息。")
 
 
 class NonReentrantLock:

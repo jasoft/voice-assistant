@@ -594,6 +594,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
     ) -> str:
         item_id = uuid.uuid4().hex
         timestamp = _now_iso()
+        self._connect()
         stored_memory = str(memory or "").strip()
         stored_original_text = str(original_text or "").strip()
         stored_source_memory_id = str(source_memory_id or "").strip()
@@ -926,6 +927,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         return extract_sqlite_summary_payload(raw_payload)
 
     def delete(self, *, memory_id: str) -> None:
+        self._connect()
         # Use Peewee for main table
         RememberEntry.delete().where(
             (RememberEntry.id == memory_id) & (RememberEntry.user_id == self.user_id)
@@ -951,6 +953,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         stored_memory = str(memory or "").strip()
         stored_original_text = str(original_text or "").strip()
         updated_at = _now_iso()
+        self._connect()
 
         # 1. Update main table using Peewee
         entry = RememberEntry.get_or_none(

@@ -258,10 +258,13 @@ class OpenAICompatibleAgent:
                 payload["args"] = args
 
             # 强制指定模式（大王要求的 API 强制参数）
-            if self.cfg.force_ask:
+            force_ask = getattr(self.cfg, "force_ask", False) if hasattr(self, "cfg") else False
+            force_record = getattr(self.cfg, "force_record", False) if hasattr(self, "cfg") else False
+
+            if force_ask:
                 payload["intent"] = "find"
                 payload["tool"] = "remember_find"
-            elif self.cfg.force_record:
+            elif force_record:
                 payload["intent"] = "record"
                 payload["tool"] = "remember_add"
 

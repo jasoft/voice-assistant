@@ -133,18 +133,20 @@ class StorageCliTests(unittest.TestCase):
     def test_list_history_loads_backend_from_env_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
+            test_db_path = tmp_path / "absolutely_empty.sqlite3"
             env_path = tmp_path / ".env"
             env_path.write_text(
                 "MEM0_API_KEY=test-mem0-key\n"
-                f"PTT_HISTORY_DB_PATH={tmp_path / 'history-test.sqlite3'}\n",
+                f"PTT_HISTORY_DB_PATH={test_db_path}\n"
+                f"PTT_REMEMBER_DB_PATH={test_db_path}\n",
                 encoding="utf-8",
             )
 
             stderr = io.StringIO()
             stdout = io.StringIO()
+            # We don't even need the patch if we set the env correctly and ensure it's loaded
             with chdir(tmp_path), patch.dict(os.environ, {}, clear=True), redirect_stdout(stdout), redirect_stderr(stderr):
                 code = storage_cli_app.main(["-v", "history", "list", "--limit", "5"])
-
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(stdout.getvalue().strip()), [])
             self.assertIn("Storage configuration loaded", stderr.getvalue())

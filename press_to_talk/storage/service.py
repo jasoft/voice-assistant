@@ -38,7 +38,7 @@ from .models import (
     db,
 )
 from .providers import Mem0RememberStore, SQLiteFTS5RememberStore
-from .sqlite_history import NullHistoryStore, PeeweeHistoryStore, migrate_history_table
+from .sqlite_history import NullHistoryStore, PeeweeHistoryStore
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_APP_DB_PATH = APP_ROOT / "data" / "voice_assistant_store.sqlite3"
@@ -195,7 +195,7 @@ def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
         key: (value if "api_key" not in key else ("***" if value else "None"))
         for key, value in config.__dict__.items()
     }
-    log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}", level="debug")
+    log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}", level="info")
     return config
 
 
