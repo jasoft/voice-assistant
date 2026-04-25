@@ -24,7 +24,9 @@ from ..models import (
 )
 
 APP_ROOT = Path(__file__).resolve().parents[3]
-SIMPLE_EXTENSION_PATH = APP_ROOT / "third_party" / "simple" / "libsimple.dylib"
+# 自动根据系统环境选择扩展名
+SIMPLE_EXTENSION_NAME = "libsimple.dylib" if Path("/usr/bin/afplay").exists() else "libsimple.so"
+SIMPLE_EXTENSION_PATH = APP_ROOT / "third_party" / "simple" / SIMPLE_EXTENSION_NAME
 MAX_REWRITE_KEYWORD_LENGTH = 12
 MAX_REWRITE_KEYWORD_COUNT = 7
 
