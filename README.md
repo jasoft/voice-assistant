@@ -35,8 +35,8 @@ uv run python3 scripts/migrate_v2_peewee.py
 
 ### 🌐 HTTP API 服务
 提供基于 FastAPI 的 Swagger 接口，支持多用户隔离。
-- **启动 API 服务**：`uv run ptt-api --port 8000`
-- **访问文档**：启动后访问 `http://localhost:8000/docs`
+- **启动 API 服务**：`uv run ptt-api`
+- **访问文档**：启动后访问 `http://localhost:10031/docs`
 
 ### 🔑 令牌管理 (Token Manager)
 管理 API 访问令牌及关联的用户 ID。
