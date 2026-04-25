@@ -36,6 +36,8 @@ class Config:
     workspace_root: Path
     remember_script: Path
     execution_mode: str
+    force_ask: bool = False
+    force_record: bool = False
     user_id: str = "soj"
     use_cli: bool = True
 
@@ -223,6 +225,18 @@ def parse_args(argv: list[str] | None = None) -> Config:
         ),
     )
 
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--ask",
+        action="store_true",
+        help="强制指定为查询（find）模式，绕过意图识别",
+    )
+    mode_group.add_argument(
+        "--record",
+        action="store_true",
+        help="强制指定为记录（record）模式，绕过意图识别",
+    )
+
     args = parser.parse_args(argv)
     text_input = resolve_text_input(args)
     execution_mode = str(args.execution_mode or _workflow_default_execution_mode()).strip().lower()
@@ -263,4 +277,6 @@ def parse_args(argv: list[str] | None = None) -> Config:
         workspace_root=args.workspace_root,
         remember_script=args.remember_script,
         execution_mode=execution_mode,
+        force_ask=args.ask,
+        force_record=args.record,
     )

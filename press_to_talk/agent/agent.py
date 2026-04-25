@@ -100,6 +100,7 @@ class OpenAICompatibleAgent:
     def __init__(self, cfg: Config) -> None:
         from openai import AsyncOpenAI
 
+        self.cfg = cfg
         client_kwargs: dict[str, Any] = {"api_key": cfg.llm_api_key}
         raw_url = str(cfg.llm_base_url or "").strip()
         if raw_url:
@@ -255,6 +256,15 @@ class OpenAICompatibleAgent:
                 args.pop("note", None)
                 args.pop("notes", None)
                 payload["args"] = args
+
+            # 强制指定模式（大王要求的 API 强制参数）
+            if self.cfg.force_ask:
+                payload["intent"] = "find"
+                payload["tool"] = "remember_find"
+            elif self.cfg.force_record:
+                payload["intent"] = "record"
+                payload["tool"] = "remember_add"
+
             return payload
         except Exception as e:
             log(f"Intent extraction failed: {e}", level="error")
@@ -520,7 +530,7 @@ class OpenAICompatibleAgent:
     async def chat(self, user_input: str) -> str:
         intent_payload = await self._extract_intent_payload(user_input)
         intent_key = str(intent_payload.get("intent", "")).strip()
-        
+
         # 强制归类为 record 或 find
         if intent_key not in ("record", "find"):
             intent_key = "find"
