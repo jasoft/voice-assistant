@@ -2,11 +2,52 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol
+from peewee import Model, CharField, DateTimeField, FloatField, BooleanField, TextField, SqliteDatabase, SQL
+
+db = SqliteDatabase(None)  # To be initialized in service
+
+
+class BaseModel(Model):
+    class Meta:
+        database = db
+
+
+class APIToken(BaseModel):
+    token = CharField(primary_key=True)
+    user_id = CharField(index=True)
+    description = TextField(null=True)
+    created_at = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
+
+
+class SessionHistory(BaseModel):
+    session_id = CharField(unique=True)
+    user_id = CharField(index=True)
+    started_at = CharField()  # Match existing schema types
+    ended_at = CharField()
+    transcript = TextField()
+    reply = TextField()
+    peak_level = FloatField()
+    mean_level = FloatField()
+    auto_closed = BooleanField()
+    reopened_by_click = BooleanField()
+    mode = CharField()
+    created_at = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
+
+
+class RememberEntry(BaseModel):
+    id = CharField(primary_key=True)
+    user_id = CharField(index=True)
+    source_memory_id = CharField(null=True)
+    memory = TextField()
+    original_text = TextField()
+    created_at = CharField()
+    updated_at = CharField()
 
 
 @dataclass
 class StorageConfig:
     backend: str = "mem0"
+    user_id: str = "soj"
     mem0_api_key: str = ""
     mem0_user_id: str = "soj"
     mem0_app_id: str = "voice-assistant"
