@@ -1244,7 +1244,7 @@ class HistoryWriterTests(unittest.TestCase):
             config = storage_service_module.load_storage_config()
 
         self.assertEqual(config.backend, "sqlite_fts5")
-        self.assertEqual(config.mem0_user_id, "default")
+        self.assertEqual(config.mem0_user_id, "soj")
 
         self.assertEqual(config.mem0_app_id, "voice-assistant")
         self.assertEqual(config.mem0_min_score, 0.7)
