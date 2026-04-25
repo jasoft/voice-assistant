@@ -53,5 +53,50 @@ class SmokeCheckTests(unittest.TestCase):
         self.assertIn("LLM intent parsed", output)
         self.assertIn("history record persisted", output)
 
+    def test_e2e_soj_cycling_record(self):
+        """
+        Critical E2E Test (Mandatory for Delivery):
+        Executes: ptt-voice start --user-id soj --text-input "我最后一次带壮壮骑车是什么时候" --no-tts
+        Ensures the system can correctly identify intent, sort by date, and retrieve the specific memory.
+        """
+        cmd = [
+            sys.executable, "-m", "press_to_talk",
+            "start",
+            "--user-id", "soj",
+            "--text-input", "我最后一次带壮壮骑车是什么时候",
+            "--no-tts"
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8"
+        )
+        
+        # 1. Exit code check
+        self.assertEqual(
+            result.returncode, 0, 
+            f"E2E Test failed with exit code {result.returncode}\nStderr: {result.stderr}"
+        )
+        
+        # 2. Evidence of success in logs
+        output = result.stderr
+        self.assertIn("reply ready:", output)
+        
+        # 3. Data Integrity: The reply MUST contain cycling related keywords 
+        # and should not be a 'no data found' message.
+        reply_marker = "reply ready:\n"
+        reply_content = output.split(reply_marker)[-1] if reply_marker in output else ""
+        
+        self.assertTrue(
+            any(kw in reply_content for kw in ["骑车", "自行车", "公园", "壮壮"]),
+            f"E2E Test: Reply does not seem to contain the retrieved cycling data. Reply: {reply_content}"
+        )
+        
+        # Verify intent was correctly forced/parsed
+        self.assertIn('"intent":"find"', output)
+        self.assertIn("history record persisted", output)
+
 if __name__ == "__main__":
     unittest.main()
