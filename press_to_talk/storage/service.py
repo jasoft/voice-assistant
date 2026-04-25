@@ -102,7 +102,11 @@ def _workflow_storage_config() -> dict[str, Any]:
     return storage if isinstance(storage, dict) else {}
 
 
+_storage_config_logged = False
+
+
 def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
+    global _storage_config_logged
     workflow_cfg = load_workflow_config()
     storage_cfg = workflow_cfg.get("storage", {}) if isinstance(workflow_cfg, dict) else {}
     storage_cfg = storage_cfg if isinstance(storage_cfg, dict) else {}
@@ -195,7 +199,9 @@ def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
         key: (value if "api_key" not in key else ("***" if value else "None"))
         for key, value in config.__dict__.items()
     }
-    log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}", level="info")
+    if not _storage_config_logged:
+        log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}", level="info")
+        _storage_config_logged = True
     return config
 
 

@@ -145,7 +145,11 @@ class StorageCliTests(unittest.TestCase):
             stderr = io.StringIO()
             stdout = io.StringIO()
             # We don't even need the patch if we set the env correctly and ensure it's loaded
-            with chdir(tmp_path), patch.dict(os.environ, {}, clear=True), redirect_stdout(stdout), redirect_stderr(stderr):
+            with patch("press_to_talk.storage.service._storage_config_logged", False), \
+                 chdir(tmp_path), \
+                 patch.dict(os.environ, {}, clear=True), \
+                 redirect_stdout(stdout), \
+                 redirect_stderr(stderr):
                 code = storage_cli_app.main(["-v", "history", "list", "--limit", "5"])
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(stdout.getvalue().strip()), [])
