@@ -48,12 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             
-            // Cmd+W: Close (perform close if key window)
-            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "w" {
-                self.window?.close()
-                return nil
-            }
-
             // Enter (Return): Start recording if idle and input is empty
             if event.keyCode == 36 {
                 if self.model.canStartRecording && self.model.screenMode == .live && self.model.draftInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -85,6 +79,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(withTitle: "关于 \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "退出 \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+
+        // File Menu
+        let fileMenuItem = NSMenuItem()
+        mainMenu.addItem(fileMenuItem)
+        let fileMenu = NSMenu(title: "文件")
+        fileMenuItem.submenu = fileMenu
+        fileMenu.addItem(withTitle: "关闭窗口", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
 
         // Edit Menu
         let editMenuItem = NSMenuItem()
