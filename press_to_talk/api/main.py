@@ -120,3 +120,18 @@ async def get_memories(user_id: str = Depends(get_user_id)):
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+def run_server():
+    """Entry point for ptt-api command."""
+    import uvicorn
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the Press-to-Talk API server.")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind the server to.")
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind the server to.")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload.")
+    
+    args = parser.parse_args()
+    
+    # We use the string import pattern to allow reload to work correctly
+    uvicorn.run("press_to_talk.api.main:app", host=args.host, port=args.port, reload=args.reload)
