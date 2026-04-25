@@ -95,6 +95,24 @@ struct AssistantShellView: View {
                 .frame(height: 18)
                 .padding(.top, 8)
 
+            if !model.session.state.transcript.isEmpty {
+                Text(model.session.state.transcript)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(red: 0.20, green: 0.21, blue: 0.28))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color(red: 0.94, green: 0.96, blue: 1.00))
+                    )
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(Color(red: 0.86, green: 0.88, blue: 0.94), lineWidth: 1)
+                    )
+                    .padding(.top, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             if let errorMessage = visibleErrorMessage {
                 errorBanner(message: errorMessage)
                     .padding(.horizontal, 18)
@@ -906,7 +924,10 @@ private struct MarkdownBodyText: View {
     let textColor: NSColor
 
     var body: some View {
-        Markdown(text)
+        // 关键修复：确保字面量 "\\n" 被转义回真实的换行符，否则 Markdown 解析器会识别失败
+        let processedText = text.replacingOccurrences(of: "\\n", with: "\n")
+        
+        Markdown(processedText)
             .markdownTheme(.voiceAssistant)
             .markdownTextStyle {
                 FontSize(fontSize)
@@ -924,17 +945,17 @@ extension Theme {
         }
         .paragraph { configuration in
             configuration.label
-                .lineSpacing(4)
-                .padding(.bottom, 8)
+                .lineSpacing(2)
+                .padding(.bottom, 4)
         }
         .list { configuration in
             configuration.label
-                .padding(.leading, 8)
-                .padding(.bottom, 8)
+                .padding(.leading, 12)
+                .padding(.bottom, 4)
         }
         .listItem { configuration in
             configuration.label
-                .padding(.bottom, 4)
+                .padding(.bottom, 2)
         }
         .strong {
             FontWeight(.semibold)

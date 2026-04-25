@@ -215,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         events.emit("reply", text=reply)
         session_reply = reply
         if cfg.no_tts:
-            log(f"reply ready: {preview_text(reply)}")
+            log(f"reply ready:\n{reply}")
             events.emit(
                 "status",
                 phase="done",

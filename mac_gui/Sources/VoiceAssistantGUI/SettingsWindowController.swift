@@ -18,6 +18,8 @@ final class SettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "设置"
+        window.level = .floating
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.center()
         window.contentView = NSHostingView(rootView: SettingsView(store: store))
         

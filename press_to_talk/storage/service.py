@@ -24,17 +24,21 @@ from .memory_backends import (
     migrate_mem0_memories_to_sqlite,
 )
 from .models import (
+    APIToken,
     BaseHistoryStore,
     BaseRememberStore,
     EmbeddingClient,
     KeywordRewriter,
     MemoryTranslator,
+    RememberEntry,
     RememberItemRecord,
+    SessionHistory,
     SessionHistoryRecord,
     StorageConfig,
+    db,
 )
 from .providers import Mem0RememberStore, SQLiteFTS5RememberStore
-from .sqlite_history import NullHistoryStore, SQLiteHistoryStore, migrate_history_table
+from .sqlite_history import NullHistoryStore, PeeweeHistoryStore, migrate_history_table
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_APP_DB_PATH = APP_ROOT / "data" / "voice_assistant_store.sqlite3"
@@ -420,13 +424,21 @@ class StorageService:
         if not str(normalized.remember_db_path).strip():
             normalized.remember_db_path = str(DEFAULT_REMEMBER_DB_PATH)
         self.config = normalized
+
+        # Initialize Peewee database
+        db_path = Path(self.config.history_db_path).expanduser()
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db.init(str(db_path))
+        db.connect(reuse_if_open=True)
+        db.create_tables([APIToken, SessionHistory, RememberEntry])
+
         self._remember_provider: BaseRememberStore | None = None
         self._remember_store: BaseRememberStore | None = None
         if use_cli:
             self._history_store = CLIHistoryStore()
             self._remember_store = CLIRememberStore(summary_extractor=self._get_or_build_remember_provider)
             return
-        self._history_store = SQLiteHistoryStore(self.config.history_db_path)
+        self._history_store = PeeweeHistoryStore(self.config.user_id)
 
     def _get_or_build_remember_provider(self) -> BaseRememberStore:
         if self._remember_provider is None:

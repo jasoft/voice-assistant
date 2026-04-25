@@ -528,4 +528,5 @@ class OpenAICompatibleAgent:
         if reply is not None:
             return reply
 
-        return "无法处理该请求，请尝试换种说法。"
+        unknown_cfg = self.workflow.get("prompts", {}).get("unknown_intent_reply", {})
+        return unknown_cfg.get("text", "无法处理该请求，请尝试换种说法。")

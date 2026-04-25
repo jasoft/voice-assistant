@@ -271,6 +271,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             USING fts5(
                 memory,
                 original_text,
+                user_id UNINDEXED,
                 item_id UNINDEXED
                 {fts_tokenizer_clause}
             )
@@ -286,24 +287,6 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 updated_at TEXT NOT NULL
             )
             """
-        )
-        # Re-sync FTS5 for this user's entries (or all? current logic does all)
-        conn.execute(f"DELETE FROM {self.fts_table_name}")
-        conn.execute(
-            f"""
-            INSERT INTO {self.fts_table_name} (
-                memory,
-                original_text,
-                item_id
-            )
-            SELECT
-                memory,
-                original_text,
-                id
-            FROM {self.table_name}
-            WHERE user_id = ?
-            """,
-            (self.user_id,)
         )
         return conn
 
@@ -324,9 +307,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         source_text: str,
         embedding: list[float],
     ) -> None:
-        with contextlib.closing(self._connect()) as conn:
-            with conn:
-                conn.execute(
+        conn = self._connect()
+        with conn:
+            conn.execute(
                     f"""
                     INSERT INTO {self.embedding_table_name} (
                         item_id,
@@ -354,9 +337,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if not item_ids:
             return
         placeholders = ", ".join("?" for _ in item_ids)
-        with contextlib.closing(self._connect()) as conn:
-            with conn:
-                conn.execute(
+        conn = self._connect()
+        with conn:
+            conn.execute(
                     f"DELETE FROM {self.embedding_table_name} WHERE item_id IN ({placeholders})",
                     item_ids,
                 )
@@ -582,8 +565,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     with conn:
                         placeholders = ", ".join("?" for _ in deleted_item_ids)
                         conn.execute(
-                            f"DELETE FROM {self.fts_table_name} WHERE item_id IN ({placeholders})",
-                            deleted_item_ids,
+                            f"DELETE FROM {self.fts_table_name} WHERE item_id IN ({placeholders}) AND user_id = ?",
+                            (*deleted_item_ids, self.user_id),
                         )
 
         RememberEntry.create(
@@ -596,17 +579,18 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             updated_at=timestamp,
         )
 
-        with contextlib.closing(self._connect()) as conn:
-            with conn:
-                conn.execute(
+        conn = self._connect()
+        with conn:
+            conn.execute(
                     f"""
                     INSERT INTO {self.fts_table_name} (
                         memory,
                         original_text,
+                        user_id,
                         item_id
-                    ) VALUES (?, ?, ?)
+                    ) VALUES (?, ?, ?, ?)
                     """,
-                    (stored_memory, stored_original_text, item_id),
+                    (stored_memory, stored_original_text, self.user_id, item_id),
                 )
 
         if deleted_item_ids:
@@ -770,12 +754,12 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     items.updated_at
                 FROM {self.fts_table_name} fts
                 JOIN {self.table_name} items ON items.id = fts.item_id
-                WHERE {self.fts_table_name} MATCH {match_sql}
+                WHERE fts.user_id = ? AND {self.fts_table_name} MATCH ?
                   AND items.user_id = ?
                 ORDER BY bm25({self.fts_table_name}), items.updated_at DESC
                 LIMIT ?
                 """,
-                (match_query, self.user_id, self.max_results),
+                (self.user_id, match_query, self.user_id, self.max_results),
             ).fetchall()
             log(f"remember search fts5 rows: {len(rows)}")
             if not rows and keywords:
@@ -903,15 +887,15 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         return extract_sqlite_summary_payload(raw_payload)
 
     def delete(self, *, memory_id: str) -> None:
-        with contextlib.closing(self._connect()) as conn:
-            with conn:
-                conn.execute(
+        conn = self._connect()
+        with conn:
+            conn.execute(
                     f"DELETE FROM {self.embedding_table_name} WHERE item_id = ?",
                     (memory_id,),
                 )
                 conn.execute(
-                    f"DELETE FROM {self.fts_table_name} WHERE item_id = ?",
-                    (memory_id,),
+                    f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
+                    (memory_id, self.user_id),
                 )
                 conn.execute(
                     f"DELETE FROM {self.table_name} WHERE id = ? AND user_id = ?",
@@ -928,8 +912,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         stored_memory = str(memory or "").strip()
         stored_original_text = str(original_text or "").strip()
         updated_at = _now_iso()
-        with contextlib.closing(self._connect()) as conn:
-            with conn:
+        conn = self._connect()
+        with conn:
                 existing = conn.execute(
                     f"""
                     SELECT
@@ -955,18 +939,19 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     (stored_memory, stored_original_text, updated_at, memory_id, self.user_id),
                 )
                 conn.execute(
-                    f"DELETE FROM {self.fts_table_name} WHERE item_id = ?",
-                    (memory_id,),
+                    f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
+                    (memory_id, self.user_id),
                 )
                 conn.execute(
                     f"""
                     INSERT INTO {self.fts_table_name} (
                         memory,
                         original_text,
+                        user_id,
                         item_id
-                    ) VALUES (?, ?, ?)
+                    ) VALUES (?, ?, ?, ?)
                     """,
-                    (stored_memory, stored_original_text, memory_id),
+                    (stored_memory, stored_original_text, self.user_id, memory_id),
                 )
         if self._embedding_enabled():
             try:

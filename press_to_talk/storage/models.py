@@ -18,6 +18,9 @@ class APIToken(BaseModel):
     description = TextField(null=True)
     created_at = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
 
+    class Meta:
+        table_name = 'api_tokens'
+
 
 class SessionHistory(BaseModel):
     session_id = CharField(unique=True)
@@ -33,6 +36,9 @@ class SessionHistory(BaseModel):
     mode = CharField()
     created_at = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
 
+    class Meta:
+        table_name = 'session_histories'
+
 
 class RememberEntry(BaseModel):
     id = CharField(primary_key=True)
@@ -42,6 +48,9 @@ class RememberEntry(BaseModel):
     original_text = TextField()
     created_at = CharField()
     updated_at = CharField()
+
+    class Meta:
+        table_name = 'remember_entries'
 
 
 @dataclass
