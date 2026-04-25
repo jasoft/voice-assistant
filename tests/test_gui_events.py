@@ -144,9 +144,9 @@ class StorageCliTests(unittest.TestCase):
 
             stderr = io.StringIO()
             stdout = io.StringIO()
-            # We don't even need the patch if we set the env correctly and ensure it's loaded
-            with patch("press_to_talk.storage.service._storage_config_logged", False), \
-                 chdir(tmp_path), \
+            from press_to_talk.storage import service as storage_service_module
+            storage_service_module.reset_storage_config_logged()
+            with chdir(tmp_path), \
                  patch.dict(os.environ, {}, clear=True), \
                  redirect_stdout(stdout), \
                  redirect_stderr(stderr):
@@ -257,7 +257,7 @@ class StorageCliTests(unittest.TestCase):
             {
                 "updated": {
                     "id": "m1",
-                    "source_memory_id": "",
+                    "user_id": "default",
                     "memory": "壮壮改成明天下午去打篮球",
                     "original_text": "帮我改成明天下午去打篮球",
                     "created_at": "2026-04-22 12:00:00",

@@ -465,7 +465,18 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if not query_embeddings:
             return []
         query_vector = query_embeddings[0]
-        log(f"remember embedding search: query='{query}' model={self.embedding_model}")
+        log(
+            "remember embedding input: "
+            + json.dumps(
+                {
+                    "query": query,
+                    "model": self.embedding_model,
+                    "max_results": self.embedding_max_results,
+                    "min_score": self.embedding_min_score,
+                },
+                ensure_ascii=False,
+            )
+        )
 
         self._connect() # Ensure extension loaded
         cursor = db.execute_sql(
@@ -508,7 +519,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             candidates_text = "\n".join(
                 [f"  - [{c['score']:.4f}] {c['memory'][:80]}..." for c in sorted_candidates[:5]]
             )
-            log_multiline("remember embedding candidates (top 5)", candidates_text, level="debug")
+            log_multiline("remember embedding results", candidates_text, level="debug")
 
         scored_rows.sort(
             key=lambda item: (item[0], str(item[1]["updated_at"])), reverse=True
@@ -565,10 +576,11 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 [f"  - [{r['embedding_score']:.4f}] {r['memory'][:80]}..." for r in filtered_out]
             )
             log_multiline(
-                f"remember embedding filtered (score < {self.embedding_context_min_score})",
+                "remember embedding filtered",
                 filtered_text,
-                level="debug"
+                level="debug",
             )
+
         return accepted
 
     def add(

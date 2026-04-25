@@ -105,6 +105,12 @@ def _workflow_storage_config() -> dict[str, Any]:
 _storage_config_logged = False
 
 
+def reset_storage_config_logged() -> None:
+    """Reset the configuration logging flag. Used primarily for testing."""
+    global _storage_config_logged
+    _storage_config_logged = False
+
+
 def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
     global _storage_config_logged
     workflow_cfg = load_workflow_config()
@@ -139,15 +145,16 @@ def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
     if not r_path_obj.is_absolute():
         r_path_obj = (APP_ROOT / r_path_obj).resolve()
 
-    # Resolve base user_id from config or fallback
-    config_user_id = str(mem0_cfg.get("user_id", "default")).strip()
+    # Resolve user identities from their respective config blocks
+    local_config_user_id = str(storage_cfg.get("user_id", sqlite_cfg.get("user_id", "default"))).strip()
+    mem0_config_user_id = str(mem0_cfg.get("user_id", "default")).strip()
 
     config = StorageConfig(
         backend=str(env_str("PTT_REMEMBER_BACKEND", configured_backend)).strip()
         or configured_backend,
-        user_id=user_id_override or str(env_str("PTT_USER_ID", config_user_id)).strip(),
+        user_id=user_id_override or str(env_str("PTT_USER_ID", local_config_user_id)).strip(),
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
-        mem0_user_id=user_id_override or str(env_str("PTT_USER_ID", str(env_str("MEM0_USER_ID", config_user_id)))).strip(),
+        mem0_user_id=user_id_override or str(env_str("PTT_USER_ID", str(env_str("MEM0_USER_ID", mem0_config_user_id)))).strip(),
         mem0_app_id=app_id,
         mem0_min_score=env_float("MEM0_MIN_SCORE", float(mem0_cfg.get("min_score", 0.8))),
         mem0_max_items=max(1, env_int("MEM0_MAX_ITEMS", int(mem0_cfg.get("max_items", global_max_results)))),
@@ -203,8 +210,9 @@ def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
         for key, value in config.__dict__.items()
     }
     if not _storage_config_logged:
-        log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}", level="debug")
+        log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}", level="info")
         _storage_config_logged = True
+
     return config
 
 

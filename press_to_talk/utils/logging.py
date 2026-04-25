@@ -18,9 +18,6 @@ _SESSION_LOG_FILE: TextIO | None = None
 _SESSION_LOG_PATH: Path | None = None
 PROCESS_START_TS = time.perf_counter()
 
-# Dedicated console for high-precision stderr output
-_CONSOLE = Console(stderr=True, highlight=False)
-
 # Internal log level state
 _GLOBAL_LOG_LEVEL = logging.INFO
 
@@ -46,7 +43,6 @@ def _normalize_level(level: str) -> str:
 def log(msg: str, *, level: str = "info", stack_depth: int = 1) -> None:
     normalized_level = _normalize_level(level)
     
-    # Level numerical value check
     level_val = {
         "DEBUG": logging.DEBUG,
         "INFO": logging.INFO,
@@ -57,7 +53,6 @@ def log(msg: str, *, level: str = "info", stack_depth: int = 1) -> None:
     if level_val < _GLOBAL_LOG_LEVEL:
         return
 
-    # Get caller info
     frames = inspect.stack()
     if stack_depth < len(frames):
         caller_frame = frames[stack_depth]
@@ -67,14 +62,6 @@ def log(msg: str, *, level: str = "info", stack_depth: int = 1) -> None:
     caller_line = caller_frame.lineno
     location = f"{caller_file}:{caller_line}"
 
-    # High-contrast color mapping for Warp
-    level_colors = {
-        "DEBUG": "#00afff",   # Bright Sky Blue
-        "INFO": "#00ff00",    # Bright Lime Green
-        "WARN": "#ffff00",    # Bright Yellow
-        "ERROR": "#ff0000",   # Bright Red
-    }
-    
     level_styles = {
         "DEBUG": "bold white on #005f87",
         "INFO": "bold white on #008700",
@@ -91,13 +78,14 @@ def log(msg: str, *, level: str = "info", stack_depth: int = 1) -> None:
     
     style = level_styles.get(normalized_level, "white")
     icon = icons.get(normalized_level, "")
-    text_color = level_colors.get(normalized_level, "white")
     ts = time.strftime("%H:%M:%S")
     
-    # Format: HH:MM:SS [LEVEL] [FILE:LINE] ICON Message
-    # Disable highlighting to ensure text_color is strictly followed
-    _CONSOLE.print(
-        f"[dim green]{ts}[/] [{style}] {normalized_level:5} [/] [dim cyan]{location:20}[/] {icon} [{text_color}]{msg}[/]",
+    # Use standard console with explicit file object to ensure capture
+    # Also force color if it is a real TTY
+    console = Console(file=sys.stderr, highlight=False, force_terminal=(sys.stderr.isatty()))
+    
+    console.print(
+        f"[dim green]{ts}[/] [{style}] {normalized_level:5} [/] [dim cyan]{location:20}[/] {icon} {msg}",
         highlight=False
     )
 
@@ -111,9 +99,8 @@ def log(msg: str, *, level: str = "info", stack_depth: int = 1) -> None:
 
 def log_multiline(title: str, content: str, *, level: str = "debug") -> None:
     normalized = content if content else "<empty>"
-    # Log the title line
-    log(f"{title}:", level=level, stack_depth=2)
-    # Log each content line with proper indentation to keep it clean
+    t = title if title.endswith(":") else f"{title}:"
+    log(t, level=level, stack_depth=2)
     for line in normalized.splitlines():
         log(f"  {line}", level=level, stack_depth=2)
 

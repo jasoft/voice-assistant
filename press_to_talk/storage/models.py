@@ -83,10 +83,10 @@ class StorageConfig:
 @dataclass
 class RememberItemRecord:
     id: str
-    user_id: str
-    memory: str
-    original_text: str
-    created_at: str
+    user_id: str = "default"
+    memory: str = ""
+    original_text: str = ""
+    created_at: str = ""
     updated_at: str = ""
     source_memory_id: str = ""
 
