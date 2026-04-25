@@ -13,8 +13,12 @@ from ..utils.logging import log, log_multiline
 
 
 class CLIStoreBase:
+    def __init__(self, user_id: str = "default") -> None:
+        self.user_id = user_id
+
     def _run_process(self, args: list[str]) -> subprocess.CompletedProcess[str]:
-        cmd = [sys.executable, "-m", "press_to_talk.storage.cli_app", *args]
+        # Always inject mandatory --user-id argument
+        cmd = [sys.executable, "-m", "press_to_talk.storage.cli_app", "--user-id", self.user_id, *args]
         # Use shlex.join for a more readable command log that handles quoting correctly
         log("storage cli exec: " + shlex.join(cmd), level="debug")
         
@@ -42,6 +46,9 @@ class CLIStoreBase:
 
 
 class CLIHistoryStore(BaseHistoryStore, CLIStoreBase):
+    def __init__(self, user_id: str = "default") -> None:
+        super().__init__(user_id=user_id)
+
     def persist(self, entry: SessionHistoryRecord) -> None:
         self._run_json(["history", "add", "--json", json.dumps(asdict(entry), ensure_ascii=False)])
 
@@ -59,8 +66,10 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
     def __init__(
         self,
         *,
+        user_id: str = "default",
         summary_extractor: BaseRememberStore | Callable[[], BaseRememberStore] | None = None,
     ) -> None:
+        super().__init__(user_id=user_id)
         self.summary_extractor = summary_extractor
 
     def add(self, *, memory: str, original_text: str = "") -> str:

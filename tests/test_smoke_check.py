@@ -21,6 +21,7 @@ class SmokeCheckTests(unittest.TestCase):
         cmd = [
             sys.executable, "-m", "press_to_talk",
             "start",
+            "--user-id", "default",
             "--text-input", "usb测试版在哪",
             "--no-tts"
         ]

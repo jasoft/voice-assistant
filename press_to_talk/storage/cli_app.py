@@ -44,23 +44,9 @@ class AgentFriendlyArgumentParser(argparse.ArgumentParser):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    prog_name = Path(sys.argv[0]).name
-    if prog_name == "cli_app.py" or prog_name == "__main__.py":
-        prog_name = "python3 -m press_to_talk.storage.cli_app"
+    prog_name = "ptt-storage"
 
-    # Define base parser with shared arguments to be inherited by action-performing subparsers
-    base_parser = argparse.ArgumentParser(add_help=False)
-    base_parser.add_argument(
-        "--user-id",
-        default=None,
-        help="Target user ID for the operation. If not provided, uses defaults from config/env.",
-    )
-    base_parser.add_argument(
-        "-v", "--debug",
-        action="store_true",
-        help="Enable debug logging for storage operations.",
-    )
-
+    # Main parser
     parser = AgentFriendlyArgumentParser(
         prog=prog_name,
         description=(
@@ -69,37 +55,29 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Examples:\n"
-            f"  {prog_name} history list --limit 5\n"
-            f"  {prog_name} history list --query \"passport\"\n"
-            f"  {prog_name} history add --json '{{\"session_id\":\"abc\",...}}'\n"
-            f"  {prog_name} memory search --query 'usb'\n"
-            f"  {prog_name} memory search --query '\"usb\" OR \"测试版\"' | jq '.results[] | .memory'\n"
-            f"  {prog_name} memory add --memory \"The passport is in the top drawer\" --original-text \"My passport is in the top drawer\"\n"
-            f"  {prog_name} memory delete --id <uuid>\n"
+            f"  {prog_name} --user-id default history list --limit 5\n"
+            f"  {prog_name} --user-id default memory search --query \"passport\"\n"
         ),
         formatter_class=AgentHelpFormatter,
     )
     
-    # Add top-level global arguments (for leading usage like: ptt-storage -v history list)
+    # Global arguments (defined only once at top level for clarity)
     parser.add_argument(
         "--user-id",
-        default=None,
-        help="Target user ID for the operation. (Top-level)",
+        help="Target user ID for the operation. (Required)",
     )
     parser.add_argument(
         "-v", "--debug",
         action="store_true",
-        help="Enable debug logging. (Top-level)",
+        help="Enable debug logging.",
     )
 
     subparsers = parser.add_subparsers(dest="category", required=True)
 
     # Doctor command
-    doctor_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "doctor",
-        parents=[base_parser],
         help="Check configuration and connectivity of storage backends",
-        description=f"Verify environment variables and database accessibility. Run as `{prog_name} doctor`.",
         formatter_class=AgentHelpFormatter,
     )
 
@@ -107,168 +85,52 @@ def build_parser() -> argparse.ArgumentParser:
     history_parser = subparsers.add_parser(
         "history",
         help="Read/write session history records",
-        description=(
-            "Session history CRUD.\n"
-            "Use this to list, insert, or delete past conversation records."
-        ),
         formatter_class=AgentHelpFormatter,
     )
     history_sub = history_parser.add_subparsers(dest="command", required=True)
 
-    h_list = history_sub.add_parser(
-        "list",
-        parents=[base_parser],
-        help="List history records as JSON",
-        description="Return recent session history records as a JSON array.",
-        formatter_class=AgentHelpFormatter,
-    )
-    h_list.add_argument(
-        "--limit",
-        type=int,
-        default=10,
-        help="Maximum number of records to return, ordered by newest first.",
-    )
-    h_list.add_argument(
-        "--query",
-        default="",
-        help="Optional substring filter applied to transcript and reply fields.",
-    )
+    h_list = history_sub.add_parser("list", help="List history", formatter_class=AgentHelpFormatter)
+    h_list.add_argument("--limit", type=int, default=10)
+    h_list.add_argument("--query", default="")
 
-    h_add = history_sub.add_parser(
-        "add",
-        parents=[base_parser],
-        help="Insert or update one history record",
-        description="Persist one complete session history record from a JSON object.",
-        formatter_class=AgentHelpFormatter,
-    )
-    h_add.add_argument(
-        "--json",
-        required=True,
-        help="Full SessionHistoryRecord JSON object with session_id, timestamps, transcript, reply, levels, and mode.",
-    )
+    h_add = history_sub.add_parser("add", help="Add history", formatter_class=AgentHelpFormatter)
+    h_add.add_argument("--json", required=True)
 
-    h_del = history_sub.add_parser(
-        "delete",
-        parents=[base_parser],
-        help="Delete one history record by session_id",
-        description="Delete exactly one history record using its session_id.",
-        formatter_class=AgentHelpFormatter,
-    )
-    h_del.add_argument(
-        "--session-id",
-        required=True,
-        help="Unique session_id of the history record to delete.",
-    )
+    h_del = history_sub.add_parser("delete", help="Delete history", formatter_class=AgentHelpFormatter)
+    h_del.add_argument("--session-id", required=True)
 
     # Memory commands
     memory_parser = subparsers.add_parser(
         "memory",
         help="Read/write long-term memory entries",
-        description=(
-            "Long-term memory CRUD.\n"
-            "Search returns JSON shaped as {\"results\": [...]} so it can be piped to jq."
-        ),
         formatter_class=AgentHelpFormatter,
     )
     memory_sub = memory_parser.add_subparsers(dest="command", required=True)
 
-    m_add = memory_sub.add_parser(
-        "add",
-        parents=[base_parser],
-        help="Insert one memory entry",
-        description="Persist one long-term memory entry and its original source text.",
-        formatter_class=AgentHelpFormatter,
-    )
-    m_add.add_argument("--memory", required=True, help="Cleaned memory text to store.")
-    m_add.add_argument(
-        "--original-text",
-        default="",
-        help="Optional raw source text or transcript associated with the memory.",
-    )
+    m_add = memory_sub.add_parser("add", help="Add memory", formatter_class=AgentHelpFormatter)
+    m_add.add_argument("--memory", required=True)
+    m_add.add_argument("--original-text", default="")
 
-    m_search = memory_sub.add_parser(
-        "search",
-        parents=[base_parser],
-        help="Search memory entries and return JSON results",
-        description=(
-            "Search long-term memory entries.\n"
-            "For sqlite simple_query, pass keywords and let the storage layer split them."
-        ),
-        formatter_class=AgentHelpFormatter,
-    )
-    m_search.add_argument("--query", required=True, help="Search keywords or sentence.")
-    m_search.add_argument(
-        "--min-score",
-        type=float,
-        default=0.0,
-        help="Minimum similarity score threshold (0.0 to 1.0).",
-    )
-    m_search.add_argument(
-        "--start-date",
-        help="Start date for range query (YYYY-MM-DD).",
-    )
-    m_search.add_argument(
-        "--end-date",
-        help="End date for range query (YYYY-MM-DD).",
-    )
+    m_search = memory_sub.add_parser("search", help="Search memory", formatter_class=AgentHelpFormatter)
+    m_search.add_argument("--query", required=True)
+    m_search.add_argument("--min-score", type=float, default=0.0)
+    m_search.add_argument("--start-date")
+    m_search.add_argument("--end-date")
 
-    m_del = memory_sub.add_parser(
-        "delete",
-        parents=[base_parser],
-        help="Delete one memory entry by id",
-        description="Delete exactly one memory entry using its unique id.",
-        formatter_class=AgentHelpFormatter,
-    )
-    m_del.add_argument("--id", required=True, help="Unique memory id to delete.")
+    m_del = memory_sub.add_parser("delete", help="Delete memory", formatter_class=AgentHelpFormatter)
+    m_del.add_argument("--id", required=True)
 
-    m_update = memory_sub.add_parser(
-        "update",
-        parents=[base_parser],
-        help="Update one memory entry by id",
-        description="Update exactly one memory entry using its unique id.",
-        formatter_class=AgentHelpFormatter,
-    )
-    m_update.add_argument("--id", required=True, help="Unique memory id to delete.")
-    m_update.add_argument("--memory", required=True, help="New memory text to store.")
-    m_update.add_argument(
-        "--original-text",
-        default="",
-        help="Optional updated raw source text associated with the memory.",
-    )
+    m_update = memory_sub.add_parser("update", help="Update memory", formatter_class=AgentHelpFormatter)
+    m_update.add_argument("--id", required=True)
+    m_update.add_argument("--memory", required=True)
+    m_update.add_argument("--original-text", default="")
 
-    m_list = memory_sub.add_parser(
-        "list",
-        parents=[base_parser],
-        help="List memory entries as JSON",
-        description="Return stored memory entries as a JSON array.",
-        formatter_class=AgentHelpFormatter,
-    )
-    m_list.add_argument(
-        "--limit",
-        type=int,
-        default=100,
-        help="Maximum number of entries to return.",
-    )
-    m_list.add_argument(
-        "--offset",
-        type=int,
-        default=0,
-        help="Number of memory entries to skip for pagination.",
-    )
+    m_list = memory_sub.add_parser("list", help="List memories", formatter_class=AgentHelpFormatter)
+    m_list.add_argument("--limit", type=int, default=100)
+    m_list.add_argument("--offset", type=int, default=0)
 
-    m_export = memory_sub.add_parser(
-        "export",
-        parents=[base_parser],
-        help="Export local memories to another provider (e.g., mem0)",
-        description="Migrate all local SQLite memories to a cloud provider like mem0.",
-        formatter_class=AgentHelpFormatter,
-    )
-    m_export.add_argument(
-        "--to-provider",
-        required=True,
-        choices=["mem0", "sqlite_fts5"],
-        help="Target provider to export to.",
-    )
+    m_export = memory_sub.add_parser("export", help="Export memories", formatter_class=AgentHelpFormatter)
+    m_export.add_argument("--to-provider", required=True, choices=["mem0", "sqlite_fts5"])
 
     return parser
 
@@ -293,29 +155,46 @@ def main(argv: list[str] | None = None) -> int:
     from ..utils.env import load_env_files
     load_env_files()
 
-    parsed_argv = list(sys.argv[1:] if argv is None else argv)
+    # Get input args
+    input_args = list(sys.argv[1:] if argv is None else argv)
     
-    # Pre-interception for 'doctor'
-    if parsed_argv and parsed_argv[0] == "doctor":
+    # Pre-interception for 'doctor' (legacy behavior)
+    if input_args and input_args[0] == "doctor":
         return _run_storage_doctor()
 
     parser = build_parser()
-    if not parsed_argv:
+    
+    # Pre-parse just to see if we have help request or no subcommand
+    global_parser = argparse.ArgumentParser(add_help=False)
+    global_parser.add_argument("--user-id")
+    global_parser.add_argument("-v", "--debug", action="store_true")
+    global_args, remaining_argv = global_parser.parse_known_args(input_args)
+
+    # 2. 帮助信息处理
+    if not input_args or "-h" in input_args or "--help" in input_args:
+        parser.print_help()
+        return 0
+
+    # If only global args are present but no action, show help and return 0
+    if not remaining_argv:
         parser.print_help()
         return 0
     
-    args = parser.parse_args(parsed_argv)
+    # 3. 解析正式参数
+    try:
+        args = parser.parse_args(input_args)
+    except SystemExit as e:
+        raise # Re-raise for error reporting and tests
+
+    # 4. 强制要求 user_id
+    effective_user_id = args.user_id or global_args.user_id
+    if not effective_user_id:
+        parser.error("argument --user-id is required")
 
     from press_to_talk.utils.logging import set_global_log_level
     from press_to_talk.storage.memory_backends import export_memories_to_provider
 
-    # Merge top-level and sub-command arguments
-    # (In nested argparse, the last seen argument wins, but parents might override)
-    # We prioritize sub-command arguments if they were provided (not None)
-    # But argparse handles this automatically if same dest.
-    # The real issue is debug vs -v and inheritance.
-
-    if args.debug:
+    if args.debug or global_args.debug:
         set_global_log_level("DEBUG")
     else:
         set_global_log_level("INFO")
@@ -324,7 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         exit_code = 0
         with contextlib.redirect_stderr(stderr_buffer):
-            config = load_storage_config(user_id_override=args.user_id)
+            config = load_storage_config(user_id_override=effective_user_id)
+            
             if args.category == "doctor":
                 return _run_storage_doctor()
 

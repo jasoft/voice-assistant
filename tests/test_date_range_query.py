@@ -45,7 +45,7 @@ def test_sqlite_date_range_query(temp_db):
 async def test_agent_date_extraction():
     # 测试 Agent 是否能从“今天记了什么”中提取出日期
     from press_to_talk.models.config import parse_args
-    cfg = parse_args(["--api-key", "fake", "--base-url", "http://localhost:8000/v1", "--model", "fast"])
+    cfg = parse_args(["--user-id", "default", "--api-key", "fake", "--base-url", "http://localhost:8000/v1", "--model", "fast"])
     agent = OpenAICompatibleAgent(cfg)
     
     # 模拟 LLM 返回
@@ -89,7 +89,7 @@ async def test_agent_date_extraction():
 @pytest.mark.anyio
 async def test_agent_system_prompt_integrity():
     from press_to_talk.models.config import parse_args
-    cfg = parse_args(["--api-key", "fake", "--base-url", "http://localhost:8000/v1", "--model", "fast"])
+    cfg = parse_args(["--user-id", "default", "--api-key", "fake", "--base-url", "http://localhost:8000/v1", "--model", "fast"])
     agent = OpenAICompatibleAgent(cfg)
     
     messages = agent._build_intent_extractor_messages("test")

@@ -111,7 +111,7 @@ class StorageCliTests(unittest.TestCase):
         stderr = io.StringIO()
 
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            code = storage_cli_app.main([])
+            code = storage_cli_app.main(["--user-id", "default"])
 
         self.assertEqual(code, 0)
         self.assertIn("Standalone Storage CLI", stdout.getvalue())
@@ -150,7 +150,7 @@ class StorageCliTests(unittest.TestCase):
                  patch.dict(os.environ, {}, clear=True), \
                  redirect_stdout(stdout), \
                  redirect_stderr(stderr):
-                code = storage_cli_app.main(["-v", "history", "list", "--limit", "5"])
+                code = storage_cli_app.main(["--user-id", "default", "-v", "history", "list", "--limit", "5"])
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(stdout.getvalue().strip()), [])
             self.assertIn("Storage configuration loaded", stderr.getvalue())
@@ -177,7 +177,7 @@ class StorageCliTests(unittest.TestCase):
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
-            code = storage_cli_app.main(["memory", "search", "--query", "壮壮"])
+            code = storage_cli_app.main(["--user-id", "default", "memory", "search", "--query", "壮壮"])
 
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(stdout.getvalue().strip()), fake_results)
@@ -209,7 +209,7 @@ class StorageCliTests(unittest.TestCase):
             redirect_stdout(stdout),
             redirect_stderr(stderr),
         ):
-            code = storage_cli_app.main(["memory", "search", "--query", "壮壮"])
+            code = storage_cli_app.main(["--user-id", "default", "memory", "search", "--query", "壮壮"])
 
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(stdout.getvalue().strip()), fake_results)
@@ -240,6 +240,7 @@ class StorageCliTests(unittest.TestCase):
         ):
             code = storage_cli_app.main(
                 [
+                    "--user-id", "default",
                     "memory",
                     "update",
                     "--id",

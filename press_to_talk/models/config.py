@@ -193,8 +193,8 @@ def parse_args(argv: list[str] | None = None) -> Config:
     )
     parser.add_argument(
         "--user-id",
-        default=env_str("PTT_USER_ID", "default"),
-        help="用户 ID，用于多用户数据隔离",
+        required=True,
+        help="用户 ID，用于多用户数据隔离 (必填)",
     )
     parser.add_argument(
         "-v", "--debug",

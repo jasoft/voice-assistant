@@ -57,7 +57,7 @@ async def speech_to_text(audio: UploadFile = File(...)):
         with audio_path.open("wb") as buffer:
             shutil.copyfileobj(audio.file, buffer)
         
-        cfg = parse_args(["--no-tts"])
+        cfg = parse_args(["--user-id", "web-user", "--no-tts"])
         log(f"Web API: transcribing {audio_path}", level="debug")
         transcript = run_stt(cfg.stt_url, cfg.stt_token, str(audio_path))
         log(f"Web API: transcript result: '{transcript}'", level="debug")
@@ -75,7 +75,7 @@ async def speech_to_text(audio: UploadFile = File(...)):
 async def execute_text(transcript: str, session_id: str):
     log(f"Web API [Execute] session={session_id} transcript='{transcript}'", level="debug")
     try:
-        cfg = parse_args(["--no-tts"])
+        cfg = parse_args(["--user-id", "web-user", "--no-tts"])
         reply = await execute_transcript_async(cfg, transcript)
         log(f"Web API: execution reply ready: '{reply[:50]}...'", level="debug")
         
@@ -106,7 +106,7 @@ async def process_audio(audio: UploadFile = File(...)):
             shutil.copyfileobj(audio.file, buffer)
         
         # 构造配置
-        cfg = parse_args(["--no-tts"])
+        cfg = parse_args(["--user-id", "web-user", "--no-tts"])
         
         # 1. 语音转文字
         log(f"Web API: transcribing {audio_path}", level="debug")

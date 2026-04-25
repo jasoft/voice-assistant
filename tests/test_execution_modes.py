@@ -36,7 +36,7 @@ class ExecutionModeConfigTests(unittest.TestCase):
                 clear=True,
             ),
         ):
-            return config_module.parse_args(argv)
+            return config_module.parse_args(["--user-id", "default"] + argv)
 
     def test_parse_args_uses_workflow_default_execution_mode(self) -> None:
         config = self.parse_config(
@@ -105,7 +105,7 @@ class ExecutionModeConfigTests(unittest.TestCase):
                 clear=True,
             ),
         ):
-            config = config_module.parse_args(["--text-input", "你好"])
+            config = config_module.parse_args(["--user-id", "default", "--text-input", "你好"])
 
         self.assertEqual(config.llm_model, "intent-model")
         self.assertEqual(config.llm_summarize_model, "summary-model")
