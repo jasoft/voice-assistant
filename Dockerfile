@@ -4,12 +4,15 @@ FROM python:3.13-slim
 # 设置工作目录
 WORKDIR /app
 
-# 安装必要的系统依赖 (如音频处理库，虽然 Docker 内可能不需要录音)
+# 安装必要的系统依赖
 RUN apt-get update && apt-get install -y \
     curl \
     git \
     libasound2 \
     portaudio19-dev \
+    gcc \
+    python3-dev \
+    libevdev-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 uv
