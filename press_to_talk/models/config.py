@@ -38,7 +38,7 @@ class Config:
     execution_mode: str
     force_ask: bool = False
     force_record: bool = False
-    user_id: str = "soj"
+    user_id: str = "default"
     use_cli: bool = True
 
 @dataclass
@@ -193,7 +193,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
     )
     parser.add_argument(
         "--user-id",
-        default=env_str("PTT_USER_ID", "soj"),
+        default=env_str("PTT_USER_ID", "default"),
         help="用户 ID，用于多用户数据隔离",
     )
     parser.add_argument(

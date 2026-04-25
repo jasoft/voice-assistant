@@ -22,8 +22,9 @@ class NullHistoryStore(BaseHistoryStore):
 
 
 class SQLiteHistoryStore(BaseHistoryStore):
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, user_id: str = "default") -> None:
         self.db_path = Path(db_path).expanduser()
+        self.user_id = user_id
 
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -34,7 +35,7 @@ class SQLiteHistoryStore(BaseHistoryStore):
             CREATE TABLE IF NOT EXISTS session_histories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL UNIQUE,
-                user_id TEXT NOT NULL DEFAULT 'soj',
+                user_id TEXT NOT NULL,
                 started_at TEXT NOT NULL,
                 ended_at TEXT NOT NULL,
                 transcript TEXT NOT NULL,
@@ -95,7 +96,7 @@ class SQLiteHistoryStore(BaseHistoryStore):
                     """,
                     (
                         entry.session_id,
-                        "soj", # Default user_id for SQLiteHistoryStore
+                        self.user_id,
                         entry.started_at,
                         entry.ended_at,
                         entry.transcript,
@@ -125,11 +126,12 @@ class SQLiteHistoryStore(BaseHistoryStore):
                 reopened_by_click,
                 mode
             FROM session_histories
+            WHERE user_id = ?
         """
-        params: list[Any] = []
+        params: list[Any] = [self.user_id]
         trimmed_query = query.strip()
         if trimmed_query:
-            sql += " WHERE transcript LIKE ? OR reply LIKE ?"
+            sql += " AND (transcript LIKE ? OR reply LIKE ?)"
             pattern = f"%{trimmed_query}%"
             params.extend([pattern, pattern])
         sql += " ORDER BY started_at DESC LIMIT ?"
@@ -156,8 +158,8 @@ class SQLiteHistoryStore(BaseHistoryStore):
         with contextlib.closing(self._connect()) as conn:
             with conn:
                 conn.execute(
-                    "DELETE FROM session_histories WHERE session_id = ?",
-                    (session_id.strip(),),
+                    "DELETE FROM session_histories WHERE session_id = ? AND user_id = ?",
+                    (session_id.strip(), self.user_id),
                 )
 
 
@@ -265,7 +267,7 @@ def migrate_history_table(
             CREATE TABLE IF NOT EXISTS session_histories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL UNIQUE,
-                user_id TEXT NOT NULL DEFAULT 'soj',
+                user_id TEXT NOT NULL,
                 started_at TEXT NOT NULL,
                 ended_at TEXT NOT NULL,
                 transcript TEXT NOT NULL,
@@ -293,7 +295,7 @@ def migrate_history_table(
         )
         with target_conn:
             for row in rows:
-                user_id = str(row["user_id"]) if has_user_id else "soj"
+                user_id = str(row["user_id"]) if has_user_id else "default"
                 target_conn.execute(
                     """
                     INSERT INTO session_histories (

@@ -56,9 +56,9 @@ class RememberEntry(BaseModel):
 @dataclass
 class StorageConfig:
     backend: str = "mem0"
-    user_id: str = "soj"
+    user_id: str = "default"
     mem0_api_key: str = ""
-    mem0_user_id: str = "soj"
+    mem0_user_id: str = "default"
     mem0_app_id: str = "voice-assistant"
     mem0_min_score: float = 0.8
     mem0_max_items: int = 20

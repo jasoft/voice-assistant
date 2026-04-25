@@ -146,14 +146,14 @@ class Mem0RememberStore(BaseRememberStore):
         self,
         *,
         api_key: str = "",
-        user_id: str = "soj",
+        user_id: str = "default",
         app_id: str = "",
         client: Any | None = None,
     ) -> None:
         if client is None and not api_key.strip():
             raise RuntimeError("mem0 配置缺失：MEM0_API_KEY")
         self.client = client if client is not None else create_mem0_client(api_key)
-        self.user_id = user_id.strip() or "soj"
+        self.user_id = user_id.strip() or "default"
         self.app_id = app_id.strip()
 
     @classmethod

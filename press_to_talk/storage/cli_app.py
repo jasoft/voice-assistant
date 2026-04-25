@@ -42,8 +42,22 @@ def build_parser() -> argparse.ArgumentParser:
     if prog_name == "cli_app.py" or prog_name == "__main__.py":
         prog_name = "python3 -m press_to_talk.storage.cli_app"
 
+    # Define base parser with shared arguments
+    base_parser = argparse.ArgumentParser(add_help=False)
+    base_parser.add_argument(
+        "--user-id",
+        default=None,
+        help="Target user ID for the operation. If not provided, uses PTT_USER_ID from environment.",
+    )
+    base_parser.add_argument(
+        "-v", "--debug",
+        action="store_true",
+        help="Enable debug logging for storage operations.",
+    )
+
     parser = AgentFriendlyArgumentParser(
         prog=prog_name,
+        parents=[base_parser],
         description=(
             "Standalone Storage CLI for session history and long-term memory.\n"
             "Designed for agents: successful commands emit machine-readable JSON to stdout."
@@ -60,16 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=AgentHelpFormatter,
     )
-    parser.add_argument(
-        "--user-id",
-        default=None,
-        help="Target user ID for the operation. If not provided, uses PTT_USER_ID from environment.",
-    )
     subparsers = parser.add_subparsers(dest="category", required=True)
 
     # Doctor command
     doctor_parser = subparsers.add_parser(
         "doctor",
+        parents=[base_parser],
         help="Check configuration and connectivity of storage backends",
         description=f"Verify environment variables and database accessibility. Run as `{prog_name} doctor`.",
         formatter_class=AgentHelpFormatter,
@@ -77,6 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     history_parser = subparsers.add_parser(
         "history",
+        parents=[base_parser],
         help="Read/write session history records",
         description=(
             "Session history CRUD.\n"
@@ -93,6 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     history_sub = history_parser.add_subparsers(dest="command", required=True)
     h_list = history_sub.add_parser(
         "list",
+        parents=[base_parser],
         help="List history records as JSON",
         description="Return recent session history records as a JSON array.",
         formatter_class=AgentHelpFormatter,
@@ -110,6 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     h_add = history_sub.add_parser(
         "add",
+        parents=[base_parser],
         help="Insert or update one history record",
         description="Persist one complete session history record from a JSON object.",
         formatter_class=AgentHelpFormatter,
@@ -121,6 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     h_del = history_sub.add_parser(
         "delete",
+        parents=[base_parser],
         help="Delete one history record by session_id",
         description="Delete exactly one history record using its session_id.",
         formatter_class=AgentHelpFormatter,
@@ -133,6 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     memory_parser = subparsers.add_parser(
         "memory",
+        parents=[base_parser],
         help="Read/write long-term memory entries",
         description=(
             "Long-term memory CRUD.\n"
@@ -151,6 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
     memory_sub = memory_parser.add_subparsers(dest="command", required=True)
     m_add = memory_sub.add_parser(
         "add",
+        parents=[base_parser],
         help="Insert one memory entry",
         description="Persist one long-term memory entry and its original source text.",
         formatter_class=AgentHelpFormatter,
@@ -167,6 +183,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m_search = memory_sub.add_parser(
         "search",
+        parents=[base_parser],
         help="Search memory entries and return JSON results",
         description=(
             "Search long-term memory entries.\n"
@@ -195,6 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m_del = memory_sub.add_parser(
         "delete",
+        parents=[base_parser],
         help="Delete one memory entry by id",
         description="Delete exactly one memory entry using its unique id.",
         formatter_class=AgentHelpFormatter,
@@ -206,6 +224,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m_update = memory_sub.add_parser(
         "update",
+        parents=[base_parser],
         help="Update one memory entry by id",
         description="Update exactly one memory entry using its unique id.",
         formatter_class=AgentHelpFormatter,
@@ -227,6 +246,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m_list = memory_sub.add_parser(
         "list",
+        parents=[base_parser],
         help="List memory entries as JSON",
         description="Return stored memory entries as a JSON array.",
         formatter_class=AgentHelpFormatter,
@@ -245,8 +265,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m_export = memory_sub.add_parser(
         "export",
+        parents=[base_parser],
         help="Export local memories to another provider (e.g., mem0)",
-        description="Migrate all local SQLite memories to a cloud provider like mem0. Uses user_id=soj and no app_id.",
+        description="Migrate all local SQLite memories to a cloud provider like mem0.",
         formatter_class=AgentHelpFormatter,
     )
     m_export.add_argument(
@@ -254,11 +275,6 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         choices=["mem0", "sqlite_fts5"],
         help="Target provider to export to.",
-    )
-    parser.add_argument(
-        "-v", "--debug",
-        action="store_true",
-        help="Enable debug logging for storage operations.",
     )
     return parser
 
