@@ -18,7 +18,14 @@ class CLIStoreBase:
         log("storage cli exec: " + shlex.join(cmd), level="debug")
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
         if result.stderr.strip():
-            log_multiline("storage cli stderr", result.stderr.strip())
+            # If stderr contains formatted logs (e.g. from our own logging system), 
+            # we should print them line by line to avoid redundant prefixes.
+            for line in result.stderr.strip().splitlines():
+                if any(lvl in line for lvl in ["DEBUG", "INFO", "WARN", "ERROR"]):
+                    # Already formatted, print as is to stderr to maintain flow
+                    sys.stderr.write(line + "\n")
+                else:
+                    log(f"storage cli stderr: {line}", level="debug")
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error"
             raise RuntimeError(f"Storage CLI error: {error_msg}")

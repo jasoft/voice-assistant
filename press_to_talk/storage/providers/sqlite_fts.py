@@ -724,6 +724,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     "created_at": format_local_datetime(str(row.created_at)),
                     "updated_at": format_local_datetime(str(row.updated_at)),
                     "score": 1.0, # 时间范围查询默认高置信度，交给 LLM 筛选
+                    "source": "date_range",
                     "metadata": {"original_text": str(row.original_text)},
                 }
                 for row in q
@@ -747,6 +748,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                             float(row["embedding_score"]),
                             self.embedding_context_min_score,
                         ),
+                        "source": "semantic",
                         "metadata": {
                             "original_text": str(row["original_text"]),
                             "embedding_score": float(row["embedding_score"]),
@@ -854,6 +856,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 "created_at": format_local_datetime(str(row["created_at"])),
                 "updated_at": format_local_datetime(str(row["updated_at"])),
                 "score": _fts_confidence(index),
+                "source": "keyword",
                 "metadata": {"original_text": str(row["original_text"])},
             }
             for index, row in enumerate(filtered_rows)
@@ -866,6 +869,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     if semantic_id in seen_ids:
                         for item in results:
                             if str(item["id"]) == semantic_id:
+                                item["source"] = "both"
                                 item.setdefault("metadata", {})["embedding_score"] = (
                                     semantic_row["embedding_score"]
                                 )
@@ -885,6 +889,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                                 float(semantic_row["embedding_score"]),
                                 self.embedding_context_min_score,
                             ),
+                            "source": "semantic",
                             "metadata": {
                                 "original_text": str(semantic_row["original_text"]),
                                 "embedding_score": float(
