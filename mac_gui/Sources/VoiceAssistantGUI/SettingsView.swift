@@ -1,6 +1,110 @@
 import SwiftUI
 import VoiceAssistantGUIKit
 
+// A wrapper around NSTextView that properly supports copy/paste keyboard shortcuts
+struct FocusableTextEditor: NSViewControllerRepresentable {
+    @Binding var text: String
+
+    func makeNSViewController(context: Context) -> NSViewController {
+        let coordinator = context.coordinator
+        let vc = TextEditorVC(coordinator: coordinator)
+        vc.text = text
+        return vc
+    }
+
+    func updateNSViewController(_ nsViewController: NSViewController, context: Context) {
+        if let vc = nsViewController as? TextEditorVC {
+            vc.text = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    class Coordinator: NSObject {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+    }
+}
+
+class TextEditorVC: NSViewController {
+    var coordinator: FocusableTextEditor.Coordinator
+    var text: String = "" {
+        didSet {
+            if let textView = textView, textView.string != text {
+                textView.string = text
+            }
+        }
+    }
+
+    private weak var textView: NSTextView?
+
+    init(coordinator: FocusableTextEditor.Coordinator) {
+        self.coordinator = coordinator
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let scrollView = NSTextView.scrollableTextView()
+        guard let textView = scrollView.documentView as? NSTextView else {
+            fatalError("Failed to get NSTextView from scrollableTextView")
+        }
+        self.textView = textView
+
+        setupTextView(textView)
+        self.view = scrollView
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        // Make text view first responder when view appears
+        if let textView = textView {
+            view.window?.makeFirstResponder(textView)
+        }
+    }
+
+    private func setupTextView(_ textView: NSTextView) {
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        textView.string = text
+        textView.isSelectable = true
+        textView.isEditable = true
+        textView.allowsUndo = true // 启用撤销支持
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+
+        if let textContainer = textView.textContainer {
+            textContainer.widthTracksTextView = true
+            textContainer.heightTracksTextView = false
+        }
+
+        textView.delegate = self
+    }
+}
+
+extension TextEditorVC: NSTextViewDelegate {
+    func textDidChange(_ notification: Notification) {
+        guard let textView = notification.object as? NSTextView else { return }
+        coordinator.text.wrappedValue = textView.string
+    }
+}
+
 struct SettingsView: View {
     let store: MemoryStore
     @State private var memories: [MemoryEntry] = []
@@ -212,16 +316,16 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func borderedEditor(text: Binding<String>) -> some View {
-        TextEditor(text: text)
-            .font(.body)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 10)
+        FocusableTextEditor(text: text)
             .frame(minHeight: 110)
-            .background(Color(NSColor.textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
+            .padding(1) // Small padding for the border
+            .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.secondary.opacity(0.3))
+                    .fill(Color(NSColor.textBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                    )
             )
     }
 
