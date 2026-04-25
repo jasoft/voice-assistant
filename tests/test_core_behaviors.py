@@ -81,7 +81,7 @@ class FakeRememberStore:
         self.add_calls.append(dict(kwargs))
         return f"ADD:{kwargs['memory']}"
 
-    def find(self, *, query: str, min_score: float = 0.0) -> str:
+    def find(self, *, query: str, min_score: float = 0.0, start_date: str | None = None, end_date: str | None = None) -> str:
         self.find_calls.append(query)
         if self.search_response != {"results": []}:
             if isinstance(self.search_response, (list, dict)):
@@ -226,20 +226,35 @@ class FakeMem0Client:
         return {"results": list(self.memories)}
 
 
+class MaybeAsync:
+    def __init__(self, value: Any) -> None:
+        self.value = value
+
+    def __await__(self) -> Any:
+        async def _f():
+            return self.value
+        return _f().__await__()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.value, name)
+
+
 class FakeChatCompletions:
     def __init__(self, response_content: str) -> None:
         self.response_content = response_content
         self.calls: list[dict[str, object]] = []
 
-    def create(self, **kwargs: object) -> SimpleNamespace:
+    def create(self, **kwargs: object) -> Any:
         self.calls.append(dict(kwargs))
-        return SimpleNamespace(
-            choices=[
-                SimpleNamespace(
-                    finish_reason="stop",
-                    message=SimpleNamespace(content=self.response_content),
-                )
-            ]
+        return MaybeAsync(
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        finish_reason="stop",
+                        message=SimpleNamespace(content=self.response_content),
+                    )
+                ]
+            )
         )
 
 
@@ -254,16 +269,18 @@ class SequentialFakeChatCompletions:
         self.response_contents = list(response_contents)
         self.calls: list[dict[str, object]] = []
 
-    def create(self, **kwargs: object) -> SimpleNamespace:
+    def create(self, **kwargs: object) -> Any:
         self.calls.append(dict(kwargs))
         content = self.response_contents.pop(0)
-        return SimpleNamespace(
-            choices=[
-                SimpleNamespace(
-                    finish_reason="stop",
-                    message=SimpleNamespace(content=content),
-                )
-            ]
+        return MaybeAsync(
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        finish_reason="stop",
+                        message=SimpleNamespace(content=content),
+                    )
+                ]
+            )
         )
 
 
@@ -724,10 +741,12 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent.summary_model = "summary-model"
         agent.workflow = workflow_with_prompts()
 
-        summary = agent._summarize_remember_output(
-            "remember_find",
-            "**护照**\n📌 内容: 书房抽屉里",
-            user_question="护照在哪",
+        summary = self.async_run(
+            agent._summarize_remember_output(
+                "remember_find",
+                "**护照**\n📌 内容: 书房抽屉里",
+                user_question="护照在哪",
+            )
         )
 
         self.assertEqual(summary, "护照在书房抽屉里。")
@@ -741,10 +760,12 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent.workflow = workflow_with_prompts()
         agent.storage = FakeStorageService()
 
-        summary = agent._summarize_remember_output(
-            "remember_find",
-            "**护照**\n📌 内容: 书房抽屉里",
-            user_question="护照在哪",
+        summary = self.async_run(
+            agent._summarize_remember_output(
+                "remember_find",
+                "**护照**\n📌 内容: 书房抽屉里",
+                user_question="护照在哪",
+            )
         )
 
         self.assertEqual(summary, "护照在书房抽屉里。")
@@ -764,10 +785,12 @@ class ThinkTagFilterTests(unittest.TestCase):
                 agent.model = "test-model"
                 agent.workflow = workflow_with_prompts()
 
-                summary = agent._summarize_remember_output(
-                    "remember_find",
-                    "**护照**\n📌 内容: 书房抽屉里",
-                    user_question="护照在哪",
+                summary = self.async_run(
+                    agent._summarize_remember_output(
+                        "remember_find",
+                        "**护照**\n📌 内容: 书房抽屉里",
+                        user_question="护照在哪",
+                    )
                 )
             finally:
                 core.close_session_log()
@@ -793,10 +816,12 @@ class ThinkTagFilterTests(unittest.TestCase):
             "press_to_talk.agent.agent._runtime_current_time_text",
             return_value="2026-04-11 09:30:00",
         ):
-            agent._summarize_remember_output(
-                "remember_find",
-                "**护照**\n📌 内容: 最近3天有两条记录",
-                user_question="最近3天都记了什么",
+            self.async_run(
+                agent._summarize_remember_output(
+                    "remember_find",
+                    "**护照**\n📌 内容: 最近3天有两条记录",
+                    user_question="最近3天都记了什么",
+                )
             )
 
         system_prompt = str(
@@ -865,10 +890,12 @@ class ThinkTagFilterTests(unittest.TestCase):
             '"created_at":"2026-04-11T09:30:00+08:00","metadata":{"source":"mem0"}}]}'
         )
 
-        agent._summarize_remember_output(
-            "remember_find",
-            raw_output,
-            user_question="护照在哪",
+        self.async_run(
+            agent._summarize_remember_output(
+                "remember_find",
+                raw_output,
+                user_question="护照在哪",
+            )
         )
 
         # Check that ONLY the memory text was passed to the LLM for summary
@@ -926,10 +953,12 @@ class ThinkTagFilterTests(unittest.TestCase):
             ensure_ascii=False,
         )
 
-        summary = agent._summarize_remember_output(
-            "remember_find",
-            raw_output,
-            user_question="我最近是不是拔了颗牙",
+        summary = self.async_run(
+            agent._summarize_remember_output(
+                "remember_find",
+                raw_output,
+                user_question="我最近是不是拔了颗牙",
+            )
         )
 
         self.assertEqual(summary, "你最近拔过智齿，今天还记了牙已经不疼。")
@@ -1558,7 +1587,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_add_and_find_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path)
+            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="soj")
 
             result = store.add(
                 memory="周会在二号会议室",
@@ -1573,7 +1602,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_update_overwrites_single_existing_row(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path)
+            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="soj")
             store.add(
                 memory="护照在书房抽屉里",
                 original_text="帮我记住护照在书房抽屉里",
@@ -1603,6 +1632,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             rewriter = FakeKeywordRewriter('"护照" OR "书房"')
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
+                user_id="soj",
                 keyword_rewriter=rewriter,
             )
             store.add(
@@ -1623,6 +1653,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             )
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
+                user_id="soj",
                 keyword_rewriter=rewriter,
             )
             store.add(
@@ -1642,7 +1673,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_filters_irrelevant_results_for_pre_rewritten_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path)
+            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="soj")
             store.add(
                 memory="USB测试版在书房柜子第二层",
                 original_text="记住 USB 测试版放在书房柜子第二层",
@@ -1665,7 +1696,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_treats_pre_rewritten_or_query_as_simple_keywords(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path)
+            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="soj")
             store.use_simple_query = True
 
             match_query = store._match_query('"usb" OR "测试版"')
@@ -1749,6 +1780,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             rewriter = FakeKeywordRewriter('"护照" OR "书房"')
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
+                user_id="soj",
                 keyword_rewriter=rewriter,
             )
             store.add(
@@ -1776,6 +1808,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             db_path = Path(tmpdir) / "remember.sqlite3"
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
+                user_id="soj",
                 keyword_rewriter=RaisingKeywordRewriter(),
             )
             store.add(
@@ -1799,6 +1832,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             )
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
+                user_id="soj",
                 keyword_rewriter=FakeKeywordRewriter('"完全不相关的词"'),
                 embedding_client=embedding_client,
                 embedding_model="text-embedding-bge-m3",
@@ -1838,6 +1872,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             )
             store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
+                user_id="soj",
                 keyword_rewriter=FakeKeywordRewriter('"完全不相关的词"'),
                 embedding_client=embedding_client,
                 embedding_model="text-embedding-bge-m3",
@@ -1884,6 +1919,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             db_path = Path(tmpdir) / "remember.sqlite3"
             target_store = storage_service_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
+                user_id="soj",
             )
 
             copied = storage_service_module.migrate_mem0_memories_to_sqlite(

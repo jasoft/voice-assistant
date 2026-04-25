@@ -140,8 +140,12 @@ def expand_env_placeholders(value: Any) -> Any:
     if isinstance(value, str):
         def replace(match: re.Match[str]) -> str:
             name = match.group(1)
-            # 如果环境变量不存在，保留原样以便运行时替换
-            return os.environ.get(name, match.group(0))
+            if name in os.environ:
+                return os.environ[name]
+            # Keep runtime tokens for later replacement
+            if name in ("PTT_CURRENT_TIME", "PTT_LOCATION", "PTT_DATE"):
+                return match.group(0)
+            return ""
 
         return ENV_VAR_PATTERN.sub(replace, value)
     return value

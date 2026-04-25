@@ -96,7 +96,7 @@ class TestBTNodes(unittest.IsolatedAsyncioTestCase):
     @patch("press_to_talk.execution.memory_chat.MemoryChatExecutionRunner")
     async def test_llm_chat_fallback_action(self, MockRunner):
         mock_runner = MockRunner.return_value
-        async def mock_run(transcript):
+        async def mock_run(transcript, **kwargs):
             return "fallback reply"
         mock_runner.run_async.side_effect = mock_run
 

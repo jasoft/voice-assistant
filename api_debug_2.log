@@ -1,0 +1,86 @@
+INFO:     Started server process [33257]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8026 (Press CTRL+C to quit)
+14:08:32  WARN   service.py:436       ⚠️ Warning: history_db_path and 
+remember_db_path are different. Using data/voice_assistant_store.sqlite3 for all
+storage.
+14:08:33  INFO   agent.py:223         ✨ LLM intent parsed: 
+{"intent":"find","tool":"remember_find","args":{"memory":"","query":"壮壮的记录"
+},"confidence":0.99,"notes":"用户查询壮壮相关记录"}
+14:08:33  WARN   service.py:436       ⚠️ Warning: history_db_path and 
+remember_db_path are different. Using data/voice_assistant_store.sqlite3 for all
+storage.
+14:08:33  INFO   service.py:255       ✨ keyword rewrite match_query: "壮壮" OR 
+"记录"
+14:08:33  INFO   sqlite_fts.py:793    ✨ remember search keywords: ["壮壮", 
+"记录"]
+14:08:33  WARN   sqlite_fts.py:280    ⚠️ FTS table remember_entries_simple_fts 
+missing user_id column. Dropping and recreating.
+14:08:33  INFO   sqlite_fts.py:325    ✨ FTS table remember_entries_simple_fts 
+is empty. Syncing from remember_entries...
+14:08:33  INFO   sqlite_fts.py:335    ✨ FTS table remember_entries_simple_fts 
+synced.
+14:08:33  INFO   sqlite_fts.py:796    ✨ remember search sql: fts5 match="壮壮" 
+OR "记录"
+14:08:33  INFO   sqlite_fts.py:814    ✨ remember search fts5 rows: 10
+14:08:33  INFO   sqlite_fts.py:870    ✨ remember search final rows: 10
+14:08:33  INFO   sqlite_fts.py:874    ✨   [0] 
+id=e09204e7db5c406b96b197d146793b86 mem=儿子壮壮于2026年4月11日去打篮球了。... |
+orig=记录一下，今天壮壮去打篮球。...
+14:08:33  INFO   sqlite_fts.py:874    ✨   [1] 
+id=f8d3430b199b45548e202f70897167bc mem=昨天帮壮壮剪了头发... | 
+orig=记录一下，昨天帮壮壮剪了头发，现在他的头看起来终于不像一个蘑菇了。...
+14:08:33  INFO   sqlite_fts.py:874    ✨   [2] 
+id=b024b0abbdca47b6ae03814732fb6301 mem=今天带壮壮去小公园骑车，骑了十圈。... | 
+orig=今天带壮壮去小公园骑车，骑了十圈。...
+14:08:33  INFO   sqlite_fts.py:874    ✨   [3] 
+id=a905b842c24f431a8cb6bb1dd1e27b35 
+mem=用户和儿子壮壮于2026年4月12日去了一个小公园，但地面有水，壮壮不愿玩。... | 
+orig=今天我和壮壮去小公园玩的，然后地上有水，他就不乐意去玩了。...
+14:08:33  INFO   sqlite_fts.py:874    ✨   [4] 
+id=63c27b29f01b497daba8ed34d6e9b243 
+mem=今天给壮壮买了一个拓翼的解放卡车，他很喜欢... | 
+orig=今天给壮壮买了一个拓翼的解放卡车，他很喜欢。...
+14:08:33  INFO   sqlite_fts.py:874    ✨   [5] 
+id=622e893652394929bc6382fef5a5078e 
+mem=壮壮今天独立完成作业，只花了10分钟就写完了。... | 
+orig=壮壮今天独立完成作业，只花了10分钟就写完了。...
+14:08:33  INFO   sqlite_fts.py:874    ✨   [6] 
+id=e3b58fe762534651b13c527c22fcd7cd 
+mem=儿子叫壮壮，头发太长了，想剪但孩子不肯。... | orig=User has a son named 壮壮
+whose hair is too long, and the user...
+14:08:33  INFO   sqlite_fts.py:874    ✨   [7] 
+id=ca6a530930d7455ab7eb339dba452f80 
+mem=儿子壮壮今天去春游，被同学扔来的薯片划伤了脸。... | 
+orig=用户儿子壮壮今天去春游，被同学扔过来的薯片把脸划破了。...
+14:08:33  INFO   sqlite_fts.py:874    ✨   [8] 
+id=bafd149a555f409395e1abf599c115b0 mem=今天烤了鱼排吃的。... | 
+orig=记录一下我今天烤鱼排吃的。...
+14:08:33  INFO   sqlite_fts.py:874    ✨   [9] 
+id=aaeba4bb77354ad9affb8ed356b3206b mem=用户很喜欢自己的 MacBook... | 
+orig=用remember技能记录一下，我很喜欢我的MacBook...
+14:08:34  INFO   sqlite_fts.py:470    ✨ remember embedding input: {"query": 
+"查询壮壮的记录", "model": "text-embedding-bge-m3", "max_results": 5, 
+"min_score": 0.45}
+14:08:34  INFO   sqlite_fts.py:529    ✨ remember embedding results: [{"id": 
+"e09204e7db5c406b96b197d146793b86", "memory": 
+"儿子壮壮于2026年4月11日去打篮球了。", "score": 0.58}, {"id": 
+"622e893652394929bc6382fef5a5078e", "memory": 
+"壮壮今天独立完成作业，只花了10分钟就写完了。", "score": 0.5599}, {"id": 
+"f8d3430b199b45548e202f70897167bc", "memory": "昨天帮壮壮剪了头发", "score": 
+0.5517}, {"id": "e3b58fe762534651b13c527c22fcd7cd", "memory": 
+"儿子叫壮壮，头发太长了，想剪但孩子不肯。", "score": 0.5124}, {"id": 
+"b024b0abbdca47b6ae03814732fb6301", "memory": 
+"今天带壮壮去小公园骑车，骑了十圈。", "score": 0.4963}]
+14:08:34  INFO   sqlite_fts.py:578    ✨ remember embedding filtered: {"query": 
+"查询壮壮的记录", "context_min_score": 0.55, "filtered": [{"id": 
+"e3b58fe762534651b13c527c22fcd7cd", "memory": 
+"儿子叫壮壮，头发太长了，想剪但孩子不肯。", "embedding_score": 0.5124}, {"id": 
+"b024b0abbdca47b6ae03814732fb6301", "memory": 
+"今天带壮壮去小公园骑车，骑了十圈。", "embedding_score": 0.4963}]}
+14:08:34  WARN   service.py:436       ⚠️ Warning: history_db_path and 
+remember_db_path are different. Using data/voice_assistant_store.sqlite3 for all
+storage.
+INFO:     127.0.0.1:60303 - "POST /v1/query HTTP/1.1" 200 OK
+INFO:     Shutting down

@@ -27,7 +27,7 @@ class TestBTFallback(unittest.IsolatedAsyncioTestCase):
 
         # Mock fallback runner
         mock_runner_inst = MockRunner.return_value
-        async def mock_run(transcript):
+        async def mock_run(transcript, **kwargs):
             return "fallback reply"
         mock_runner_inst.run_async.side_effect = mock_run
 

@@ -1,0 +1,26 @@
+INFO:     Started server process [31695]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8025 (Press CTRL+C to quit)
+14:07:07  WARN   service.py:436       ⚠️ Warning: history_db_path and 
+remember_db_path are different. Using data/voice_assistant_store.sqlite3 for all
+storage.
+14:07:08  INFO   agent.py:223         ✨ LLM intent parsed: 
+{"intent":"find","tool":"remember_find","args":{"memory":"","query":"查询壮壮的
+记录"},"confidence":0.99,"notes":"重复查询，尝试返回历史记录"}
+14:07:08  WARN   service.py:436       ⚠️ Warning: history_db_path and 
+remember_db_path are different. Using data/voice_assistant_store.sqlite3 for all
+storage.
+14:07:09  INFO   service.py:255       ✨ keyword rewrite match_query: "壮壮" OR 
+"记录"
+14:07:09  INFO   sqlite_fts.py:764    ✨ remember search keywords: ["壮壮", 
+"记录"]
+14:07:09  INFO   sqlite_fts.py:767    ✨ remember search sql: fts5 match="壮壮" 
+OR "记录"
+14:07:09  WARN   service.py:436       ⚠️ Warning: history_db_path and 
+remember_db_path are different. Using data/voice_assistant_store.sqlite3 for all
+storage.
+14:07:10  INFO   memory_chat.py:115   ✨ memory-chat memory search failed
+14:07:10  INFO   memory_chat.py:180   ✨ memory-chat memory search: no related 
+memory hits
+INFO:     127.0.0.1:60232 - "POST /v1/query HTTP/1.1" 200 OK

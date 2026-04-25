@@ -57,12 +57,10 @@ def migrate():
             print(f"Updated {updated_remember} remember entries.")
 
             # 3. Handle FTS and Embeddings tables (manual SQL)
-            # Check remember_entries_simple_fts
-            try:
-                conn.execute("UPDATE remember_entries_simple_fts SET user_id = 'soj' WHERE user_id IS NULL OR user_id = ''")
-                print("Updated FTS table.")
-            except Exception as e:
-                print(f"FTS table update skipped or failed: {e}")
+            # FTS table column addition is tricky, the store will now handle it by dropping/recreating.
+            # But we can try to trigger it here by doing a dummy connect if needed, 
+            # or just skip and let the app handle it.
+            print("FTS table schema will be updated by the application on next start.")
 
             # Check remember_entry_embeddings
             try:

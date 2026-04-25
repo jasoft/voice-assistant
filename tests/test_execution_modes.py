@@ -503,7 +503,7 @@ class CoreExecutionDispatchTests(unittest.TestCase):
         self.assertEqual(result, 0)
         execute_mock.assert_called_once_with(cfg, "你好")
         # Now we assert on log calls instead of print
-        self.assertTrue(any("reply ready: Hermes 回复" in str(call) for call in log_mock.call_args_list))
+        self.assertTrue(any("reply ready:" in str(call) and "Hermes 回复" in str(call) for call in log_mock.call_args_list))
 
 
 if __name__ == "__main__":

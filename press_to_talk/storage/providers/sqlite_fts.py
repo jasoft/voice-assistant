@@ -231,6 +231,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         self.fts_table_name = "remember_entries_simple_fts"
         self.embedding_table_name = "remember_entry_embeddings"
         self.use_simple_query = False
+        
+        # Initialize database and create tables if not already done
+        from ..models import db, APIToken, SessionHistory, RememberEntry
+        if db.database is None or db.database != str(self.db_path):
+            db.init(str(self.db_path))
+            db.connect(reuse_if_open=True)
+            db.create_tables([APIToken, SessionHistory, RememberEntry])
 
     @classmethod
     def from_config(cls, config: StorageConfig, **kwargs) -> SQLiteFTS5RememberStore:
@@ -264,6 +271,17 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         fts_tokenizer_clause = (
             ",\n                tokenize='simple'" if self.use_simple_query else ""
         )
+        
+        # Check if user_id column exists in FTS table
+        try:
+            cursor = conn.execute(f"PRAGMA table_info({self.fts_table_name})")
+            columns = [row["name"] for row in cursor.fetchall()]
+            if columns and "user_id" not in columns:
+                log(f"FTS table {self.fts_table_name} missing user_id column. Dropping and recreating.", level="warning")
+                conn.execute(f"DROP TABLE {self.fts_table_name}")
+        except Exception as e:
+            log(f"Failed to check FTS table schema: {e}", level="debug")
+
         # RememberEntry table is already created by StorageService
         conn.execute(
             f"""
@@ -296,7 +314,25 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
              conn.execute(f"ALTER TABLE {self.embedding_table_name} ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
              conn.execute(f"UPDATE {self.embedding_table_name} SET user_id = ?", (self.user_id,))
 
+        self._sync_fts_if_empty(conn)
+
         return conn
+
+    def _sync_fts_if_empty(self, conn: sqlite3.Connection) -> None:
+        """Sync FTS table from main table if it's empty."""
+        cursor = conn.execute(f"SELECT COUNT(*) FROM {self.fts_table_name}")
+        if cursor.fetchone()[0] == 0:
+            log(f"FTS table {self.fts_table_name} is empty. Syncing from {self.table_name}...", level="info")
+            # We don't filter by user_id here because FTS table should eventually contain all users
+            # but wait, the store instance is bound to one user_id. 
+            # Actually, FTS table is shared. So we should sync all users.
+            conn.execute(
+                f"""
+                INSERT INTO {self.fts_table_name} (memory, original_text, user_id, item_id)
+                SELECT memory, original_text, user_id, id FROM {self.table_name}
+                """
+            )
+            log(f"FTS table {self.fts_table_name} synced.", level="info")
 
     def _embedding_enabled(self) -> bool:
         return self.embedding_client is not None and bool(self.embedding_model)

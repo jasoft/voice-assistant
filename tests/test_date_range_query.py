@@ -9,7 +9,7 @@ from press_to_talk.models.config import Config
 @pytest.fixture
 def temp_db(tmp_path):
     db_path = tmp_path / "test_memory.sqlite3"
-    store = SQLiteFTS5RememberStore(db_path=db_path)
+    store = SQLiteFTS5RememberStore(db_path=db_path, user_id="soj")
     return store
 
 def test_sqlite_date_range_query(temp_db):
