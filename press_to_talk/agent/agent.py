@@ -110,7 +110,7 @@ class OpenAICompatibleAgent:
         self.summary_model = getattr(cfg, "llm_summarize_model", cfg.llm_model)
         log(f"DEBUG OpenAICompatibleAgent: initialized with base_url={self.client.base_url} model={self.model}", level="debug")
         self.remember_script = cfg.remember_script
-        self.storage = StorageService(build_storage_config(cfg))
+        self.storage = StorageService(build_storage_config(cfg), use_cli=cfg.use_cli)
         self.messages: list[Any] = []
         self._load_workflow_config()
 
@@ -498,11 +498,23 @@ class OpenAICompatibleAgent:
             if not extracted_data.get("items"):
                 log("OpenAICompatibleAgent: no results found for remember_find", level="info")
                 return "没有找到匹配的记忆信息。"
-            # ------------------------------------
 
             return await self._summarize_remember_output(
                 tool_name, raw, user_question=user_input, query=search_query
             )
+
+        if tool_name == "history_find":
+            query = str(args.get("query", "")).strip()
+            limit = int(args.get("limit", 10))
+            records = self.storage.history_store().list_recent(limit=limit, query=query)
+            if not records:
+                return f"大王，目前没有找到关于“{query}”的相关历史记录哦。"
+
+            lines = [f"查到 {len(records)} 条历史记录："]
+            for r in records:
+                lines.append(f"- [{r.started_at}] {r.transcript} -> {r.reply}")
+            return "\n".join(lines)
+
         return None
 
     async def chat(self, user_input: str) -> str:
@@ -516,7 +528,7 @@ class OpenAICompatibleAgent:
         log(f"Detected intent branch: {intent_key}", level="info")
 
         tool_name = str(intent_payload.get("tool", "")).strip()
-        if tool_name not in {"remember_add", "remember_find"}:
+        if tool_name not in {"remember_add", "remember_find", "history_find"}:
             tool_name = "remember_add" if intent_key == "record" else "remember_find"
 
         reply = await self._execute_structured_tool(

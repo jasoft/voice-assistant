@@ -37,6 +37,7 @@ class Config:
     remember_script: Path
     execution_mode: str
     user_id: str = "soj"
+    use_cli: bool = True
 
 @dataclass
 class SessionHistory:

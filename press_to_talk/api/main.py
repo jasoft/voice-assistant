@@ -1,7 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, Security
+from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import os
+import dataclasses
+from contextlib import asynccontextmanager
 
 from .auth import get_user_id
 from ..models.config import Config, parse_args
@@ -9,11 +11,13 @@ from ..execution import execute_transcript_async
 from ..storage.models import SessionHistory, RememberEntry, db
 from ..storage.service import load_storage_config
 
-app = FastAPI(title="Press-to-Talk API")
+# Global base config to be loaded once at startup
+base_config: Optional[Config] = None
 
-# Initialize database on startup
-@app.on_event("startup")
-def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize database on startup
+    global base_config
     storage_cfg = load_storage_config()
     db_path = storage_cfg.history_db_path
     if not db_path:
@@ -22,6 +26,22 @@ def startup():
     
     db.init(db_path)
     db.connect(reuse_if_open=True)
+    
+    # Load base config once
+    try:
+        # parse_args([]) loads defaults from env vars and config files
+        base_config = parse_args([])
+    except SystemExit:
+        # If parse_args failed, we might be missing critical env vars
+        # In a real API we might want to log this or handle more gracefully
+        base_config = None
+        
+    yield
+    # Cleanup on shutdown
+    if not db.is_closed():
+        db.close()
+
+app = FastAPI(title="Press-to-Talk API", lifespan=lifespan)
 
 class QueryRequest(BaseModel):
     query: str
@@ -30,31 +50,39 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     reply: str
 
+class HistoryItem(BaseModel):
+    session_id: str
+    transcript: str
+    reply: str
+    created_at: str
+
+class MemoryItem(BaseModel):
+    id: str
+    memory: str
+    created_at: str
+
 @app.post("/v1/query", response_model=QueryResponse)
 async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
+    if base_config is None:
+        raise HTTPException(status_code=500, detail="Server configuration error")
+        
     try:
-        # Load config - parse_args uses env vars as defaults
-        # We wrap it in a try-except because parse_args calls parser.error() on missing required env vars
-        try:
-            cfg = parse_args([])
-        except SystemExit:
-            # If parse_args failed, we might be missing critical env vars
-            raise HTTPException(status_code=500, detail="Server configuration error (missing environment variables)")
-            
+        # Clone base config and modify for this request
+        cfg = dataclasses.replace(base_config)
         cfg.user_id = user_id
         cfg.text_input = req.query
         cfg.no_tts = True
+        cfg.use_cli = False  # Ensure direct database access
+        
         if req.mode:
             cfg.execution_mode = req.mode
             
         reply = await execute_transcript_async(cfg, req.query)
         return QueryResponse(reply=reply)
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/v1/history")
+@app.post("/v1/history", response_model=List[HistoryItem])
 async def get_history(user_id: str = Depends(get_user_id)):
     try:
         histories = (SessionHistory
@@ -63,18 +91,18 @@ async def get_history(user_id: str = Depends(get_user_id)):
                     .order_by(SessionHistory.created_at.desc())
                     .limit(20))
         return [
-            {
-                "session_id": h.session_id,
-                "transcript": h.transcript,
-                "reply": h.reply,
-                "created_at": h.created_at.isoformat() if hasattr(h.created_at, "isoformat") else str(h.created_at)
-            }
+            HistoryItem(
+                session_id=h.session_id,
+                transcript=h.transcript,
+                reply=h.reply,
+                created_at=h.created_at.isoformat() if hasattr(h.created_at, "isoformat") else str(h.created_at)
+            )
             for h in histories
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/v1/memories")
+@app.post("/v1/memories", response_model=List[MemoryItem])
 async def get_memories(user_id: str = Depends(get_user_id)):
     try:
         memories = (RememberEntry
@@ -83,11 +111,11 @@ async def get_memories(user_id: str = Depends(get_user_id)):
                    .order_by(RememberEntry.created_at.desc())
                    .limit(50))
         return [
-            {
-                "id": m.id,
-                "memory": m.memory,
-                "created_at": str(m.created_at)
-            }
+            MemoryItem(
+                id=m.id,
+                memory=m.memory,
+                created_at=str(m.created_at)
+            )
             for m in memories
         ]
     except Exception as e:
