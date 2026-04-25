@@ -518,7 +518,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if limited_rows:
             results_text = "\n".join(
                 [
-                    f"  - [{score:.4f}] id={row['id']} mem={str(row['memory']).replace('\\n', ' ')[:80]}..."
+                    f"  - [{score:.4f}] [Semantic] [{format_local_datetime(str(row['updated_at']))}] {str(row['memory']).replace('\\n', ' ')}"
                     for score, row in limited_rows
                 ]
             )
@@ -840,7 +840,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         if filtered_rows:
             results_text = "\n".join(
                 [
-                    f"  - [{idx}] id={row['id']} mem={str(row['memory']).replace('\\n', ' ')[:80]}..."
+                    f"  - [{_fts_confidence(idx):.4f}] [Keyword] [{format_local_datetime(str(row['updated_at']))}] {str(row['memory']).replace('\\n', ' ')}"
                     for idx, row in enumerate(filtered_rows)
                 ]
             )

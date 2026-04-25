@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -16,14 +17,18 @@ class CLIStoreBase:
         cmd = [sys.executable, "-m", "press_to_talk.storage.cli_app", *args]
         # Use shlex.join for a more readable command log that handles quoting correctly
         log("storage cli exec: " + shlex.join(cmd), level="debug")
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+        
+        # Force color output for the sub-process even when piped
+        env = {**os.environ, "FORCE_COLOR": "1"}
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", env=env)
+        
         if result.stderr.strip():
             # If stderr contains formatted logs (e.g. from our own logging system), 
             # we should print them line by line to avoid redundant prefixes.
             for line in result.stderr.strip().splitlines():
                 if any(lvl in line for lvl in ["DEBUG", "INFO", "WARN", "ERROR"]):
-                    # Already formatted, print as is to stderr to maintain flow
-                    sys.stderr.write(line + "\n")
+                    # Already formatted, print as is to stderr to maintain flow and colors
+                    print(line, file=sys.stderr)
                 else:
                     log(f"storage cli stderr: {line}", level="debug")
         if result.returncode != 0:
