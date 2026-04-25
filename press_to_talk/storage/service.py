@@ -423,10 +423,16 @@ class StorageService:
             normalized.history_db_path = str(DEFAULT_HISTORY_DB_PATH)
         if not str(normalized.remember_db_path).strip():
             normalized.remember_db_path = str(DEFAULT_REMEMBER_DB_PATH)
+        
+        # Ensure consistency as all Peewee models share the same global 'db' instance
+        if normalized.history_db_path != normalized.remember_db_path:
+            log(f"Warning: history_db_path ({normalized.history_db_path}) and remember_db_path ({normalized.remember_db_path}) are different. Using remember_db_path for all storage.", level="warning")
+            normalized.history_db_path = normalized.remember_db_path
+            
         self.config = normalized
 
         # Initialize Peewee database
-        db_path = Path(self.config.history_db_path).expanduser()
+        db_path = Path(self.config.remember_db_path).expanduser()
         db_path.parent.mkdir(parents=True, exist_ok=True)
         db.init(str(db_path))
         db.connect(reuse_if_open=True)

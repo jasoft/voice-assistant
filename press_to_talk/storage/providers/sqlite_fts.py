@@ -259,7 +259,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
 
     def _connect(self) -> sqlite3.Connection:
         conn = db.connection()
-        # conn.row_factory = sqlite3.Row # Peewee might already set this or not. Let's ensure it's Row for our manual SQL.
+        conn.row_factory = sqlite3.Row
         self.use_simple_query = self._load_simple_extension(conn)
         fts_tokenizer_clause = (
             ",\n                tokenize='simple'" if self.use_simple_query else ""
@@ -281,6 +281,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             f"""
             CREATE TABLE IF NOT EXISTS {self.embedding_table_name} (
                 item_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
                 source_text TEXT NOT NULL,
                 embedding_model TEXT NOT NULL,
                 embedding_json TEXT NOT NULL,
@@ -288,6 +289,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             )
             """
         )
+        # Ensure user_id column exists for backward compatibility if table was created before
+        cursor = conn.execute(f"PRAGMA table_info({self.embedding_table_name})")
+        columns = [row["name"] for row in cursor.fetchall()]
+        if "user_id" not in columns:
+             conn.execute(f"ALTER TABLE {self.embedding_table_name} ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
+             conn.execute(f"UPDATE {self.embedding_table_name} SET user_id = ?", (self.user_id,))
+
         return conn
 
     def _embedding_enabled(self) -> bool:
@@ -313,12 +321,14 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     f"""
                     INSERT INTO {self.embedding_table_name} (
                         item_id,
+                        user_id,
                         source_text,
                         embedding_model,
                         embedding_json,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(item_id) DO UPDATE SET
+                        user_id = excluded.user_id,
                         source_text = excluded.source_text,
                         embedding_model = excluded.embedding_model,
                         embedding_json = excluded.embedding_json,
@@ -326,6 +336,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     """,
                     (
                         item_id,
+                        self.user_id,
                         source_text,
                         self.embedding_model,
                         json.dumps(embedding),
@@ -340,8 +351,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         conn = self._connect()
         with conn:
             conn.execute(
-                    f"DELETE FROM {self.embedding_table_name} WHERE item_id IN ({placeholders})",
-                    item_ids,
+                    f"DELETE FROM {self.embedding_table_name} WHERE item_id IN ({placeholders}) AND user_id = ?",
+                    (*item_ids, self.user_id),
                 )
 
     def _sync_embedding_for_item(
@@ -378,6 +389,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             FROM {self.table_name} items
             LEFT JOIN {self.embedding_table_name} embeds
                 ON embeds.item_id = items.id
+                AND embeds.user_id = items.user_id
                 AND embeds.embedding_model = ?
             WHERE embeds.item_id IS NULL
               AND items.user_id = ?
@@ -442,7 +454,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 items.updated_at,
                 embeds.embedding_json
             FROM {self.embedding_table_name} embeds
-            JOIN {self.table_name} items ON items.id = embeds.item_id
+            JOIN {self.table_name} items 
+                ON items.id = embeds.item_id
+                AND items.user_id = embeds.user_id
             WHERE embeds.embedding_model = ?
               AND items.user_id = ?
             ORDER BY items.updated_at DESC
@@ -896,8 +910,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         conn = self._connect()
         with conn:
             conn.execute(
-                f"DELETE FROM {self.embedding_table_name} WHERE item_id = ?",
-                (memory_id,),
+                f"DELETE FROM {self.embedding_table_name} WHERE item_id = ? AND user_id = ?",
+                (memory_id, self.user_id),
             )
             conn.execute(
                 f"DELETE FROM {self.fts_table_name} WHERE item_id = ? AND user_id = ?",
