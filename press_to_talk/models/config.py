@@ -192,6 +192,11 @@ def parse_args(argv: list[str] | None = None) -> Config:
         help="GUI 模式完成后自动关闭前的倒计时秒数",
     )
     parser.add_argument(
+        "--user-id",
+        default=env_str("PTT_USER_ID", "soj"),
+        help="用户 ID，用于多用户数据隔离",
+    )
+    parser.add_argument(
         "-v", "--debug",
         action="store_true",
         help="输出更详细的调试日志",
@@ -279,4 +284,5 @@ def parse_args(argv: list[str] | None = None) -> Config:
         execution_mode=execution_mode,
         force_ask=args.ask,
         force_record=args.record,
+        user_id=args.user_id,
     )

@@ -102,7 +102,7 @@ def _workflow_storage_config() -> dict[str, Any]:
     return storage if isinstance(storage, dict) else {}
 
 
-def load_storage_config() -> StorageConfig:
+def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
     workflow_cfg = load_workflow_config()
     storage_cfg = workflow_cfg.get("storage", {}) if isinstance(workflow_cfg, dict) else {}
     storage_cfg = storage_cfg if isinstance(storage_cfg, dict) else {}
@@ -138,8 +138,9 @@ def load_storage_config() -> StorageConfig:
     config = StorageConfig(
         backend=str(env_str("PTT_REMEMBER_BACKEND", configured_backend)).strip()
         or configured_backend,
+        user_id=user_id_override or str(env_str("PTT_USER_ID", "soj")).strip(),
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
-        mem0_user_id=str(env_str("MEM0_USER_ID", "soj")).strip() or "soj",
+        mem0_user_id=user_id_override or str(env_str("PTT_USER_ID", str(env_str("MEM0_USER_ID", "soj")))).strip(),
         mem0_app_id=app_id,
         mem0_min_score=env_float("MEM0_MIN_SCORE", float(mem0_cfg.get("min_score", 0.8))),
         mem0_max_items=max(1, env_int("MEM0_MAX_ITEMS", int(mem0_cfg.get("max_items", global_max_results)))),

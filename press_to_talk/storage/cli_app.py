@@ -60,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=AgentHelpFormatter,
     )
+    parser.add_argument(
+        "--user-id",
+        default=None,
+        help="Target user ID for the operation. If not provided, uses PTT_USER_ID from environment.",
+    )
     subparsers = parser.add_subparsers(dest="category", required=True)
 
     # Doctor command
@@ -348,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         exit_code = 0
         with contextlib.redirect_stderr(stderr_buffer):
-            config = load_storage_config()
+            config = load_storage_config(user_id_override=args.user_id)
             if args.category == "doctor":
                 return _run_storage_doctor()
 
