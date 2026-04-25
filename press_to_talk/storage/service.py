@@ -203,7 +203,7 @@ def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
         for key, value in config.__dict__.items()
     }
     if not _storage_config_logged:
-        log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}", level="info")
+        log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}", level="debug")
         _storage_config_logged = True
     return config
 
