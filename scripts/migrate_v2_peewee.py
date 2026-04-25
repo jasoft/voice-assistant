@@ -45,13 +45,13 @@ def migrate():
             add_column_if_missing("remember_entries", "user_id")
 
             # 1. Update session_histories
-            updated_sessions = SessionHistory.update(user_id='soj').where(
+            updated_sessions = SessionHistory.update(user_id='default').where(
                 (SessionHistory.user_id == None) | (SessionHistory.user_id == '')
             ).execute()
             print(f"Updated {updated_sessions} session history records.")
 
             # 2. Update remember_entries
-            updated_remember = RememberEntry.update(user_id='soj').where(
+            updated_remember = RememberEntry.update(user_id='default').where(
                 (RememberEntry.user_id == None) | (RememberEntry.user_id == '')
             ).execute()
             print(f"Updated {updated_remember} remember entries.")
@@ -73,18 +73,18 @@ def migrate():
                     conn.execute("ALTER TABLE remember_entry_embeddings ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
                     print("Added user_id column to embeddings table.")
                 
-                conn.execute("UPDATE remember_entry_embeddings SET user_id = 'soj' WHERE user_id IS NULL OR user_id = ''")
+                conn.execute("UPDATE remember_entry_embeddings SET user_id = 'default' WHERE user_id IS NULL OR user_id = ''")
                 print("Updated embeddings table.")
             except Exception as e:
                 print(f"Embeddings table update skipped or failed: {e}")
 
             # 4. Create default API token
-            token_val = 'soj-default-token'
+            token_val = 'default-default-token'
             if not APIToken.select().where(APIToken.token == token_val).exists():
                 APIToken.create(
                     token=token_val,
-                    user_id='soj',
-                    description='Default token for soj'
+                    user_id='default',
+                    description='Default token for default'
                 )
                 print(f"Created default API token: {token_val}")
             else:

@@ -301,7 +301,7 @@
         }
     },
     "mem0": {
-        "user_id": "soj",
+        "user_id": "default",
         "app_id": "voice-assistant",
         "min_score": 0.7,
         "max_items": 10

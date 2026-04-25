@@ -57,7 +57,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = AgentFriendlyArgumentParser(
         prog=prog_name,
-        parents=[base_parser],
         description=(
             "Standalone Storage CLI for session history and long-term memory.\n"
             "Designed for agents: successful commands emit machine-readable JSON to stdout."
@@ -87,7 +86,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     history_parser = subparsers.add_parser(
         "history",
-        parents=[base_parser],
         help="Read/write session history records",
         description=(
             "Session history CRUD.\n"
@@ -147,7 +145,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     memory_parser = subparsers.add_parser(
         "memory",
-        parents=[base_parser],
         help="Read/write long-term memory entries",
         description=(
             "Long-term memory CRUD.\n"
