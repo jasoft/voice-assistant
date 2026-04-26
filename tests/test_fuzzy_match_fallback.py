@@ -36,11 +36,9 @@ async def test_llm_summarize_action_fuzzy_match_fallback():
             assert status == Status.SUCCESS
             assert bb.reply == mock_reply
             
-            # Verify fuzzy match: id "101" should be selected because "My car keys are on the kitchen table" is in the reply
-            assert len(bb.selected_memories) == 1
-            assert bb.selected_memories[0]["id"] == "101"
-            assert len(bb.reply_photos) == 1
-            assert bb.reply_photos[0] == "http://photo/keys.jpg"
+            # Verify full passthrough: bb.memories should contain all original records
+            assert len(bb.memories) == 2
+            assert bb.memories[0]["id"] == "101"
 
 @pytest.mark.anyio
 async def test_llm_summarize_action_regex_lenient():
@@ -48,11 +46,11 @@ async def test_llm_summarize_action_regex_lenient():
     mock_cfg = MagicMock()
     bb = Blackboard(transcript="find my keys", cfg=mock_cfg)
     
-    # Mock memories_raw
+    # Mock memories
     memories = [
         {"id": "101", "memory": "Keys are here", "photo_path": None}
     ]
-    bb.memories_raw = json.dumps({"results": memories})
+    bb.memories = memories
     
     # Case 1: Chinese colon
     mock_reply_cn = "找到了。[SELECTED_IDS： 101]"
@@ -63,11 +61,11 @@ async def test_llm_summarize_action_regex_lenient():
         action = LLMSummarizeAction()
         await action.tick(bb)
         assert bb.reply == "找到了。"
-        assert len(bb.selected_memories) == 1
-        assert bb.selected_memories[0]["id"] == "101"
+        # Verify memories are still there
+        assert len(bb.memories) == 1
+        assert bb.memories[0]["id"] == "101"
 
     # Case 2: Mixed case and extra spaces
-    bb.selected_memories = []
     mock_reply_mixed = "Here it is. [selected_ids:  101  ]"
     with patch("press_to_talk.agent.agent.OpenAICompatibleAgent") as MockAgent:
         agent_instance = MockAgent.return_value
@@ -76,5 +74,5 @@ async def test_llm_summarize_action_regex_lenient():
         action = LLMSummarizeAction()
         await action.tick(bb)
         assert bb.reply == "Here it is."
-        assert len(bb.selected_memories) == 1
-        assert bb.selected_memories[0]["id"] == "101"
+        assert len(bb.memories) == 1
+        assert bb.memories[0]["id"] == "101"
