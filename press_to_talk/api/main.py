@@ -34,6 +34,12 @@ base_config: Optional[Config] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 启动时初始化文件日志
+    from ..utils.logging import init_session_log, log, close_session_log
+    from pathlib import Path
+    log_path = init_session_log(Path("logs"), session_id="api-server")
+    log(f"API Server started. Detailed logs at: {log_path}", level="info")
+
     # Initialize database on startup
     global base_config
     storage_cfg = load_storage_config()
@@ -50,6 +56,9 @@ async def lifespan(app: FastAPI):
         
     yield
     # Cleanup on shutdown
+    log("API Server shutting down.", level="info")
+    close_session_log()
+    
     if not db.is_closed():
         db.close()
 
