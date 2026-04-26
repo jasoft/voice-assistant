@@ -42,3 +42,8 @@ The "remember" functionality (adding/finding memories) typically delegates to an
 - `memory-chat` (Default): Retrieves relevant memories as context and uses an LLM to generate a response.
 - `database`: Strictly queries the internal database without LLM fallback.
 - `hermes`: Delegates processing to an external `hermes chat` agent.
+
+## 总结
+
+- 在最后的总结里，在末尾输出一段便于 tts 工具读的总结，不多于 30 字。用 `<tts></tts>` 包裹起来，例如 `<tts>我的任务完成了, 已经解决了不能写入的问题!</tts>`
+- 确保 TTS tag 是成对出现，不要出现丢失。
