@@ -12,6 +12,9 @@ class Action(Node):
 
 class IsRecordIntent(Condition):
     async def tick(self, bb: Blackboard) -> Status:
+        # 如果带有图片，强制判定为记录意图
+        if bb.photo_path:
+            return Status.SUCCESS
         if bb.intent.get("intent") == "record":
             return Status.SUCCESS
         return Status.FAILURE
@@ -58,6 +61,16 @@ class ExtractIntentAction(Action):
         agent = OpenAICompatibleAgent(bb.cfg)
         try:
             bb.intent = await agent._extract_intent_payload(bb.transcript)
+            
+            # 如果带有图片，强制修正意图为 record，防止 ExecuteRecordAction 拿不到正确的 arguments
+            if bb.photo_path and bb.intent.get("intent") != "record":
+                bb.intent["intent"] = "record"
+                # 如果没有 args，至少给个基础的
+                if "args" not in bb.intent:
+                    bb.intent["args"] = {"memory": bb.transcript}
+                elif "memory" not in bb.intent["args"]:
+                    bb.intent["args"]["memory"] = bb.transcript
+
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
