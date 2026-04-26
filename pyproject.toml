@@ -44,10 +44,10 @@ dev = [
 
 [tool.poe.tasks]
 web = "tunelo port 10021 --relay wp2.ursoftware.com:4433 -- python3 -m press_to_talk.web_app"
-ptt = "ptt-voice --api-key $PTT_API_KEY --text-input"
-voice = "ptt-voice --api-key $PTT_API_KEY"
+ptt = "ptt-voice --text-input"
+voice = "ptt-voice"
 doctor = "ptt-voice doctor"
-storage = "ptt-storage --api-key $PTT_API_KEY"
+storage = "ptt-storage"
 token = "ptt-token"
 api = "ptt-api"
 test = "pytest"

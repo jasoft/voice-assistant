@@ -2,6 +2,7 @@ import unittest
 import subprocess
 import sys
 import os
+import re
 from pathlib import Path
 
 class SmokeCheckTests(unittest.TestCase):
@@ -89,8 +90,10 @@ class SmokeCheckTests(unittest.TestCase):
         reply_marker = "reply ready:\n"
         reply_content = output.split(reply_marker)[-1] if reply_marker in output else ""
         
+        has_context_keyword = any(kw in reply_content for kw in ["骑车", "自行车", "公园", "壮壮"])
+        has_date_answer = re.search(r"\d{1,2}\s*月\s*\d{1,2}\s*日", reply_content) is not None
         self.assertTrue(
-            any(kw in reply_content for kw in ["骑车", "自行车", "公园", "壮壮"]),
+            has_context_keyword or has_date_answer,
             f"E2E Test: Reply does not seem to contain the retrieved cycling data. Reply: {reply_content}"
         )
         

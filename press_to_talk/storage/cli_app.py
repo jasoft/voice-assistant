@@ -184,13 +184,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # 2. 身份识别逻辑 (Token优先)
     effective_user_id = None
-    api_key = (
-        args.api_key
-        or global_args.api_key
-        or os.environ.get("PTT_API_KEY")
+    cli_api_key = (args.api_key or global_args.api_key or "").strip()
+    env_api_key = (
+        os.environ.get("PTT_API_KEY")
         or os.environ.get("PTT_USER_API_KEY")
         or ""
     ).strip()
+    explicit_user_id = args.user_id or global_args.user_id
+    api_key = cli_api_key or ("" if explicit_user_id else env_api_key)
     if api_key:
         effective_user_id = resolve_user_id_from_api_key(api_key)
         if not effective_user_id:
@@ -198,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 3. 兜底使用 user_id (Admin 模式)
     if not effective_user_id:
-        effective_user_id = args.user_id
+        effective_user_id = explicit_user_id
 
     # 4. 强制校验
     if not effective_user_id:
@@ -277,6 +278,10 @@ def main(argv: list[str] | None = None) -> int:
         import traceback
         traceback.print_exc(file=sys.stderr)
         return 1
+
+
+def run_as_console_script() -> int:
+    return main(sys.argv[1:])
 
 
 if __name__ == "__main__":

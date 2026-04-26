@@ -56,6 +56,8 @@ uv run python3 scripts/migrate_v2_peewee.py
 
 系统内置了 `poethepoet` 任务执行器，简化常用操作：
 
+`poe` 任务不在命令字符串里展开 `PTT_API_KEY`；请把 `PTT_API_KEY` 写入项目根目录 `.env`，由 `ptt-voice` / `ptt-storage` 启动后自行加载。
+
 | 命令 | 对应功能 |
 | :--- | :--- |
 | `uv run poe voice` | 启动标准语音交互 |

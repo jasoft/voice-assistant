@@ -167,15 +167,15 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
     args = parser.parse_args(cleaned_argv)
 
     # 4. 身份识别：命令行面向 api-key，内部再映射为 user_id。
-    api_key = (
-        args.api_key
-        or global_args.api_key
-        or os.environ.get("PTT_API_KEY")
+    cli_api_key = (args.api_key or global_args.api_key or "").strip()
+    env_api_key = (
+        os.environ.get("PTT_API_KEY")
         or os.environ.get("PTT_USER_API_KEY")
         or ""
     ).strip()
     user_id = args.user_id or global_args.user_id
 
+    api_key = cli_api_key or ("" if user_id else env_api_key)
     if api_key:
         from ..storage.service import resolve_user_id_from_api_key
 
