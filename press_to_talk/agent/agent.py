@@ -380,15 +380,17 @@ class OpenAICompatibleAgent:
             extracted_data = self.storage.remember_store().extract_summary_items(cleaned)
             items = extracted_data.get("items", [])
             for item in items:
+                mem_id = item.get("id", "unknown")
                 mem_text = str(item.get("memory", "")).strip()
                 if mem_text:
                     date_prefix = _memory_date_prefix(
                         str(item.get("updated_at") or item.get("created_at") or "")
                     )
+                    prefix = f"[ID: {mem_id}]"
                     if date_prefix:
-                        extracted_memories.append(f"- {date_prefix}: {mem_text}")
+                        extracted_memories.append(f"{prefix} {date_prefix}: {mem_text}")
                     else:
-                        extracted_memories.append(f"- {mem_text}")
+                        extracted_memories.append(f"{prefix} {mem_text}")
 
         # If it's a plain text response (like from remember_add) or JSON failed to provide items
         if not extracted_memories:
