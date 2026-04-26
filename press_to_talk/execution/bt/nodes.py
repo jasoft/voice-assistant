@@ -2,7 +2,7 @@ import asyncio
 import json
 import re
 from .base import Node, Status, Blackboard
-from ...api.main import get_photo_url
+from ...utils.photo import get_photo_url
 
 class Condition(Node):
     pass

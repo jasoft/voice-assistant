@@ -15,6 +15,7 @@ from ..execution import execute_transcript_async
 from ..storage.models import SessionHistory, RememberEntry, db
 from ..storage.service import ensure_storage_database, load_storage_config
 from ..utils.logging import log, log_multiline
+from ..utils.photo import get_photo_url
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -26,15 +27,6 @@ def mask_auth_header(auth_str: str) -> str:
     if not auth_str or len(auth_str) < 10:
         return "***"
     return f"{auth_str[:6]}...{auth_str[-4:]}"
-
-def get_photo_url(photo_path: Optional[str]) -> Optional[str]:
-    """Convert database photo path to web accessible URL."""
-    if not photo_path:
-        return None
-    # photo_path is typically "photos/filename.jpg"
-    # we want to map it to "/assets/filename.jpg"
-    filename = os.path.basename(photo_path)
-    return f"/assets/{filename}"
 
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
@@ -148,7 +140,7 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     reply: str
-    photo_url: Optional[str] = Field(None, description="图片访问 URL")
+    photo_url: Optional[str] = Field(None, description="图片访问 URL (例如: /assets/abc.jpg)，支持通过 HTTPS 访问")
 
 class HistoryItem(BaseModel):
     session_id: str

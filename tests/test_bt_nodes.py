@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import asyncio
+import json
 from press_to_talk.execution.bt.base import Status, Blackboard
 from press_to_talk.execution.bt.nodes import (
     IsRecordIntent, HasMemoryHits, IsChatMode, IsHermesMode,
@@ -80,18 +81,31 @@ class TestBTNodes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.bb.memories[0]["memory"], "found")
 
     @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
-    async def test_llm_summarize_action(self, MockAgent):
+    @patch("press_to_talk.execution.bt.nodes.get_photo_url")
+    async def test_llm_summarize_action_with_ids(self, mock_get_url, MockAgent):
         mock_agent = MockAgent.return_value
         async def mock_summarize(*args, **kwargs):
-            return "summarized reply"
+            return "Here is your info. [SELECTED_IDS: 123, 456]"
         mock_agent._summarize_remember_output.side_effect = mock_summarize
+        
+        mock_get_url.side_effect = lambda p: f"http://assets/{p}"
 
-        self.bb.memories = [{"memory": "item1"}]
+        self.bb.memories_raw = json.dumps({
+            "results": [
+                {"id": 123, "photo_path": "path1.jpg"},
+                {"id": 456, "photo_path": "path2.jpg"},
+                {"id": 789, "photo_path": "path3.jpg"}
+            ]
+        })
+        
         node = LLMSummarizeAction()
         status = await node.tick(self.bb)
 
         self.assertEqual(status, Status.SUCCESS)
-        self.assertEqual(self.bb.reply, "summarized reply")
+        self.assertEqual(self.bb.reply, "Here is your info.")
+        self.assertEqual(len(self.bb.reply_photos), 2)
+        self.assertIn("http://assets/path1.jpg", self.bb.reply_photos)
+        self.assertIn("http://assets/path2.jpg", self.bb.reply_photos)
 
     @patch("press_to_talk.execution.memory_chat.MemoryChatExecutionRunner")
     async def test_llm_chat_fallback_action(self, MockRunner):
@@ -109,7 +123,7 @@ class TestBTNodes(unittest.IsolatedAsyncioTestCase):
     @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
     async def test_execute_record_action(self, MockAgent):
         mock_agent = MockAgent.return_value
-        async def mock_execute(tool, args, user_input):
+        async def mock_execute(tool, args, user_input=None, photo_path=None):
             return "recorded success"
         mock_agent._execute_structured_tool.side_effect = mock_execute
 
