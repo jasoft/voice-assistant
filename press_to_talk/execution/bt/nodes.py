@@ -122,28 +122,33 @@ class LLMSummarizeAction(Action):
             else:
                 bb.reply = full_reply
 
-            # 2. 反查 photo_url
+            # 2. 反查 photo_url 和完整 item
             resolved_urls = []
+            selected_items = []
             if selected_ids and bb.memories_raw:
                 try:
                     raw_data = json.loads(bb.memories_raw)
                     items = raw_data.get("results", []) or raw_data.get("items", [])
                     
-                    # 创建 ID 到 photo_path 的映射
-                    path_map = {str(item.get("id")): item.get("photo_path") for item in items if item.get("id")}
+                    # 创建 ID 到 item 的映射
+                    item_map = {str(item.get("id")): item for item in items if item.get("id")}
                     
                     for rid in selected_ids:
-                        path = path_map.get(rid)
-                        if path:
-                            url = get_photo_url(path)
-                            if url:
-                                resolved_urls.append(url)
+                        item = item_map.get(rid)
+                        if item:
+                            selected_items.append(item)
+                            path = item.get("photo_path")
+                            if path:
+                                url = get_photo_url(path)
+                                if url:
+                                    resolved_urls.append(url)
                 except Exception:
                     # Ignore JSON errors in raw data
                     pass
             
             # 3. 存入黑板
             bb.reply_photos = resolved_urls # 保存列表
+            bb.selected_memories = selected_items
             
             return Status.SUCCESS
         except Exception as e:
