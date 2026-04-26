@@ -589,6 +589,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         memory: str,
         original_text: str = "",
         source_memory_id: str = "",
+        photo_path: str | None = None,
     ) -> str:
         item_id = uuid.uuid4().hex
         timestamp = _now_iso()
@@ -596,6 +597,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         stored_memory = str(memory or "").strip()
         stored_original_text = str(original_text or "").strip()
         stored_source_memory_id = str(source_memory_id or "").strip()
+        stored_photo_path = str(photo_path or "").strip() if photo_path else None
         deleted_item_ids: list[str] = []
 
         if stored_source_memory_id:
@@ -619,6 +621,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             source_memory_id=stored_source_memory_id,
             memory=stored_memory,
             original_text=stored_original_text,
+            photo_path=stored_photo_path,
             created_at=timestamp,
             updated_at=timestamp,
         )
@@ -733,6 +736,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     "id": str(row.id),
                     "memory": str(row.memory),
                     "original_text": str(row.original_text),
+                    "photo_path": str(row.photo_path or ""),
                     "created_at": format_local_datetime(str(row.created_at)),
                     "updated_at": format_local_datetime(str(row.updated_at)),
                     "score": 1.0, # 时间范围查询默认高置信度，交给 LLM 筛选
@@ -754,6 +758,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                         "id": str(row["id"]),
                         "memory": str(row["memory"]),
                         "original_text": str(row["original_text"]),
+                        "photo_path": str(row.get("photo_path") or ""),
                         "created_at": format_local_datetime(str(row["created_at"])),
                         "updated_at": format_local_datetime(str(row["updated_at"])),
                         "score": _embedding_confidence(
@@ -787,6 +792,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 items.id,
                 items.memory,
                 items.original_text,
+                items.photo_path,
                 items.created_at,
                 items.updated_at
             FROM {self.fts_table_name} fts
@@ -820,6 +826,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     id,
                     memory,
                     original_text,
+                    photo_path,
                     created_at,
                     updated_at
                 FROM {self.table_name}
@@ -865,6 +872,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 "id": str(row["id"]),
                 "memory": str(row["memory"]),
                 "original_text": str(row["original_text"]),
+                "photo_path": str(row["photo_path"] or ""),
                 "created_at": format_local_datetime(str(row["created_at"])),
                 "updated_at": format_local_datetime(str(row["updated_at"])),
                 "score": _fts_confidence(index),
@@ -947,9 +955,11 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         memory_id: str,
         memory: str,
         original_text: str = "",
+        photo_path: str | None = None,
     ) -> RememberItemRecord:
         stored_memory = str(memory or "").strip()
         stored_original_text = str(original_text or "").strip()
+        stored_photo_path = str(photo_path or "").strip() if photo_path else None
         updated_at = _now_iso()
         self._connect()
 
@@ -965,12 +975,15 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             source_memory_id=entry.source_memory_id or "",
             memory=entry.memory,
             original_text=entry.original_text,
+            photo_path=entry.photo_path or "",
             created_at=entry.created_at,
             updated_at=entry.updated_at,
         )
 
         entry.memory = stored_memory
         entry.original_text = stored_original_text
+        if photo_path is not None:
+            entry.photo_path = stored_photo_path
         entry.updated_at = updated_at
         entry.save()
 
@@ -1006,6 +1019,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             source_memory_id=old_record.source_memory_id,
             memory=stored_memory,
             original_text=stored_original_text,
+            photo_path=entry.photo_path or "",
             created_at=old_record.created_at,
             updated_at=updated_at,
         )
@@ -1024,6 +1038,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 user_id=str(row.user_id),
                 memory=str(row.memory),
                 original_text=str(row.original_text),
+                photo_path=str(row.photo_path or ""),
                 created_at=str(row.created_at),
                 updated_at=str(row.updated_at),
                 source_memory_id=str(row.source_memory_id or ""),

@@ -143,7 +143,7 @@ class ExecuteRecordAction(Action):
             tool_name = "remember_add"
             args = bb.intent.get("args", {})
             bb.reply = await agent._execute_structured_tool(
-                tool_name, args, user_input=bb.transcript
+                tool_name, args, user_input=bb.transcript, photo_path=bb.photo_path
             )
             return Status.SUCCESS
         except Exception as e:

@@ -125,7 +125,7 @@ class BaseRememberStore:
     def from_config(cls, config: StorageConfig, **kwargs) -> BaseRememberStore:
         raise NotImplementedError
 
-    def add(self, *, memory: str, original_text: str = "") -> str:
+    def add(self, *, memory: str, original_text: str = "", photo_path: str | None = None) -> str:
         raise NotImplementedError
 
     def find(
@@ -155,6 +155,7 @@ class BaseRememberStore:
         memory_id: str,
         memory: str,
         original_text: str = "",
+        photo_path: str | None = None,
     ) -> RememberItemRecord:
         raise NotImplementedError
 

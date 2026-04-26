@@ -327,7 +327,7 @@ class OpenAICompatibleAgent:
             },
         }
 
-    async def _execute_remember_tool(self, name: str, args: dict) -> str:
+    async def _execute_remember_tool(self, name: str, args: dict, photo_path: str | None = None) -> str:
         log(
             f"remember tool request: name={name} args={json.dumps(args, ensure_ascii=False)}",
             level="debug"
@@ -342,6 +342,7 @@ class OpenAICompatibleAgent:
                         or args.get("location", "")
                     ),
                     original_text=str(args.get("original_text", "")),
+                    photo_path=photo_path,
                 )
             elif name == "remember_find":
                 query = str(args.get("query", ""))
@@ -466,7 +467,7 @@ class OpenAICompatibleAgent:
             return memories_summary
 
     async def _execute_structured_tool(
-        self, tool_name: str | None, args: dict[str, Any], user_input: str = ""
+        self, tool_name: str | None, args: dict[str, Any], user_input: str = "", photo_path: str | None = None
     ) -> str | None:
         if tool_name is None:
             return None
@@ -488,6 +489,7 @@ class OpenAICompatibleAgent:
                     "memory": memory,
                     "original_text": user_input.strip(),
                 },
+                photo_path=photo_path,
             )
         if tool_name == "remember_find":
             query = str(args.get("query", "")).strip()

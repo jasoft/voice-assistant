@@ -13,6 +13,7 @@ class Blackboard:
     transcript: str
     cfg: Any
     mode: str = "database"
+    photo_path: Optional[str] = None
     intent: dict = field(default_factory=dict)
     memories: list = field(default_factory=list)
     memories_raw: Optional[str] = None  # Original JSON string from search

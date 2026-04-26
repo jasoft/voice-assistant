@@ -28,11 +28,11 @@ def _run_sync(coro):
     else:
         return asyncio.run(coro)
 
-async def execute_transcript_async(cfg: Any, transcript: str) -> str:
+async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | None = None) -> str:
     mode = resolve_execution_mode(cfg)
     
     # Initialize Blackboard
-    bb = Blackboard(transcript=transcript, cfg=cfg, mode=mode)
+    bb = Blackboard(transcript=transcript, cfg=cfg, mode=mode, photo_path=photo_path)
     
     # Build and tick the behavior tree
     tree = build_master_tree()
@@ -47,8 +47,8 @@ async def execute_transcript_async(cfg: Any, transcript: str) -> str:
     # Default fallback if tree didn't produce a reply
     return "I'm sorry, I couldn't process that request."
 
-def execute_transcript(cfg: Any, transcript: str) -> str:
-    return asyncio.run(execute_transcript_async(cfg, transcript))
+def execute_transcript(cfg: Any, transcript: str, photo_path: str | None = None) -> str:
+    return asyncio.run(execute_transcript_async(cfg, transcript, photo_path=photo_path))
 
 
 def classify_intent(cfg: Any, transcript: str) -> str:
