@@ -196,7 +196,7 @@ def extract_sqlite_summary_payload(
         extracted: dict[str, Any] = {
             "id": str(item.get("id") or "").strip(),
             "memory": memory,
-            "score": item.get("score"),
+            "score": float(item.get("score")) if item.get("score") is not None else 0.0,
             "created_at": str(item.get("created_at") or "").strip(),
             "updated_at": str(item.get("updated_at") or "").strip(),
             "metadata": item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
@@ -219,6 +219,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         embedding_max_results: int = 5,
         embedding_min_score: float = 0.45,
         embedding_context_min_score: float = 0.55,
+        keyword_search_enabled: bool = True,
+        semantic_search_enabled: bool = True,
     ) -> None:
         self.user_id = user_id
         self.db_path = Path(db_path).expanduser()
@@ -229,11 +231,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         self.embedding_max_results = max(1, int(embedding_max_results))
         self.embedding_min_score = float(embedding_min_score)
         self.embedding_context_min_score = float(embedding_context_min_score)
+        self.keyword_search_enabled = keyword_search_enabled
+        self.semantic_search_enabled = semantic_search_enabled
         self.table_name = "remember_entries"
         self.fts_table_name = "remember_entries_simple_fts"
         self.embedding_table_name = "remember_entry_embeddings"
         self.use_simple_query = False
-        
+
         # Initialize database and create tables if not already done
         from ..models import db, APIToken, SessionHistory, RememberEntry
         if db.database is None or db.database != str(self.db_path):
@@ -253,6 +257,8 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             embedding_max_results=config.embedding_max_results,
             embedding_min_score=config.embedding_min_score,
             embedding_context_min_score=config.embedding_context_min_score,
+            keyword_search_enabled=config.keyword_search_enabled,
+            semantic_search_enabled=config.semantic_search_enabled,
         )
 
     def _load_simple_extension(self, conn: sqlite3.Connection) -> bool:
@@ -748,173 +754,153 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             log(f"remember search date range rows: {len(results)}")
             return json.dumps({"results": results}, ensure_ascii=False)
 
-        # 2. 正常的关键词和向量搜索流程
-        match_query = self._match_query(query)
-        if not match_query:
-            semantic_results = []
-            if self._embedding_enabled():
-                semantic_results = [
-                    {
-                        "id": str(row["id"]),
-                        "memory": str(row["memory"]),
-                        "original_text": str(row["original_text"]),
-                        "photo_path": str(row.get("photo_path") or ""),
-                        "created_at": format_local_datetime(str(row["created_at"])),
-                        "updated_at": format_local_datetime(str(row["updated_at"])),
-                        "score": _embedding_confidence(
-                            float(row["embedding_score"]),
-                            self.embedding_context_min_score,
-                        ),
-                        "source": "semantic",
-                        "metadata": {
-                            "original_text": str(row["original_text"]),
-                            "embedding_score": float(row["embedding_score"]),
-                        },
-                    }
-                    for row in self._embedding_results_for_context(query=query)
-                ]
-            if min_score > 0:
-                semantic_results = [
-                    r for r in semantic_results if float(r.get("score", 0)) >= min_score
-                ]
-            return json.dumps({"results": semantic_results}, ensure_ascii=False)
-        keywords = _sanitize_rewritten_keywords(
-            _keywords_from_match_query(match_query, query),
-            query,
-        ) or _tokenize_for_match(query)
-        log(f"remember search keywords: {keywords}", level="debug")
-        self._connect() # Ensure extension loaded
-        log(f"remember search sql: fts5 match={match_query}", level="debug")
-        
-        cursor = db.execute_sql(
-            f"""
-            SELECT
-                items.id,
-                items.memory,
-                items.original_text,
-                items.photo_path,
-                items.created_at,
-                items.updated_at
-            FROM {self.fts_table_name} fts
-            JOIN {self.table_name} items ON items.id = fts.item_id
-            WHERE fts.user_id = ? AND {self.fts_table_name} MATCH ?
-              AND items.user_id = ?
-            ORDER BY bm25({self.fts_table_name}), items.updated_at DESC
-            LIMIT ?
-            """,
-            (self.user_id, match_query, self.user_id, self.max_results),
-        )
-        rows = cursor.fetchall()
-        
-        log(f"remember search fts5 rows: {len(rows)}", level="debug")
-        if not rows and keywords:
-            log(
-                f"remember search fallback: strategy=like keywords={keywords}",
-                level="debug"
-            )
-            like_clauses = " OR ".join(
-                "(memory LIKE ? OR original_text LIKE ?)" for _ in keywords
-            )
-            params: list[Any] = [self.user_id]
-            for keyword in keywords:
-                pattern = f"%{keyword}%"
-                params.extend([pattern, pattern])
-            params.append(self.max_results)
-            cursor = db.execute_sql(
-                f"""
-                SELECT
-                    id,
-                    memory,
-                    original_text,
-                    photo_path,
-                    created_at,
-                    updated_at
-                FROM {self.table_name}
-                WHERE (user_id = ?) AND ({like_clauses})
-                ORDER BY updated_at DESC
-                LIMIT ?
-                """,
-                params,
-            )
-            rows = cursor.fetchall()
+        results: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
 
-        primary_keywords = _reduce_filter_keywords(
-            _sanitize_rewritten_keywords(keywords, query)
-        )
-        filtered_rows = rows
-        if primary_keywords:
-            filtered_rows = [
-                row
-                for row in rows
-                if any(
-                    _normalize_match_text(keyword)
-                    in (
-                        _normalize_match_text(str(row["memory"]))
-                        + _normalize_match_text(str(row["original_text"]))
-                    )
-                    for keyword in primary_keywords
+        # 2. 关键词搜索流程
+        if self.keyword_search_enabled:
+            match_query = self._match_query(query)
+            if match_query:
+                keywords = _sanitize_rewritten_keywords(
+                    _keywords_from_match_query(match_query, query),
+                    query,
+                ) or _tokenize_for_match(query)
+                log(f"remember search keywords: {keywords}", level="debug")
+                self._connect() # Ensure extension loaded
+                log(f"remember search sql: fts5 match={match_query}", level="debug")
+                
+                cursor = db.execute_sql(
+                    f"""
+                    SELECT
+                        items.id,
+                        items.memory,
+                        items.original_text,
+                        items.photo_path,
+                        items.created_at,
+                        items.updated_at
+                    FROM {self.fts_table_name} fts
+                    JOIN {self.table_name} items ON items.id = fts.item_id
+                    WHERE fts.user_id = ? AND {self.fts_table_name} MATCH ?
+                      AND items.user_id = ?
+                    ORDER BY bm25({self.fts_table_name}), items.updated_at DESC
+                    LIMIT ?
+                    """,
+                    (self.user_id, match_query, self.user_id, self.max_results),
                 )
-            ]
+                rows = cursor.fetchall()
+                
+                log(f"remember search fts5 rows: {len(rows)}", level="debug")
+                if not rows and keywords:
+                    log(
+                        f"remember search fallback: strategy=like keywords={keywords}",
+                        level="debug"
+                    )
+                    like_clauses = " OR ".join(
+                        "(memory LIKE ? OR original_text LIKE ?)" for _ in keywords
+                    )
+                    params: list[Any] = [self.user_id]
+                    for keyword in keywords:
+                        pattern = f"%{keyword}%"
+                        params.extend([pattern, pattern])
+                    params.append(self.max_results)
+                    cursor = db.execute_sql(
+                        f"""
+                        SELECT
+                            id,
+                            memory,
+                            original_text,
+                            photo_path,
+                            created_at,
+                            updated_at
+                        FROM {self.table_name}
+                        WHERE (user_id = ?) AND ({like_clauses})
+                        ORDER BY updated_at DESC
+                        LIMIT ?
+                        """,
+                        params,
+                    )
+                    rows = cursor.fetchall()
 
-        if filtered_rows:
-            results_text = "\n".join(
-                [
-                    f"  - [{_fts_confidence(idx):.4f}] [Keyword] [{format_local_datetime(str(row['updated_at']))}] {str(row['memory']).replace('\n', ' ').strip()}"
-                    for idx, row in enumerate(filtered_rows)
-                ]
-            )
-            log_multiline("Keyword Search Results", results_text, level="info")
-        else:
-            log("Keyword Search Results: <none>", level="info")
+                primary_keywords = _reduce_filter_keywords(
+                    _sanitize_rewritten_keywords(keywords, query)
+                )
+                filtered_rows = rows
+                if primary_keywords:
+                    filtered_rows = [
+                        row
+                        for row in rows
+                        if any(
+                            _normalize_match_text(keyword)
+                            in (
+                                _normalize_match_text(str(row["memory"]))
+                                + _normalize_match_text(str(row["original_text"]))
+                            )
+                            for keyword in primary_keywords
+                        )
+                    ]
 
-        results = [
-            {
-                "id": str(row["id"]),
-                "memory": str(row["memory"]),
-                "original_text": str(row["original_text"]),
-                "photo_path": str(row["photo_path"] or ""),
-                "created_at": format_local_datetime(str(row["created_at"])),
-                "updated_at": format_local_datetime(str(row["updated_at"])),
-                "score": _fts_confidence(index),
-                "source": "keyword",
-                "metadata": {"original_text": str(row["original_text"])},
-            }
-            for index, row in enumerate(filtered_rows)
-        ]
-        if self._embedding_enabled():
+                if filtered_rows:
+                    results_text = "\n".join(
+                        [
+                            f"  - [{_fts_confidence(idx):.4f}] [Keyword] [{format_local_datetime(str(row['updated_at']))}] {str(row['memory']).replace('\n', ' ').strip()}"
+                            for idx, row in enumerate(filtered_rows)
+                        ]
+                    )
+                    log_multiline("Keyword Search Results", results_text, level="info")
+                else:
+                    log("Keyword Search Results: <none>", level="info")
+
+                for index, row in enumerate(filtered_rows):
+                    item_id = str(row["id"])
+                    results.append(
+                        {
+                            "id": item_id,
+                            "memory": str(row["memory"]),
+                            "original_text": str(row["original_text"]),
+                            "photo_path": str(row["photo_path"] or ""),
+                            "created_at": format_local_datetime(str(row["created_at"])),
+                            "updated_at": format_local_datetime(str(row["updated_at"])),
+                            "score": float(_fts_confidence(index)),
+                            "source": "keyword",
+                            "metadata": {"original_text": str(row["original_text"])},
+                        }
+                    )
+                    seen_ids.add(item_id)
+
+        # 3. 语义搜索流程
+        if self.semantic_search_enabled and self._embedding_enabled():
             try:
-                seen_ids = {str(item["id"]) for item in results}
-                for semantic_row in self._embedding_results_for_context(query=query):
+                semantic_rows = self._embedding_results_for_context(query=query)
+                for semantic_row in semantic_rows:
                     semantic_id = str(semantic_row["id"])
+                    embedding_score = float(semantic_row["embedding_score"])
+                    confidence_score = float(_embedding_confidence(
+                        embedding_score,
+                        self.embedding_context_min_score,
+                    ))
+                    
                     if semantic_id in seen_ids:
                         for item in results:
-                            if str(item["id"]) == semantic_id:
+                            if item["id"] == semantic_id:
                                 item["source"] = "both"
-                                item.setdefault("metadata", {})["embedding_score"] = (
-                                    semantic_row["embedding_score"]
-                                )
+                                item.setdefault("metadata", {})["embedding_score"] = embedding_score
+                                # 综合考虑分数，这里可以根据需要调整策略，目前保持 keyword 优先的分数或更新为更高的
+                                item["score"] = max(item["score"], confidence_score)
                         continue
+                    
                     results.append(
                         {
                             "id": semantic_id,
                             "memory": str(semantic_row["memory"]),
                             "original_text": str(semantic_row["original_text"]),
-                            "created_at": format_local_datetime(
-                                str(semantic_row["created_at"])
-                            ),
-                            "updated_at": format_local_datetime(
-                                str(semantic_row["updated_at"])
-                            ),
-                            "score": _embedding_confidence(
-                                float(semantic_row["embedding_score"]),
-                                self.embedding_context_min_score,
-                            ),
+                            "photo_path": str(semantic_row.get("photo_path") or ""),
+                            "created_at": format_local_datetime(str(semantic_row["created_at"])),
+                            "updated_at": format_local_datetime(str(semantic_row["updated_at"])),
+                            "score": confidence_score,
                             "source": "semantic",
                             "metadata": {
                                 "original_text": str(semantic_row["original_text"]),
-                                "embedding_score": float(
-                                    semantic_row["embedding_score"]
-                                ),
+                                "embedding_score": embedding_score,
                             },
                         }
                     )
@@ -922,6 +908,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             except Exception as exc:
                 log(f"remember embedding search failed: {exc}")
 
+        # 4. 过滤最小分数
         if min_score > 0:
             results = [r for r in results if float(r.get("score", 0)) >= min_score]
 
