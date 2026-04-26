@@ -17,6 +17,11 @@ class MultiUserRobustnessTests(unittest.TestCase):
         # 创建临时数据库以保持环境纯净
         cls.tmp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.tmp_dir.name) / "robustness_test.sqlite3"
+        cls.cwd = Path(cls.tmp_dir.name)
+        (cls.cwd / ".env").write_text(
+            "PTT_API_KEY=\nPTT_USER_API_KEY=\n",
+            encoding="utf-8",
+        )
         cls.env = os.environ.copy()
         cls.env["PTT_HISTORY_DB_PATH"] = str(cls.db_path)
         cls.env["PTT_REMEMBER_DB_PATH"] = str(cls.db_path)
@@ -40,12 +45,26 @@ class MultiUserRobustnessTests(unittest.TestCase):
         cleaned_args = [a for a in args if a != "start"]
 
         cmd = [sys.executable, "-m", "press_to_talk"] + cleaned_args + ["--no-tts"]
-        return subprocess.run(cmd, capture_output=True, text=True, env=env, encoding="utf-8")
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            encoding="utf-8",
+            cwd=self.cwd,
+        )
 
     def run_storage(self, args):
         env = self.env.copy()
         cmd = [sys.executable, "-m", "press_to_talk.storage.cli_app"] + args
-        return subprocess.run(cmd, capture_output=True, text=True, env=env, encoding="utf-8")
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            encoding="utf-8",
+            cwd=self.cwd,
+        )
 
     def create_token(self, user_id: str) -> str:
         token = self.tokens[user_id]
@@ -58,7 +77,14 @@ class MultiUserRobustnessTests(unittest.TestCase):
             "--token",
             token,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, env=self.env, encoding="utf-8")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=self.env,
+            encoding="utf-8",
+            cwd=self.cwd,
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         return token
 

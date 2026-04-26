@@ -60,8 +60,12 @@ from .utils.text import (
 
 def load_env_files() -> None:
     loaded_any = False
+    loaded_keys: set[str] = set()
     for env_file in _candidate_env_files():
-        loaded_any = env_module._load_env_file(env_file) or loaded_any
+        loaded_any = (
+            env_module._load_env_file(env_file, loaded_keys=loaded_keys)
+            or loaded_any
+        )
     if loaded_any:
         return
 
@@ -107,7 +111,7 @@ def load_env_files() -> None:
             continue
         env_path = candidate_root / ".env"
         if env_path.is_file():
-            env_module._load_env_file(env_path)
+            env_module._load_env_file(env_path, loaded_keys=loaded_keys)
             return
 
 

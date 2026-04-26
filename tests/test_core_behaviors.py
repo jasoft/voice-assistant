@@ -1008,6 +1008,49 @@ class ThinkTagFilterTests(unittest.TestCase):
                 self.assertEqual(core.os.environ["GROQ_API_KEY"], "test-groq-key")
                 self.assertEqual(core.os.environ["MEM0_API_KEY"], "test-mem0-key")
 
+    def test_load_env_files_prefers_dotenv_over_system_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / ".env"
+            env_path.write_text(
+                "PTT_API_KEY=dotenv-token\nOPENAI_API_KEY=dotenv-openai\n",
+                encoding="utf-8",
+            )
+
+            with (
+                patch.dict(
+                    "os.environ",
+                    {
+                        "PTT_API_KEY": "system-token",
+                        "OPENAI_API_KEY": "system-openai",
+                    },
+                    clear=True,
+                ),
+                patch(
+                    "press_to_talk.core._candidate_env_files",
+                    return_value=[env_path],
+                ),
+            ):
+                core.load_env_files()
+                self.assertEqual(core.os.environ["PTT_API_KEY"], "dotenv-token")
+                self.assertEqual(core.os.environ["OPENAI_API_KEY"], "dotenv-openai")
+
+    def test_load_env_files_keeps_first_dotenv_candidate_highest_priority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first_env = Path(tmpdir) / ".env.first"
+            second_env = Path(tmpdir) / ".env.second"
+            first_env.write_text("PTT_API_KEY=first-token\n", encoding="utf-8")
+            second_env.write_text("PTT_API_KEY=second-token\n", encoding="utf-8")
+
+            with (
+                patch.dict("os.environ", {"PTT_API_KEY": "system-token"}, clear=True),
+                patch(
+                    "press_to_talk.core._candidate_env_files",
+                    return_value=[first_env, second_env],
+                ),
+            ):
+                core.load_env_files()
+                self.assertEqual(core.os.environ["PTT_API_KEY"], "first-token")
+
     def test_execute_structured_remember_add_uses_distilled_memory_for_mem0(
         self,
     ) -> None:

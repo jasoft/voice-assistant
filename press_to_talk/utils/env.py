@@ -80,7 +80,7 @@ def _main_worktree_env_file() -> Path | None:
             return env_path
     return None
 
-def _load_env_file(env_file: Path) -> bool:
+def _load_env_file(env_file: Path, *, loaded_keys: set[str] | None = None) -> bool:
     if not env_file.is_file():
         return False
     loaded = False
@@ -95,21 +95,26 @@ def _load_env_file(env_file: Path) -> bool:
         value = value.strip()
         if not key:
             continue
+        if loaded_keys is not None and key in loaded_keys:
+            continue
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
             value = value[1:-1]
-        os.environ.setdefault(key, value)
+        os.environ[key] = value
+        if loaded_keys is not None:
+            loaded_keys.add(key)
         loaded = True
     return loaded
 
 def load_env_files() -> None:
     loaded_any = False
+    loaded_keys: set[str] = set()
     for env_file in _candidate_env_files():
-        loaded_any = _load_env_file(env_file) or loaded_any
+        loaded_any = _load_env_file(env_file, loaded_keys=loaded_keys) or loaded_any
     if loaded_any:
         return
     fallback_env = _main_worktree_env_file()
     if fallback_env is not None:
-        _load_env_file(fallback_env)
+        _load_env_file(fallback_env, loaded_keys=loaded_keys)
 
 def env_str(name: str, default: str) -> str:
     return os.environ.get(name, default)
