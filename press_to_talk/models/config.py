@@ -42,6 +42,7 @@ class Config:
     user_id: str = "default"
     user_token: str | None = None
     use_cli: bool = True
+    photo_path: str | None = None
 
 @dataclass
 class SessionHistory:
@@ -160,6 +161,7 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
     parser.add_argument("--summarize-model", default=env_str("PTT_SUMMERIZE_MODEL", ""))
     parser.add_argument("--ask", action="store_true")
     parser.add_argument("--record", action="store_true")
+    parser.add_argument("--photo-path", help="Path to a photo file to attach.")
 
     # 兼容处理：有些地方可能传了 'start' 子命令，我们跳过它
     cleaned_argv = [a for a in input_args if a != "start"]
@@ -198,6 +200,37 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
     if args.classify_only and execution_mode != "database":
         parser.error("--classify-only requires --execution-mode database")
 
+    force_record = args.record
+    photo_path = args.photo_path
+    if photo_path:
+        force_record = True
+        
+        # Archive photo
+        import shutil
+        import uuid
+        from datetime import datetime
+        
+        src = Path(photo_path).expanduser().resolve()
+        if src.exists():
+            photos_dir = PROJECT_ROOT / "data" / "photos"
+            photos_dir.mkdir(parents=True, exist_ok=True)
+            
+            # If already relative to data dir, just use it
+            is_already_archived = False
+            try:
+                if src.is_relative_to(PROJECT_ROOT / "data"):
+                    photo_path = str(src.relative_to(PROJECT_ROOT / "data"))
+                    is_already_archived = True
+            except ValueError:
+                pass
+            
+            if not is_already_archived:
+                ext = src.suffix or ".jpg"
+                new_filename = f"photo_ptt_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}{ext}"
+                dest = photos_dir / new_filename
+                shutil.copy2(src, dest)
+                photo_path = f"photos/{new_filename}"
+
     return Config(
         sample_rate=args.sample_rate,
         channels=args.channels,
@@ -225,5 +258,6 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
         user_id=user_id or "default",
         user_token=api_key,
         force_ask=args.ask,
-        force_record=args.record
+        force_record=force_record,
+        photo_path=photo_path
     )

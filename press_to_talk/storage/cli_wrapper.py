@@ -85,8 +85,11 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
         super().__init__(user_id=user_id, api_key=api_key)
         self.summary_extractor = summary_extractor
 
-    def add(self, *, memory: str, original_text: str = "") -> str:
-        data = self._run_json(["memory", "add", "--memory", memory, "--original-text", original_text])
+    def add(self, *, memory: str, original_text: str = "", photo_path: str | None = None) -> str:
+        args = ["memory", "add", "--memory", memory, "--original-text", original_text]
+        if photo_path:
+            args.extend(["--photo-path", photo_path])
+        data = self._run_json(args)
         return data["result"]
 
     def find(
@@ -116,19 +119,21 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
         memory_id: str,
         memory: str,
         original_text: str = "",
+        photo_path: str | None = None,
     ) -> RememberItemRecord:
-        data = self._run_json(
-            [
-                "memory",
-                "update",
-                "--id",
-                memory_id,
-                "--memory",
-                memory,
-                "--original-text",
-                original_text,
-            ]
-        )
+        args = [
+            "memory",
+            "update",
+            "--id",
+            memory_id,
+            "--memory",
+            memory,
+            "--original-text",
+            original_text,
+        ]
+        if photo_path:
+            args.extend(["--photo-path", photo_path])
+        data = self._run_json(args)
         if not data or "updated" not in data:
             raise RuntimeError("Storage CLI error: missing updated memory payload")
         item = dict(data["updated"])
