@@ -15,8 +15,12 @@ def format_history_timestamp(ts: datetime | None = None) -> str:
     return current.isoformat(timespec="seconds")
 
 def build_storage_config(cfg: Config) -> StorageConfig:
-    config = load_storage_config(user_id_override=cfg.user_id)
+    config = load_storage_config(
+        user_id_override=cfg.user_id,
+        api_key_override=cfg.user_token,
+    )
     config.user_id = cfg.user_id
+    config.user_token = cfg.user_token
     config.mem0_api_key = env_str("MEM0_API_KEY", config.mem0_api_key).strip()
     config.mem0_user_id = (
         env_str("MEM0_USER_ID", config.mem0_user_id).strip() or config.mem0_user_id

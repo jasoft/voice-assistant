@@ -57,6 +57,7 @@ class RememberEntry(BaseModel):
 class StorageConfig:
     backend: str = "mem0"
     user_id: str = "default"
+    user_token: str | None = None
     mem0_api_key: str = ""
     mem0_user_id: str = "default"
     mem0_app_id: str = "voice-assistant"

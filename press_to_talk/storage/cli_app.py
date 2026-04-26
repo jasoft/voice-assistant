@@ -5,6 +5,7 @@ import contextlib
 import difflib
 import io
 import json
+import os
 import re
 import sys
 from dataclasses import asdict
@@ -12,7 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from .models import SessionHistoryRecord, StorageConfig, RememberItemRecord
-from .service import StorageService, load_storage_config, APP_ROOT
+from .service import (
+    StorageService,
+    load_storage_config,
+    APP_ROOT,
+    resolve_user_id_from_api_key,
+)
 
 
 class AgentHelpFormatter(argparse.RawDescriptionHelpFormatter):
@@ -29,7 +35,7 @@ class AgentFriendlyArgumentParser(argparse.ArgumentParser):
 
     def error(self, message: str) -> None:
         full_message = f"{message}\n\n"
-        
+
         # Add spelling suggestions for invalid choices
         invalid_choice_match = re.search(r"invalid choice: '([^']+)' \(choose from ([^)]+)\)", message)
         if invalid_choice_match:
@@ -55,16 +61,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Examples:\n"
-            f"  {prog_name} --user-id default history list --limit 5\n"
-            f"  {prog_name} --user-id default memory search --query \"passport\"\n"
+            f"  {prog_name} --api-key <your-token> history list --limit 5\n"
+            f"  {prog_name} --api-key <your-token> memory search --query \"passport\"\n"
         ),
         formatter_class=AgentHelpFormatter,
     )
-    
-    # Global arguments (defined only once at top level for clarity)
+
+    # Global arguments (pre-processed in main)
+    parser.add_argument(
+        "--api-key",
+        "--token",
+        dest="api_key",
+        help="API Token to identify the user.",
+    )
     parser.add_argument(
         "--user-id",
-        help="Target user ID for the operation. (Required)",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "-v", "--debug",
@@ -74,19 +86,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="category", required=True)
 
-    # Doctor command
-    subparsers.add_parser(
-        "doctor",
-        help="Check configuration and connectivity of storage backends",
-        formatter_class=AgentHelpFormatter,
-    )
+    # Subparsers for commands (inherited base parser logic is now handled manually in main)
+    subparsers.add_parser("doctor", help="Check status", formatter_class=AgentHelpFormatter)
 
-    # History commands
-    history_parser = subparsers.add_parser(
-        "history",
-        help="Read/write session history records",
-        formatter_class=AgentHelpFormatter,
-    )
+    # History
+    history_parser = subparsers.add_parser("history", help="History CRUD", formatter_class=AgentHelpFormatter)
     history_sub = history_parser.add_subparsers(dest="command", required=True)
 
     h_list = history_sub.add_parser("list", help="List history", formatter_class=AgentHelpFormatter)
@@ -99,12 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
     h_del = history_sub.add_parser("delete", help="Delete history", formatter_class=AgentHelpFormatter)
     h_del.add_argument("--session-id", required=True)
 
-    # Memory commands
-    memory_parser = subparsers.add_parser(
-        "memory",
-        help="Read/write long-term memory entries",
-        formatter_class=AgentHelpFormatter,
-    )
+    # Memory
+    memory_parser = subparsers.add_parser("memory", help="Memory CRUD", formatter_class=AgentHelpFormatter)
     memory_sub = memory_parser.add_subparsers(dest="command", required=True)
 
     m_add = memory_sub.add_parser("add", help="Add memory", formatter_class=AgentHelpFormatter)
@@ -155,46 +155,59 @@ def main(argv: list[str] | None = None) -> int:
     from ..utils.env import load_env_files
     load_env_files()
 
-    # Get input args
     input_args = list(sys.argv[1:] if argv is None else argv)
-    
-    # Pre-interception for 'doctor' (legacy behavior)
+
     if input_args and input_args[0] == "doctor":
         return _run_storage_doctor()
 
     parser = build_parser()
-    
-    # Pre-parse just to see if we have help request or no subcommand
+    if not input_args:
+        parser.print_help()
+        return 0
+
+    # Help bypass
+    if "-h" in input_args or "--help" in input_args:
+        parser.print_help()
+        return 0
+
     global_parser = argparse.ArgumentParser(add_help=False)
+    global_parser.add_argument("--api-key", "--token", dest="api_key")
     global_parser.add_argument("--user-id")
     global_parser.add_argument("-v", "--debug", action="store_true")
     global_args, remaining_argv = global_parser.parse_known_args(input_args)
-
-    # 2. 帮助信息处理
-    if not input_args or "-h" in input_args or "--help" in input_args:
-        parser.print_help()
-        return 0
-
-    # If only global args are present but no action, show help and return 0
     if not remaining_argv:
         parser.print_help()
         return 0
-    
-    # 3. 解析正式参数
-    try:
-        args = parser.parse_args(input_args)
-    except SystemExit as e:
-        raise # Re-raise for error reporting and tests
 
-    # 4. 强制要求 user_id
-    effective_user_id = args.user_id or global_args.user_id
+    # 1. 解析参数
+    args = parser.parse_args(input_args)
+
+    # 2. 身份识别逻辑 (Token优先)
+    effective_user_id = None
+    api_key = (
+        args.api_key
+        or global_args.api_key
+        or os.environ.get("PTT_API_KEY")
+        or os.environ.get("PTT_USER_API_KEY")
+        or ""
+    ).strip()
+    if api_key:
+        effective_user_id = resolve_user_id_from_api_key(api_key)
+        if not effective_user_id:
+            parser.error("invalid --api-key")
+
+    # 3. 兜底使用 user_id (Admin 模式)
     if not effective_user_id:
-        parser.error("argument --user-id is required")
+        effective_user_id = args.user_id
+
+    # 4. 强制校验
+    if not effective_user_id:
+        parser.error("the following arguments are required: --api-key")
 
     from press_to_talk.utils.logging import set_global_log_level
     from press_to_talk.storage.memory_backends import export_memories_to_provider
 
-    if args.debug or global_args.debug:
+    if args.debug:
         set_global_log_level("DEBUG")
     else:
         set_global_log_level("INFO")
@@ -203,8 +216,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         exit_code = 0
         with contextlib.redirect_stderr(stderr_buffer):
-            config = load_storage_config(user_id_override=effective_user_id)
-            
+            config = load_storage_config(
+                user_id_override=effective_user_id,
+                api_key_override=api_key or None,
+            )
+
             if args.category == "doctor":
                 return _run_storage_doctor()
 
@@ -217,21 +233,12 @@ def main(argv: list[str] | None = None) -> int:
                     end_date=args.end_date
                 ))
             elif args.category == "memory" and args.command == "add":
-                print(
-                    json.dumps(
-                        {"result": service.remember_store().add(memory=args.memory, original_text=args.original_text)},
-                        ensure_ascii=False
-                    )
-                )
+                print(json.dumps({"result": service.remember_store().add(memory=args.memory, original_text=args.original_text)}, ensure_ascii=False))
             elif args.category == "memory" and args.command == "delete":
                 service.remember_store().delete(memory_id=args.id)
                 print(json.dumps({"deleted": args.id}, ensure_ascii=False))
             elif args.category == "memory" and args.command == "update":
-                record = service.remember_store().update(
-                    memory_id=args.id,
-                    memory=args.memory,
-                    original_text=args.original_text,
-                )
+                record = service.remember_store().update(memory_id=args.id, memory=args.memory, original_text=args.original_text)
                 d = asdict(record)
                 d.pop("source_memory_id", None)
                 print(json.dumps({"updated": d}, ensure_ascii=False))
@@ -247,10 +254,7 @@ def main(argv: list[str] | None = None) -> int:
                 from .memory_backends import get_remember_provider_class
                 target_cls = get_remember_provider_class(args.to_provider)
                 target_store = target_cls.from_config(config)
-                count = export_memories_to_provider(
-                    source_store=service.remember_store(),
-                    target_store=target_store
-                )
+                count = export_memories_to_provider(source_store=service.remember_store(), target_store=target_store)
                 print(json.dumps({"status": "ok", "exported_count": count}, ensure_ascii=False))
             elif args.category == "history" and args.command == "list":
                 records = service.history_store().list_recent(limit=args.limit, query=args.query)

@@ -1,22 +1,12 @@
 from fastapi import Depends, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from ..storage.models import APIToken
+from ..storage.service import resolve_user_id_from_api_key
 
 security = HTTPBearer()
 
 async def get_user_id(auth: HTTPAuthorizationCredentials = Security(security)) -> str:
     token_str = auth.credentials
-    try:
-        token_obj = APIToken.get(APIToken.token == token_str)
-        return token_obj.user_id
-    except APIToken.DoesNotExist:
-        # Auto-create user and token if not found (facilitates integration with 3rd party agents)
-        try:
-            APIToken.create(
-                token=token_str,
-                user_id=token_str,
-                description="Auto-created for third-party integration"
-            )
-            return token_str
-        except Exception as e:
-            raise HTTPException(status_code=401, detail=f"Invalid token and auto-creation failed: {e}")
+    user_id = resolve_user_id_from_api_key(token_str)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return user_id

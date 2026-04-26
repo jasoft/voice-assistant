@@ -9,7 +9,7 @@ from .auth import get_user_id
 from ..models.config import Config, parse_args
 from ..execution import execute_transcript_async
 from ..storage.models import SessionHistory, RememberEntry, db
-from ..storage.service import load_storage_config
+from ..storage.service import ensure_storage_database, load_storage_config
 
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
@@ -19,18 +19,12 @@ async def lifespan(app: FastAPI):
     # Initialize database on startup
     global base_config
     storage_cfg = load_storage_config()
-    db_path = storage_cfg.history_db_path
-    if not db_path:
-        from ..storage.service import DEFAULT_HISTORY_DB_PATH
-        db_path = str(DEFAULT_HISTORY_DB_PATH)
-    
-    db.init(db_path)
-    db.connect(reuse_if_open=True)
+    ensure_storage_database(storage_cfg)
     
     # Load base config once
     try:
-        # parse_args([]) loads defaults from env vars and config files
-        base_config = parse_args([])
+        # Web API 不读取 .env；它只使用进程环境和请求 Bearer token。
+        base_config = parse_args(["--user-id", "api-server", "--no-tts"], load_env=False)
     except SystemExit:
         # If parse_args failed, we might be missing critical env vars
         # In a real API we might want to log this or handle more gracefully
@@ -95,6 +89,7 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
         # Clone base config and modify for this request
         cfg = dataclasses.replace(base_config)
         cfg.user_id = user_id
+        cfg.user_token = None
         cfg.text_input = req.query
         cfg.no_tts = True
         cfg.use_cli = False  # Ensure direct database access

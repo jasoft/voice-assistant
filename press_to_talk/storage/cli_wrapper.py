@@ -13,14 +13,26 @@ from ..utils.logging import log, log_multiline
 
 
 class CLIStoreBase:
-    def __init__(self, user_id: str = "default") -> None:
+    def __init__(self, user_id: str = "default", api_key: str | None = None) -> None:
         self.user_id = user_id
+        self.api_key = api_key
 
     def _run_process(self, args: list[str]) -> subprocess.CompletedProcess[str]:
-        # Always inject mandatory --user-id argument
-        cmd = [sys.executable, "-m", "press_to_talk.storage.cli_app", "--user-id", self.user_id, *args]
+        # Identify identity arguments
+        identity_args = []
+        if self.api_key:
+            identity_args = ["--api-key", self.api_key]
+        else:
+            identity_args = ["--user-id", self.user_id]
+
+        cmd = [sys.executable, "-m", "press_to_talk.storage.cli_app"] + identity_args + args
+        log_cmd = list(cmd)
+        if "--api-key" in log_cmd:
+            key_idx = log_cmd.index("--api-key")
+            if key_idx + 1 < len(log_cmd):
+                log_cmd[key_idx + 1] = "***"
         # Use shlex.join for a more readable command log that handles quoting correctly
-        log("storage cli exec: " + shlex.join(cmd), level="debug")
+        log("storage cli exec: " + shlex.join(log_cmd), level="debug")
         
         # Force color output for the sub-process even when piped
         env = {**os.environ, "FORCE_COLOR": "1"}
@@ -46,8 +58,8 @@ class CLIStoreBase:
 
 
 class CLIHistoryStore(BaseHistoryStore, CLIStoreBase):
-    def __init__(self, user_id: str = "default") -> None:
-        super().__init__(user_id=user_id)
+    def __init__(self, user_id: str = "default", api_key: str | None = None) -> None:
+        super().__init__(user_id=user_id, api_key=api_key)
 
     def persist(self, entry: SessionHistoryRecord) -> None:
         self._run_json(["history", "add", "--json", json.dumps(asdict(entry), ensure_ascii=False)])
@@ -67,9 +79,10 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
         self,
         *,
         user_id: str = "default",
+        api_key: str | None = None,
         summary_extractor: BaseRememberStore | Callable[[], BaseRememberStore] | None = None,
     ) -> None:
-        super().__init__(user_id=user_id)
+        super().__init__(user_id=user_id, api_key=api_key)
         self.summary_extractor = summary_extractor
 
     def add(self, *, memory: str, original_text: str = "") -> str:

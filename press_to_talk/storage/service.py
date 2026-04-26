@@ -111,7 +111,10 @@ def reset_storage_config_logged() -> None:
     _storage_config_logged = False
 
 
-def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
+def load_storage_config(
+    user_id_override: str | None = None,
+    api_key_override: str | None = None,
+) -> StorageConfig:
     global _storage_config_logged
     workflow_cfg = load_workflow_config()
     storage_cfg = workflow_cfg.get("storage", {}) if isinstance(workflow_cfg, dict) else {}
@@ -157,6 +160,10 @@ def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
         backend=str(env_str("PTT_REMEMBER_BACKEND", configured_backend)).strip()
         or configured_backend,
         user_id=base_user_id,
+        user_token=api_key_override
+        or env_str("PTT_API_KEY", "").strip()
+        or env_str("PTT_USER_API_KEY", "").strip()
+        or None,
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
         mem0_user_id=user_id_override or str(env_str("PTT_USER_ID", str(env_str("MEM0_USER_ID", mem0_config_user_id)))).strip(),
         mem0_app_id=app_id,
@@ -218,6 +225,27 @@ def load_storage_config(user_id_override: str | None = None) -> StorageConfig:
         _storage_config_logged = True
 
     return config
+
+
+def ensure_storage_database(config: StorageConfig | None = None) -> None:
+    cfg = config or load_storage_config()
+    db_path = str(cfg.remember_db_path or cfg.history_db_path or DEFAULT_APP_DB_PATH)
+    db_path_obj = Path(db_path).expanduser().resolve()
+    db_path_obj.parent.mkdir(parents=True, exist_ok=True)
+    db.init(str(db_path_obj))
+    db.connect(reuse_if_open=True)
+    db.create_tables([APIToken, SessionHistory, RememberEntry])
+
+
+def resolve_user_id_from_api_key(api_key: str) -> str | None:
+    token = str(api_key or "").strip()
+    if not token:
+        return None
+    ensure_storage_database()
+    token_record = APIToken.get_or_none(APIToken.token == token)
+    if token_record is None:
+        return None
+    return str(token_record.user_id)
 
 
 class LLMKeywordRewriter:
@@ -500,8 +528,15 @@ class StorageService:
         self._remember_provider: BaseRememberStore | None = None
         self._remember_store: BaseRememberStore | None = None
         if use_cli:
-            self._history_store = CLIHistoryStore()
-            self._remember_store = CLIRememberStore(summary_extractor=self._get_or_build_remember_provider)
+            self._history_store = CLIHistoryStore(
+                user_id=self.config.user_id,
+                api_key=self.config.user_token,
+            )
+            self._remember_store = CLIRememberStore(
+                user_id=self.config.user_id,
+                api_key=self.config.user_token,
+                summary_extractor=self._get_or_build_remember_provider,
+            )
             return
         self._history_store = PeeweeHistoryStore(self.config.user_id)
 

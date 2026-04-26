@@ -13,6 +13,7 @@ OPENAI_API_KEY=你的_api_key
 OPENAI_BASE_URL=你的_base_url
 PTT_STT_URL=你的_stt_服务地址
 PTT_STT_TOKEN=你的_stt_鉴权令牌
+PTT_API_KEY=你的语音助手用户令牌
 ```
 
 ### 2. 初始化数据库与迁移
@@ -30,7 +31,7 @@ uv run python3 scripts/migrate_v2_peewee.py
 ### 🎙 语音交互 (Voice CLI)
 核心交互入口，支持实时录音或文本注入。
 - **启动实时录音交互**：`uv run ptt-voice`
-- **纯文本测试（跳过录音）**：`uv run ptt-voice --text-input "查询壮壮的记录" --no-tts`
+- **纯文本测试（跳过录音）**：`uv run ptt-voice --api-key <token> --text-input "查询壮壮的记录" --no-tts`
 - **查看帮助**：`uv run ptt-voice --help`
 
 ### 🌐 HTTP API 服务
@@ -46,8 +47,8 @@ uv run python3 scripts/migrate_v2_peewee.py
 
 ### 📦 存储管理 (Storage CLI)
 直接操作底层的历史记录和记忆数据。
-- **查看历史列表**：`uv run ptt-storage history list`
-- **搜索记忆**：`uv run ptt-storage memory search "关键词"`
+- **查看历史列表**：`uv run ptt-storage --api-key <token> history list`
+- **搜索记忆**：`uv run ptt-storage --api-key <token> memory search --query "关键词"`
 
 ---
 
@@ -75,7 +76,7 @@ uv run python3 scripts/migrate_v2_peewee.py
 - **`hermes`**：强制调用外部 Hermes 聊天引擎。
 
 ### 2. 多用户隔离
-系统通过 `Authorization: Bearer <token>` 头部识别用户。
+系统通过 CLI 的 `--api-key <token>` 或 HTTP API 的 `Authorization: Bearer <token>` 识别用户，并在服务端映射为内部 `user_id`。
 - 每个 `user_id` 拥有独立的 **Session History**（会话历史）和 **Remember Entries**（记忆条目）。
 - 数据库底层通过 Peewee ORM 在所有查询中强制注入 `user_id` 过滤条件，确保公网环境下数据的绝对安全。
 
