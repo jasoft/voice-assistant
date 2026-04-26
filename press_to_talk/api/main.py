@@ -102,6 +102,12 @@ class ExecutionMode(str, Enum):
     HERMES = "hermes"
     INTENT = "intent"
 
+class PhotoAttachment(BaseModel):
+    type: str = Field(..., description="图片类型: 'url' 或 'base64'")
+    url: Optional[str] = Field(None, description="当 type 为 'url' 时必填")
+    data: Optional[str] = Field(None, description="当 type 为 'base64' 时必填 (Base64 数据)")
+    mime: Optional[str] = Field(None, description="可选，图片的 MIME 类型")
+
 class QueryRequest(BaseModel):
     query: str = Field(..., description="用户输入的自然语言查询语句。例如：'最近三天的记录'、'护照在哪？'。")
     mode: Optional[ExecutionMode] = Field(
@@ -114,14 +120,18 @@ class QueryRequest(BaseModel):
             "- `intent`: `database` 模式的别名。"
         )
     )
-    photo: Optional[str] = Field(None, description="可选。Base64 编码的图片字符串。如果提供，将作为记忆的附件保存。")
+    photo: Optional[PhotoAttachment] = Field(None, description="图片附件节点")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "query": "最近三天的记录",
                 "mode": "memory-chat",
-                "photo": "base64_string_here"
+                "photo": {
+                    "type": "base64",
+                    "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
+                    "mime": "image/png"
+                }
             }
         }
 
