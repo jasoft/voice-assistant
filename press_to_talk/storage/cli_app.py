@@ -110,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     m_add = memory_sub.add_parser("add", help="Add memory", formatter_class=AgentHelpFormatter)
     m_add.add_argument("--memory", required=True)
     m_add.add_argument("--original-text", default="")
+    m_add.add_argument("--photo-path", help="Relative path to the photo file.")
 
     m_search = memory_sub.add_parser("search", help="Search memory", formatter_class=AgentHelpFormatter)
     m_search.add_argument("--query", required=True)
@@ -124,6 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     m_update.add_argument("--id", required=True)
     m_update.add_argument("--memory", required=True)
     m_update.add_argument("--original-text", default="")
+    m_update.add_argument("--photo-path", help="Relative path to the photo file.")
 
     m_list = memory_sub.add_parser("list", help="List memories", formatter_class=AgentHelpFormatter)
     m_list.add_argument("--limit", type=int, default=100)
@@ -234,12 +236,21 @@ def main(argv: list[str] | None = None) -> int:
                     end_date=args.end_date
                 ))
             elif args.category == "memory" and args.command == "add":
-                print(json.dumps({"result": service.remember_store().add(memory=args.memory, original_text=args.original_text)}, ensure_ascii=False))
+                print(json.dumps({"result": service.remember_store().add(
+                    memory=args.memory, 
+                    original_text=args.original_text,
+                    photo_path=args.photo_path
+                )}, ensure_ascii=False))
             elif args.category == "memory" and args.command == "delete":
                 service.remember_store().delete(memory_id=args.id)
                 print(json.dumps({"deleted": args.id}, ensure_ascii=False))
             elif args.category == "memory" and args.command == "update":
-                record = service.remember_store().update(memory_id=args.id, memory=args.memory, original_text=args.original_text)
+                record = service.remember_store().update(
+                    memory_id=args.id, 
+                    memory=args.memory, 
+                    original_text=args.original_text,
+                    photo_path=args.photo_path
+                )
                 d = asdict(record)
                 d.pop("source_memory_id", None)
                 print(json.dumps({"updated": d}, ensure_ascii=False))
