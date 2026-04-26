@@ -61,19 +61,27 @@ class ExtractIntentAction(Action):
         agent = OpenAICompatibleAgent(bb.cfg)
         try:
             bb.intent = await agent._extract_intent_payload(bb.transcript)
-            
-            # 如果带有图片，强制修正意图为 record，防止 ExecuteRecordAction 拿不到正确的 arguments
-            if bb.photo_path and bb.intent.get("intent") != "record":
-                bb.intent["intent"] = "record"
-                # 如果没有 args，至少给个基础的
-                if "args" not in bb.intent:
-                    bb.intent["args"] = {"memory": bb.transcript}
-                elif "memory" not in bb.intent["args"]:
-                    bb.intent["args"]["memory"] = bb.transcript
+
+            # --- 核心改进：带图必精炼 ---
+            if bb.photo_path:
+                # 情况A：模型判成了 record，但我们想确认一下 memory 是否到位
+                if bb.intent.get("intent") == "record":
+                    args = bb.intent.get("args", {})
+                    if not args.get("memory"):
+                         # 既然没给 memory，我们就帮它提炼一个
+                         args["memory"] = await agent._distill_memory(bb.transcript)
+                # 情况B：模型没判成 record（比如判成了聊天），强制修正并提炼
+                else:
+                    bb.intent["intent"] = "record"
+                    bb.intent["args"] = {
+                        "memory": await agent._distill_memory(bb.transcript)
+                    }
 
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
+            return Status.FAILURE
+
             return Status.FAILURE
 
 class SetDefaultIntentAction(Action):

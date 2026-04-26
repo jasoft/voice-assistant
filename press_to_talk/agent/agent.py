@@ -187,6 +187,30 @@ class OpenAICompatibleAgent:
         messages.append({"role": "user", "content": user_input})
         return messages
 
+    async def _distill_memory(self, user_input: str) -> str:
+        """专门将杂乱的语音输入提炼成一条适合存入数据库的精简记忆。"""
+        system_prompt = (
+            "你是一个记忆提炼专家。大王刚才发了一张照片并说了一段话。\n"
+            "请忽略语音听写中的口语废话、重复、纠错痕迹，仅提取其中的核心事实信息。\n"
+            "提炼成一条自然、准确、简短的中文陈述句，适合作为长期记忆保存。\n"
+            "禁止解释，不要前缀（如“提炼结果：”），直接输出提炼后的句子。"
+        )
+        try:
+            log(f"Distilling messy input for forced record: {user_input[:50]}...", level="info")
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input},
+                ],
+                temperature=0,
+            )
+            distilled = str(response.choices[0].message.content or "").strip()
+            return strip_think_tags(distilled) or user_input
+        except Exception as e:
+            log(f"Memory distillation failed: {e}", level="warn")
+            return user_input
+
     async def _extract_intent_payload(self, user_input: str) -> dict[str, Any]:
         extract_messages = self._build_intent_extractor_messages(user_input)
         try:
