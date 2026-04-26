@@ -55,6 +55,9 @@ RUN [ -f /app/third_party/simple/libsimple.so ] || ( \
 # 安装项目依赖
 RUN uv sync --frozen
 
+# 安装 sqlite-web（用于网页查看数据库）
+RUN uv pip install sqlite-web
+
 # 暴露端口
 EXPOSE 10031 8080
 
