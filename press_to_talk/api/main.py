@@ -13,6 +13,18 @@ from ..models.config import Config, parse_args
 from ..execution import execute_transcript_async
 from ..storage.models import SessionHistory, RememberEntry, db
 from ..storage.service import ensure_storage_database, load_storage_config
+from ..utils.logging import log, log_multiline
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+import json
+
+def mask_auth_header(auth_str: str) -> str:
+    """Mask Authorization header for security, showing only first 6 and last 4 characters."""
+    if not auth_str or len(auth_str) < 10:
+        return "***"
+    return f"{auth_str[:6]}...{auth_str[-4:]}"
 
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
@@ -38,7 +50,49 @@ async def lifespan(app: FastAPI):
     if not db.is_closed():
         db.close()
 
+class LoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Only log /v1 requests
+        if not request.url.path.startswith("/v1"):
+            return await call_next(request)
+
+        # Read Body
+        body = await request.body()
+        
+        # Prepare log content: Mask Authorization header
+        headers = dict(request.headers)
+        if "authorization" in headers:
+            headers["authorization"] = mask_auth_header(headers["authorization"])
+        
+        # Prepare log content: Truncate Body
+        try:
+            body_str = body.decode("utf-8", errors="replace")
+        except Exception:
+            body_str = "[binary data]"
+            
+        if len(body_str) > 1000:
+            body_str = body_str[:1000] + "... [truncated]"
+
+        log_content = [
+            f"Method: {request.method}",
+            f"URL: {request.url}",
+            f"Client: {request.client.host if request.client else 'unknown'}",
+            f"Headers: {json.dumps(headers, indent=2)}",
+            f"Body: {body_str}"
+        ]
+        log_multiline("API Request Incoming", "\n".join(log_content), level="info")
+
+        # Re-wrap body for subsequent route handlers
+        async def receive():
+            return {"type": "http.request", "body": body}
+
+        request._receive = receive
+        
+        response = await call_next(request)
+        return response
+
 app = FastAPI(title="Press-to-Talk API", lifespan=lifespan)
+app.add_middleware(LoggingMiddleware)
 
 from enum import Enum
 
