@@ -21,6 +21,7 @@ dependencies = [
   "uvicorn>=0.27.0",
   "python-multipart>=0.0.9",
   "peewee>=3.17.0",
+  "httpx>=0.27.0",
 ]
 
 [project.scripts]

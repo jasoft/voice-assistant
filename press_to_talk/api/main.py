@@ -183,6 +183,21 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 unique_id = uuid.uuid4().hex[:8]
                 
+                # Determine extension based on mime
+                def get_extension(mime: Optional[str]) -> str:
+                    if not mime:
+                        return ".jpg"
+                    mime_lower = mime.lower()
+                    if "png" in mime_lower:
+                        return ".png"
+                    if "gif" in mime_lower:
+                        return ".gif"
+                    if "webp" in mime_lower:
+                        return ".webp"
+                    return ".jpg"
+                
+                ext = get_extension(req.photo.mime)
+                
                 if req.photo.type == "base64":
                     b64_str = req.photo.data
                     if b64_str and "," in b64_str:
@@ -190,7 +205,7 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
                     
                     if b64_str:
                         photo_bytes = base64.b64decode(b64_str)
-                        filename = f"photo_{timestamp}_{unique_id}.jpg"
+                        filename = f"photo_{timestamp}_{unique_id}{ext}"
                         full_path = os.path.join(photo_dir, filename)
                         with open(full_path, "wb") as f:
                             f.write(photo_bytes)
@@ -198,9 +213,9 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
                 elif req.photo.type == "url":
                     # 简单实现：下载 URL 
                     import httpx
-                    filename = f"photo_{timestamp}_{unique_id}.jpg"
+                    filename = f"photo_{timestamp}_{unique_id}{ext}"
                     full_path = os.path.join(photo_dir, filename)
-                    async with httpx.AsyncClient() as client:
+                    async with httpx.AsyncClient(timeout=10.0) as client:
                         resp = await client.get(req.photo.url)
                         if resp.status_code == 200:
                             with open(full_path, "wb") as f:
