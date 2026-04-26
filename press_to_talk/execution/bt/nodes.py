@@ -111,16 +111,31 @@ class LLMSummarizeAction(Action):
             )
             
             # 1. 提取 [SELECTED_IDS: ...]
-            match = re.search(r"\[SELECTED_IDS:\s*([^\]]+)\]", full_reply)
+            match = re.search(r"\[SELECTED_IDS[:：]\s*([^\]]+)\]", full_reply, re.IGNORECASE)
             selected_ids = []
             if match:
                 ids_str = match.group(1).strip()
                 if ids_str.lower() != "none":
                     selected_ids = [i.strip() for i in ids_str.split(",")]
                 # 清理回复中的标记，以免显示给用户
-                bb.reply = re.sub(r"\[SELECTED_IDS:\s*[^\]]+\]", "", full_reply).strip()
+                bb.reply = re.sub(r"\[SELECTED_IDS[:：]\s*[^\]]+\]", "", full_reply, flags=re.IGNORECASE).strip()
             else:
                 bb.reply = full_reply
+
+            # 1.5 兜底：如果模型没给 ID，根据回复文本反推
+            if not selected_ids and bb.memories_raw:
+                try:
+                    raw_data = json.loads(bb.memories_raw)
+                    all_items = raw_data.get("results", []) or raw_data.get("items", [])
+                    
+                    for item in all_items:
+                        mem_text = item.get("memory", "")
+                        # 简单的包含判定
+                        if mem_text and mem_text in bb.reply:
+                            selected_ids.append(str(item.get("id")))
+                except Exception as e:
+                    # Fallback log if something goes wrong
+                    pass
 
             # 2. 反查 photo_url 和完整 item
             resolved_urls = []
