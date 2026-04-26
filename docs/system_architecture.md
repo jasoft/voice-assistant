@@ -100,3 +100,33 @@ graph TD
 - `/press_to_talk/agent`: 意图识别与 LLM 交互逻辑。
 - `/mac_gui`: Swift 实现的 macOS 客户端界面。
 - `/docs`: 设计规范与实施计划。
+
+## 5. HTTP API 与多用户支持
+
+系统提供基于 FastAPI 的 RESTful API (`/v1/query`, `/v1/history`, `/v1/memories`)，用于支持移动端或 Web 端接入。
+
+### 5.1 多用户隔离
+- **鉴权机制**: 通过 `Authorization: Bearer <API_KEY>` 进行身份校验。
+- **数据隔离**: API 层通过 `get_user_id` 依赖从 Token 解析出 `user_id`，并将其透传至执行层与存储层。所有的数据库查询（历史、记忆）均带有 `user_id` 过滤条件。
+
+### 5.2 日志记录与脱敏
+- **Middleware**: 所有的 API 请求均经过 `LoggingMiddleware`。
+- **脱敏审计**: 
+    - 自动隐藏 `Authorization` Header（仅保留首尾字符）。
+    - 截断过长的请求体 (Body)，防止日志膨胀。
+    - 记录 Client IP、URL、Method 等元数据。
+
+### 5.3 结构化照片附件
+API 支持在 `/v1/query` 请求中携带结构化的 `photo` 节点：
+```json
+{
+  "query": "这张发票报销了吗？",
+  "photo": {
+    "type": "base64",
+    "data": "...",
+    "mime": "image/png"
+  }
+}
+```
+系统会自动处理 Base64 解码或 URL 下载，并将文件存入 `data/photos/` 目录，生成的本地路径会注入黑板 (Blackboard) 供行为树节点使用。
+
