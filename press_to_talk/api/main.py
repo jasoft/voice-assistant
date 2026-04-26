@@ -219,16 +219,23 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
                             f.write(photo_bytes)
                         photo_path = f"photos/{filename}"
                 elif req.photo.type == "url":
-                    # 简单实现：下载 URL 
+                    # 改进下载逻辑：增加详细日志和错误处理
                     import httpx
                     filename = f"photo_{timestamp}_{unique_id}{ext}"
                     full_path = os.path.join(photo_dir, filename)
+                    log(f"Downloading photo from URL: {req.photo.url}")
                     async with httpx.AsyncClient(timeout=10.0) as client:
-                        resp = await client.get(req.photo.url)
-                        if resp.status_code == 200:
-                            with open(full_path, "wb") as f:
-                                f.write(resp.content)
-                            photo_path = f"photos/{filename}"
+                        try:
+                            resp = await client.get(req.photo.url)
+                            if resp.status_code == 200:
+                                with open(full_path, "wb") as f:
+                                    f.write(resp.content)
+                                photo_path = f"photos/{filename}"
+                                log(f"Successfully downloaded photo from URL to {photo_path}")
+                            else:
+                                log(f"Failed to download photo. Status: {resp.status_code}, URL: {req.photo.url}", level="error")
+                        except Exception as e:
+                            log(f"Error downloading photo from {req.photo.url}: {e}", level="error")
             except Exception as photo_err:
                 log(f"Warning: Failed to process photo: {photo_err}", level="warn")
             
