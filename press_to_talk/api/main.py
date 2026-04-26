@@ -148,6 +148,7 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     reply: str
+    photo_url: Optional[str] = Field(None, description="图片访问 URL")
 
 class HistoryItem(BaseModel):
     session_id: str
@@ -160,6 +161,7 @@ class MemoryItem(BaseModel):
     memory: str
     created_at: str
     photo_path: Optional[str] = None
+    photo_url: Optional[str] = None # 新增
 
 @app.post("/v1/query", response_model=QueryResponse, summary="执行自然语言查询", description="接收用户的自然语言输入，并根据选定的模式进行意图识别、数据库操作或对话生成。")
 async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
