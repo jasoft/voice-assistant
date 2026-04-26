@@ -142,6 +142,7 @@ class QueryResponse(BaseModel):
     reply: str
     photo_url: Optional[str] = Field(None, description="首张图片访问 URL (兼容旧版)")
     photo_urls: List[str] = Field(default_factory=list, description="图片访问 URL 列表")
+    memories: List[MemoryItem] = Field(default_factory=list, description="所选记忆的完整数据")
 
 class HistoryItem(BaseModel):
     session_id: str
@@ -244,10 +245,22 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
             first_photo_url = get_photo_url(photo_path)
             all_photo_urls = [first_photo_url]
 
+        # Map raw memories to MemoryItem
+        memories = []
+        for m in result.memories:
+            memories.append(MemoryItem(
+                id=str(m.get("id")),
+                memory=m.get("memory", ""),
+                created_at=str(m.get("created_at", "")),
+                photo_path=m.get("photo_path"),
+                photo_url=get_photo_url(m.get("photo_path"))
+            ))
+
         return QueryResponse(
             reply=result.reply, 
             photo_url=first_photo_url,
-            photo_urls=all_photo_urls
+            photo_urls=all_photo_urls,
+            memories=memories
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
