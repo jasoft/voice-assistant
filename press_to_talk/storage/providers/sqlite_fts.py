@@ -727,8 +727,13 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
     ) -> str:
         # 1. 优先处理日期范围查询（大王要求的偷懒模式）
         if start_date or end_date:
+            if start_date and end_date:
+                if start_date > end_date:
+                    log(f"Detected inverted dates: start={start_date}, end={end_date}. Swapping.", level="warn")
+                    start_date, end_date = end_date, start_date
+
             log(f"remember search mode: date range ({start_date} to {end_date})")
-            
+
             q = RememberEntry.select().where(RememberEntry.user_id == self.user_id)
             if start_date:
                 q = q.where(RememberEntry.created_at >= f"{start_date}T00:00:00")
