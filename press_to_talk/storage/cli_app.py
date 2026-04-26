@@ -228,6 +228,37 @@ def main(argv: list[str] | None = None) -> int:
                 return _run_storage_doctor()
 
             service = StorageService(config, use_cli=False)
+
+            def _archive_photo(input_path: str | None) -> str | None:
+                if not input_path:
+                    return None
+                
+                import shutil
+                import uuid
+                from datetime import datetime
+                
+                src = Path(input_path).expanduser().resolve()
+                if not src.exists():
+                    return input_path # 保持原样，让底层报错或处理
+                
+                # 目标目录
+                photos_dir = APP_ROOT / "data" / "photos"
+                photos_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 如果已经在 photos 目录里了，就只返回相对路径
+                try:
+                    if src.is_relative_to(photos_dir):
+                        return str(src.relative_to(APP_ROOT / "data"))
+                except ValueError:
+                    pass
+                
+                # 否则，复制进去
+                ext = src.suffix or ".jpg"
+                new_filename = f"photo_cli_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}{ext}"
+                dest = photos_dir / new_filename
+                shutil.copy2(src, dest)
+                return f"photos/{new_filename}"
+
             if args.category == "memory" and args.command == "search":
                 print(service.remember_store().find(
                     query=args.query,
@@ -236,20 +267,22 @@ def main(argv: list[str] | None = None) -> int:
                     end_date=args.end_date
                 ))
             elif args.category == "memory" and args.command == "add":
+                final_photo_path = _archive_photo(args.photo_path)
                 print(json.dumps({"result": service.remember_store().add(
                     memory=args.memory, 
                     original_text=args.original_text,
-                    photo_path=args.photo_path
+                    photo_path=final_photo_path
                 )}, ensure_ascii=False))
             elif args.category == "memory" and args.command == "delete":
                 service.remember_store().delete(memory_id=args.id)
                 print(json.dumps({"deleted": args.id}, ensure_ascii=False))
             elif args.category == "memory" and args.command == "update":
+                final_photo_path = _archive_photo(args.photo_path)
                 record = service.remember_store().update(
                     memory_id=args.id, 
                     memory=args.memory, 
                     original_text=args.original_text,
-                    photo_path=args.photo_path
+                    photo_path=final_photo_path
                 )
                 d = asdict(record)
                 d.pop("source_memory_id", None)
