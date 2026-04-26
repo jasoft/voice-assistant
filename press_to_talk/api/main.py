@@ -1,3 +1,4 @@
+from __future__ import annotations
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -138,12 +139,6 @@ class QueryRequest(BaseModel):
             }
         }
 
-class QueryResponse(BaseModel):
-    reply: str
-    photo_url: Optional[str] = Field(None, description="首张图片访问 URL (兼容旧版)")
-    photo_urls: List[str] = Field(default_factory=list, description="图片访问 URL 列表")
-    memories: List[MemoryItem] = Field(default_factory=list, description="所选记忆的完整数据")
-
 class HistoryItem(BaseModel):
     session_id: str
     transcript: str
@@ -156,6 +151,12 @@ class MemoryItem(BaseModel):
     created_at: str
     photo_path: Optional[str] = None
     photo_url: Optional[str] = None # 新增
+
+class QueryResponse(BaseModel):
+    reply: str
+    photo_url: Optional[str] = Field(None, description="首张图片访问 URL (兼容旧版)")
+    photo_urls: List[str] = Field(default_factory=list, description="图片访问 URL 列表")
+    memories: List[MemoryItem] = Field(default_factory=list, description="所选记忆的完整数据")
 
 @app.post("/v1/query", response_model=QueryResponse, summary="执行自然语言查询", description="接收用户的自然语言输入，并根据选定的模式进行意图识别、数据库操作或对话生成。")
 async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):

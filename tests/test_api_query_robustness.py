@@ -11,6 +11,7 @@ from unittest.mock import patch, AsyncMock
 from press_to_talk.api.main import app
 import press_to_talk.api.main as api_main
 from press_to_talk.models.config import Config
+from press_to_talk.execution import ExecutionResult
 
 # Helper to create a sandbox environment for each test
 @pytest.fixture
@@ -52,7 +53,7 @@ def api_sandbox(tmp_path):
     
     # Patch external dependencies
     with patch("press_to_talk.api.main.execute_transcript_async", new_callable=AsyncMock) as mock_exec:
-        mock_exec.return_value = "API Response OK"
+        mock_exec.return_value = ExecutionResult(reply="API Response OK", photos=[], memories=[])
         yield {
             "client": TestClient(app),
             "mock_exec": mock_exec,
@@ -75,7 +76,10 @@ def test_query_with_photo(api_sandbox):
     try:
         response = client.post("/v1/query", json={
             "query": "记录这张图片",
-            "photo": encoded
+            "photo": {
+                "type": "base64",
+                "data": encoded
+            }
         })
         
         assert response.status_code == 200
@@ -100,12 +104,12 @@ def test_query_without_photo(api_sandbox):
     kwargs = api_sandbox["mock_exec"].call_args[1]
     assert kwargs.get("photo_path") is None
 
-def test_query_with_empty_photo_string(api_sandbox):
+def test_query_with_null_photo(api_sandbox):
     client = api_sandbox["client"]
     
     response = client.post("/v1/query", json={
-        "query": "空照片字符串",
-        "photo": ""
+        "query": "空照片对象",
+        "photo": None
     })
     
     assert response.status_code == 200
