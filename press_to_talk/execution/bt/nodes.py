@@ -129,15 +129,20 @@ class LLMSummarizeAction(Action):
                     all_items = raw_data.get("results", []) or raw_data.get("items", [])
                     
                     for item in all_items:
-                        mem_text = item.get("memory", "")
-                        # 简单的包含判定
-                        if mem_text and mem_text in bb.reply:
+                        mem_text = str(item.get("memory", "")).strip()
+                        # 更灵活的判定
+                        if mem_text and (mem_text in bb.reply or (len(mem_text) > 5 and mem_text[:len(mem_text)//2] in bb.reply)):
                             selected_ids.append(str(item.get("id")))
-                except Exception as e:
-                    # Fallback log if something goes wrong
+                    
+                    # 终极兜底：如果还是没选中任何 ID，但回复里确实提到了内容（或干脆只要有内容就给）
+                    # 这里我们采取“宁多勿少”策略：直接选中所有命中的 items
+                    if not selected_ids:
+                        selected_ids = [str(item.get("id")) for item in all_items if item.get("id")]
+                except Exception:
                     pass
 
-            # 2. 反查 photo_url 和完整 item
+            # 2. 反查 photo_url 和完整 item (去重处理)
+            selected_ids = list(dict.fromkeys(selected_ids)) # 保序去重
             resolved_urls = []
             selected_items = []
             if selected_ids and bb.memories_raw:

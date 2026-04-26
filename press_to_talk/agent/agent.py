@@ -454,9 +454,6 @@ class OpenAICompatibleAgent:
             )
             raw_summary = str(response.choices[0].message.content or "").strip()
             clean_summary = strip_think_tags(raw_summary)
-            # Extra safety: remove common JSON-like residue or IDs if LLM hallucinates them
-            clean_summary = re.sub(r"[a-f0-9-]{32,}", "", clean_summary)
-
             log(
                 f"remember summary response: chars_raw={len(raw_summary)} chars_cleaned={len(clean_summary)}",
                 level="debug"
