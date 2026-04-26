@@ -434,9 +434,9 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             fake_tree.tick.side_effect = set_reply
             build_mock.return_value = fake_tree
             
-            reply = execute_transcript(cfg, "usb测试版在哪")
+            reply_res = execute_transcript(cfg, "usb测试版在哪")
 
-        self.assertEqual(reply, "行为树回复")
+        self.assertEqual(reply_res.reply, "行为树回复")
         build_mock.assert_called_once()
 
     def test_execute_transcript_routes_memory_chat_to_memory_chat_runner(self) -> None:
@@ -457,9 +457,9 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             fake_tree.tick.side_effect = set_reply
             build_mock.return_value = fake_tree
             
-            reply = execute_transcript(cfg, "usb测试版在哪")
+            reply_res = execute_transcript(cfg, "usb测试版在哪")
 
-        self.assertEqual(reply, "记忆聊天回复")
+        self.assertEqual(reply_res.reply, "记忆聊天回复")
         build_mock.assert_called_once()
 
     def test_main_routes_text_input_through_execution_layer(self) -> None:
@@ -480,6 +480,7 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             llm_base_url="",
             execution_mode="hermes",
             workspace_root=Path("/tmp"),
+            photo_path=None,
             debug=False,
         )
 
@@ -495,13 +496,13 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             patch.object(core, "close_session_log"),
             patch.object(core, "log") as log_mock,
             patch.object(core, "log_timing"),
-            patch.object(core, "execute_transcript", return_value="Hermes 回复") as execute_mock,
+            patch.object(core, "execute_transcript", return_value=SimpleNamespace(reply="Hermes 回复")) as execute_mock,
             patch("builtins.print") as print_mock,
         ):
             result = core.main()
 
         self.assertEqual(result, 0)
-        execute_mock.assert_called_once_with(cfg, "你好")
+        execute_mock.assert_called_once_with(cfg, "你好", photo_path=None)
         # Now we assert on log calls instead of print
         self.assertTrue(any("reply ready:" in str(call) and "Hermes 回复" in str(call) for call in log_mock.call_args_list))
 

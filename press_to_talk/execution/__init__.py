@@ -55,9 +55,8 @@ async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | 
     # Default fallback if tree didn't produce a reply
     return ExecutionResult(reply="I'm sorry, I couldn't process that request.")
 
-def execute_transcript(cfg: Any, transcript: str, photo_path: str | None = None) -> str:
-    result = asyncio.run(execute_transcript_async(cfg, transcript, photo_path=photo_path))
-    return result.reply
+def execute_transcript(cfg: Any, transcript: str, photo_path: str | None = None) -> ExecutionResult:
+    return asyncio.run(execute_transcript_async(cfg, transcript, photo_path=photo_path))
 
 
 def classify_intent(cfg: Any, transcript: str) -> str:

@@ -261,6 +261,7 @@ class StorageCliTests(unittest.TestCase):
                     "user_id": "default",
                     "memory": "壮壮改成明天下午去打篮球",
                     "original_text": "帮我改成明天下午去打篮球",
+                    "photo_path": "",
                     "created_at": "2026-04-22 12:00:00",
                     "updated_at": "2026-04-22 12:01:00",
                 }

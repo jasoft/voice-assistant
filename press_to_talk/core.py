@@ -210,7 +210,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         events.emit("status", phase="thinking")
-        reply = execute_transcript(cfg, transcript, photo_path=cfg.photo_path)
+        result = execute_transcript(cfg, transcript, photo_path=cfg.photo_path)
+        reply = result.reply
 
         if not reply:
             log("LLM returned empty reply")

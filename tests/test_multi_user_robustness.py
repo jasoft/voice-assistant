@@ -27,8 +27,13 @@ class MultiUserRobustnessTests(unittest.TestCase):
         cls.env["PTT_REMEMBER_DB_PATH"] = str(cls.db_path)
         # 确保日志也隔离
         cls.env["PTT_LOG_DIR"] = str(Path(cls.tmp_dir.name) / "logs")
+        cls.env["PTT_USER_ID"] = ""
         cls.env["PTT_API_KEY"] = ""
         cls.env["PTT_USER_API_KEY"] = ""
+        # 确保彻底移除
+        cls.env.pop("PTT_USER_ID", None)
+        cls.env.pop("PTT_API_KEY", None)
+        cls.env.pop("PTT_USER_API_KEY", None)
         cls.tokens = {
             "soj": "token-soj",
             "butler": "token-butler",
