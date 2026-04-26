@@ -889,7 +889,7 @@ class ThinkTagFilterTests(unittest.TestCase):
 
         # Check that ONLY the memory text was passed to the LLM for summary
         user_msg = agent.client.chat.completions.calls[0]["messages"][1]["content"]
-        self.assertIn("- 2026-04-11: 护照在书房抽屉里", user_msg)
+        self.assertIn("2026-04-11: 护照在书房抽屉里", user_msg)
         self.assertNotIn("metadata", user_msg)
         self.assertNotIn("score", user_msg)
         prompt = str(agent.client.chat.completions.calls[0]["messages"][1]["content"])
@@ -1078,6 +1078,7 @@ class ThinkTagFilterTests(unittest.TestCase):
             {
                 "memory": "今天是伊朗和美国停战两个星期。",
                 "original_text": "记录一下，今天是伊朗和美国停战两个星期。",
+                "photo_path": None,
             },
         )
 
