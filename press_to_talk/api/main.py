@@ -238,7 +238,7 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
                 log(f"Warning: Failed to process photo: {photo_err}", level="warn")
             
         reply = await execute_transcript_async(cfg, req.query, photo_path=photo_path)
-        return QueryResponse(reply=reply)
+        return QueryResponse(reply=reply, photo_url=get_photo_url(photo_path))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -275,7 +275,8 @@ async def get_memories(user_id: str = Depends(get_user_id)):
                 id=m.id,
                 memory=m.memory,
                 created_at=str(m.created_at),
-                photo_path=m.photo_path
+                photo_path=m.photo_path,
+                photo_url=get_photo_url(m.photo_path)
             )
             for m in memories
         ]
