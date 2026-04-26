@@ -163,10 +163,13 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
     if base_config is None:
         raise HTTPException(status_code=500, detail="Server configuration error")
         
+    photo_path = None
     try:
         # Clone base config and modify for this request
         cfg = dataclasses.replace(base_config)
         cfg.user_id = user_id
+        if photo_path:
+            cfg.force_record = True
         
         # 核心修复：确保执行层的 LLM API Key 使用的是服务器配置的密钥，
         # 而不是用户请求带来的 Authorization Token (PTT API Key)。

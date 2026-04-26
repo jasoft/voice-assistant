@@ -60,23 +60,25 @@ class ExtractIntentAction(Action):
         from ...agent.agent import OpenAICompatibleAgent
         agent = OpenAICompatibleAgent(bb.cfg)
         try:
-            bb.intent = await agent._extract_intent_payload(bb.transcript)
-
-            # --- 核心改进：带图必精炼 ---
-            if bb.photo_path:
-                # 情况A：模型判成了 record，但我们想确认一下 memory 是否到位
-                if bb.intent.get("intent") == "record":
-                    args = bb.intent.get("args", {})
-                    if not args.get("memory"):
-                         # 既然没给 memory，我们就帮它提炼一个
-                         args["memory"] = await agent._distill_memory(bb.transcript)
-                # 情况B：模型没判成 record（比如判成了聊天），强制修正并提炼
-                else:
-                    bb.intent["intent"] = "record"
-                    bb.intent["args"] = {
-                        "memory": await agent._distill_memory(bb.transcript)
-                    }
-
+            # 1. 物理触发判定 (加速逻辑)
+            force_record = getattr(bb.cfg, "force_record", False) or bool(bb.photo_path)
+            force_ask = getattr(bb.cfg, "force_ask", False)
+            
+            if force_record:
+                # 跳过通用意图识别，直接进行精炼总结
+                bb.intent = {
+                    "intent": "record",
+                    "args": {"memory": await agent._distill_memory(bb.transcript)}
+                }
+                log("Forced record mode: skipped general intent extraction", level="info")
+            elif force_ask:
+                # 强制查询模式
+                bb.intent = {"intent": "find", "args": {"query": bb.transcript}}
+                log("Forced ask mode: skipped general intent extraction", level="info")
+            else:
+                # 正常走通用意图识别 (包含分类和提炼)
+                bb.intent = await agent._extract_intent_payload(bb.transcript)
+            
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
