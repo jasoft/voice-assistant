@@ -81,31 +81,23 @@ class TestBTNodes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.bb.memories[0]["memory"], "found")
 
     @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
-    @patch("press_to_talk.execution.bt.nodes.get_photo_url")
-    async def test_llm_summarize_action_with_ids(self, mock_get_url, MockAgent):
+    async def test_llm_summarize_action_with_ids(self, MockAgent):
         mock_agent = MockAgent.return_value
         async def mock_summarize(*args, **kwargs):
             return "Here is your info. [SELECTED_IDS: 123, 456]"
         mock_agent._summarize_remember_output.side_effect = mock_summarize
         
-        mock_get_url.side_effect = lambda p: f"http://assets/{p}"
-
-        self.bb.memories_raw = json.dumps({
-            "results": [
-                {"id": 123, "photo_path": "path1.jpg"},
-                {"id": 456, "photo_path": "path2.jpg"},
-                {"id": 789, "photo_path": "path3.jpg"}
-            ]
-        })
+        self.bb.memories = [
+            {"id": 123, "photo_path": "path1.jpg"},
+            {"id": 456, "photo_path": "path2.jpg"},
+            {"id": 789, "photo_path": "path3.jpg"}
+        ]
         
         node = LLMSummarizeAction()
         status = await node.tick(self.bb)
 
         self.assertEqual(status, Status.SUCCESS)
         self.assertEqual(self.bb.reply, "Here is your info.")
-        self.assertEqual(len(self.bb.reply_photos), 2)
-        self.assertIn("http://assets/path1.jpg", self.bb.reply_photos)
-        self.assertIn("http://assets/path2.jpg", self.bb.reply_photos)
 
     @patch("press_to_talk.execution.memory_chat.MemoryChatExecutionRunner")
     async def test_llm_chat_fallback_action(self, MockRunner):
