@@ -28,7 +28,14 @@ def _run_sync(coro):
     else:
         return asyncio.run(coro)
 
-async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | None = None) -> str:
+from dataclasses import dataclass, field
+
+@dataclass
+class ExecutionResult:
+    reply: str
+    photos: List[str] = field(default_factory=list)
+
+async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | None = None) -> ExecutionResult:
     mode = resolve_execution_mode(cfg)
     
     # Initialize Blackboard
@@ -39,16 +46,17 @@ async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | 
     await tree.tick(bb)
     
     if bb.reply:
-        return bb.reply
+        return ExecutionResult(reply=bb.reply, photos=bb.reply_photos)
         
     if bb.error:
-        return f"Error: {bb.error}"
+        return ExecutionResult(reply=f"Error: {bb.error}")
 
     # Default fallback if tree didn't produce a reply
-    return "I'm sorry, I couldn't process that request."
+    return ExecutionResult(reply="I'm sorry, I couldn't process that request.")
 
 def execute_transcript(cfg: Any, transcript: str, photo_path: str | None = None) -> str:
-    return asyncio.run(execute_transcript_async(cfg, transcript, photo_path=photo_path))
+    result = asyncio.run(execute_transcript_async(cfg, transcript, photo_path=photo_path))
+    return result.reply
 
 
 def classify_intent(cfg: Any, transcript: str) -> str:
@@ -59,7 +67,9 @@ __all__ = [
     "HermesExecutionRunner",
     "IntentExecutionRunner",
     "MemoryChatExecutionRunner",
+    "ExecutionResult",
     "classify_intent",
     "execute_transcript",
+    "execute_transcript_async",
     "resolve_execution_mode",
 ]
