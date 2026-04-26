@@ -110,65 +110,23 @@ class LLMSummarizeAction(Action):
                 user_question=bb.transcript
             )
             
-            # 1. 提取 [SELECTED_IDS: ...]
-            match = re.search(r"\[SELECTED_IDS[:：]\s*([^\]]+)\]", full_reply, re.IGNORECASE)
-            selected_ids = []
-            if match:
-                ids_str = match.group(1).strip()
-                if ids_str.lower() != "none":
-                    selected_ids = [i.strip() for i in ids_str.split(",")]
-                # 清理回复中的标记，以免显示给用户
-                bb.reply = re.sub(r"\[SELECTED_IDS[:：]\s*[^\]]+\]", "", full_reply, flags=re.IGNORECASE).strip()
-            else:
-                bb.reply = full_reply
+            # 清理回复中的标记，以免显示给用户
+            bb.reply = re.sub(r"\[SELECTED_IDS[:：]\s*[^\]]+\]", "", full_reply, flags=re.IGNORECASE).strip()
 
-            # 1.5 兜底：如果模型没给 ID，根据回复文本反推
-            if not selected_ids and bb.memories_raw:
-                try:
-                    raw_data = json.loads(bb.memories_raw)
-                    all_items = raw_data.get("results", []) or raw_data.get("items", [])
-                    
-                    for item in all_items:
-                        mem_text = str(item.get("memory", "")).strip()
-                        # 更灵活的判定
-                        if mem_text and (mem_text in bb.reply or (len(mem_text) > 5 and mem_text[:len(mem_text)//2] in bb.reply)):
-                            selected_ids.append(str(item.get("id")))
-                    
-                    # 终极兜底：如果还是没选中任何 ID，但回复里确实提到了内容（或干脆只要有内容就给）
-                    # 这里我们采取“宁多勿少”策略：直接选中所有命中的 items
-                    if not selected_ids:
-                        selected_ids = [str(item.get("id")) for item in all_items if item.get("id")]
-                except Exception:
-                    pass
-
-            # 2. 反查 photo_url 和完整 item (去重处理)
-            selected_ids = list(dict.fromkeys(selected_ids)) # 保序去重
+            # 现在采用全量透传策略，将 bb.selected_memories 填充为所有搜到的记录
+            bb.selected_memories = bb.memories
+            
+            # 处理图片 URL (提取全量 records 里的图片)
             resolved_urls = []
-            selected_items = []
-            if selected_ids and bb.memories_raw:
-                try:
-                    raw_data = json.loads(bb.memories_raw)
-                    items = raw_data.get("results", []) or raw_data.get("items", [])
-                    
-                    # 创建 ID 到 item 的映射
-                    item_map = {str(item.get("id")): item for item in items if item.get("id")}
-                    
-                    for rid in selected_ids:
-                        item = item_map.get(rid)
-                        if item:
-                            selected_items.append(item)
-                            path = item.get("photo_path")
-                            if path:
-                                url = get_photo_url(path)
-                                if url:
-                                    resolved_urls.append(url)
-                except Exception:
-                    # Ignore JSON errors in raw data
-                    pass
+            for item in bb.memories:
+                path = item.get("photo_path")
+                if path:
+                    url = get_photo_url(path)
+                    if url:
+                        resolved_urls.append(url)
             
             # 3. 存入黑板
             bb.reply_photos = resolved_urls # 保存列表
-            bb.selected_memories = selected_items
             
             return Status.SUCCESS
         except Exception as e:
