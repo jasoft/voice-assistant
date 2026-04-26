@@ -109,3 +109,23 @@ async def test_agent_system_prompt_integrity():
     assert "${INTENT_DESCRIPTIONS}" not in content
     assert "${INTENT_EXTRACTION_RULES}" not in content
     assert "${INTENT_JSON_SCHEMA}" not in content
+
+def test_inverted_date_search(temp_db):
+    # Setup dummy data
+    temp_db.add(memory="记录A")
+    
+    # Manually update created_at for testing
+    import sqlite3
+    conn = sqlite3.connect(temp_db.db_path)
+    conn.execute("UPDATE remember_entries SET created_at = '2026-04-20T10:00:00' WHERE memory = '记录A'")
+    conn.commit()
+    conn.close()
+
+    # Query with inverted dates (e.g., start > end)
+    res_json = temp_db.find(query="", start_date="2026-04-26", end_date="2026-04-20")
+    import json
+    res = json.loads(res_json)
+    
+    # Verify that the dates were swapped and the item was found
+    assert len(res["results"]) > 0
+    assert res["results"][0]["memory"] == "记录A"

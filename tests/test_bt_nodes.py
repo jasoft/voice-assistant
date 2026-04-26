@@ -11,7 +11,10 @@ from press_to_talk.execution.bt.nodes import (
 
 class TestBTNodes(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.bb = Blackboard(transcript="test", cfg=MagicMock())
+        cfg_mock = MagicMock()
+        cfg_mock.force_record = False
+        cfg_mock.force_ask = False
+        self.bb = Blackboard(transcript="test", cfg=cfg_mock)
 
     async def test_is_record_intent(self):
         node = IsRecordIntent()
@@ -53,9 +56,10 @@ class TestBTNodes(unittest.IsolatedAsyncioTestCase):
     @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
     async def test_extract_intent_action(self, MockAgent):
         mock_agent = MockAgent.return_value
+        from unittest.mock import AsyncMock
         async def mock_extract(transcript):
             return {"intent": "find", "args": {"query": transcript}}
-        mock_agent._extract_intent_payload.side_effect = mock_extract
+        mock_agent._extract_intent_payload = AsyncMock(side_effect=mock_extract)
 
         node = ExtractIntentAction()
         status = await node.tick(self.bb)

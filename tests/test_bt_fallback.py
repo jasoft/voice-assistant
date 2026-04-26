@@ -6,7 +6,10 @@ from press_to_talk.execution.bt.builder import build_master_tree
 
 class TestBTFallback(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.bb = Blackboard(transcript="test", cfg=MagicMock())
+        cfg_mock = MagicMock()
+        cfg_mock.force_record = False
+        cfg_mock.force_ask = False
+        self.bb = Blackboard(transcript="test", cfg=cfg_mock)
 
     @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
     @patch("press_to_talk.execution.memory_chat.MemoryChatExecutionRunner")
@@ -15,9 +18,10 @@ class TestBTFallback(unittest.IsolatedAsyncioTestCase):
         mock_agent = MockAgent.return_value
         
         # Simulate ExtractIntentAction failure
+        from unittest.mock import AsyncMock
         async def mock_extract_fail(transcript):
             raise Exception("Network error")
-        mock_agent._extract_intent_payload.side_effect = mock_extract_fail
+        mock_agent._extract_intent_payload = AsyncMock(side_effect=mock_extract_fail)
 
         # Mock storage to return 0 hits for search_flow
         mock_store = MagicMock()
