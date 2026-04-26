@@ -1,6 +1,8 @@
 import asyncio
 import json
+import re
 from .base import Node, Status, Blackboard
+from ...api.main import get_photo_url
 
 class Condition(Node):
     pass
@@ -102,11 +104,47 @@ class LLMSummarizeAction(Action):
         try:
             # Use raw memories for summarization
             raw_output = bb.memories_raw or json.dumps({"results": bb.memories}, ensure_ascii=False)
-            bb.reply = await agent._summarize_remember_output(
+            full_reply = await agent._summarize_remember_output(
                 "remember_find",
                 raw_output,
                 user_question=bb.transcript
             )
+            
+            # 1. 提取 [SELECTED_IDS: ...]
+            match = re.search(r"\[SELECTED_IDS:\s*([^\]]+)\]", full_reply)
+            selected_ids = []
+            if match:
+                ids_str = match.group(1).strip()
+                if ids_str.lower() != "none":
+                    selected_ids = [i.strip() for i in ids_str.split(",")]
+                # 清理回复中的标记，以免显示给用户
+                bb.reply = re.sub(r"\[SELECTED_IDS:\s*[^\]]+\]", "", full_reply).strip()
+            else:
+                bb.reply = full_reply
+
+            # 2. 反查 photo_url
+            resolved_urls = []
+            if selected_ids and bb.memories_raw:
+                try:
+                    raw_data = json.loads(bb.memories_raw)
+                    items = raw_data.get("results", []) or raw_data.get("items", [])
+                    
+                    # 创建 ID 到 photo_path 的映射
+                    path_map = {str(item.get("id")): item.get("photo_path") for item in items if item.get("id")}
+                    
+                    for rid in selected_ids:
+                        path = path_map.get(rid)
+                        if path:
+                            url = get_photo_url(path)
+                            if url:
+                                resolved_urls.append(url)
+                except Exception:
+                    # Ignore JSON errors in raw data
+                    pass
+            
+            # 3. 存入黑板
+            bb.reply_photos = resolved_urls # 保存列表
+            
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
