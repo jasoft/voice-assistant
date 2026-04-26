@@ -17,6 +17,7 @@ class Blackboard:
     intent: dict = field(default_factory=dict)
     memories: list = field(default_factory=list)
     memories_raw: Optional[str] = None  # Original JSON string from search
+    selected_memories: List[dict] = field(default_factory=list)
     reply: Optional[str] = None
     reply_photos: List[str] = field(default_factory=list)
     error: Optional[str] = None
