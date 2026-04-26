@@ -129,10 +129,25 @@ API 支持在 `/v1/query` 请求中携带结构化的 `photo` 节点：
 }
 ```
 系统会自动处理 Base64 解码或 URL 下载，并将文件存入 `data/photos/` 目录，生成的本地路径会注入黑板 (Blackboard) 供行为树节点使用。API 响应中会返回 `photo_url` 供前端展示。
-
 ### 5.4 静态资源访问与 URL 映射
 为了让客户端能直接展示存储在服务器上的图片，系统通过 FastAPI 挂载了静态资源：
 - **挂载点**: `/assets` -> 映射到本地目录 `data/photos/`
 - **URL 转换**: 系统内存储的 `photo_path` (如 `photos/abc.jpg`) 会被自动转换为 Web 可访问的 `photo_url` (如 `/assets/abc.jpg`)。
 - **涉及模型**: `QueryResponse` 和 `MemoryItem` 模型均包含 `photo_url` 字段。
 
+## 6. LLM 总结与照片反馈闭环
+
+系统实现了一套完整的闭环逻辑，解决了大模型在总结多条记忆时容易丢失图片关联信息的问题。
+
+### 6.1 核心逻辑流
+1. **Prompt 注入 (ID Injection)**: 在调用 LLM 进行总结前，`OpenAICompatibleAgent` 会在每一条喂给模型的记忆文本前标注其唯一的记录 ID（如 `[ID: 123] ...`）。
+2. **模型选择 (LLM Selection)**: 在 `workflow_config.json` 的 Prompt 约束中，要求模型在回复末尾必须包含引用的 ID 标记，格式为 `[SELECTED_IDS: id1, id2]`。
+3. **行为树解析 (BT Parsing)**: `LLMSummarizeAction` 节点在获取模型回复后，会正则提取 `[SELECTED_IDS]` 标记，并根据这些 ID 从原始检索结果中反查对应的 `photo_path`。
+4. **URL 转换与透传**: 提取到的 `photo_path` 通过 `get_photo_url` 转换为 Web URL，并存入黑板的 `bb.reply_photos` 字段，最终由 API 返回给前端。
+
+### 6.2 优势
+- **精准关联**: 确保用户看到的图片确实是模型回复中提到的那部分记忆。
+- **多图支持**: `QueryResponse` 包含 `photo_urls` 列表，支持一次回复展示多张相关图片。
+- **UI 友好**: 前端无需处理复杂的反查逻辑，直接渲染 API 返回的 URL 列表即可。
+
+## 7. 目录职责划分
