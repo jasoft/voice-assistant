@@ -131,6 +131,12 @@ def env_float(name: str, default: float) -> float:
         return default
     return float(raw)
 
+def env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
 def env_path(name: str, default: Path) -> Path:
     raw = os.environ.get(name)
     if raw is None or not raw.strip():

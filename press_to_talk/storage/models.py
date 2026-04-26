@@ -67,6 +67,8 @@ class StorageConfig:
     history_db_path: str = ""
     remember_db_path: str = ""
     remember_max_results: int = 20
+    keyword_search_enabled: bool = True
+    semantic_search_enabled: bool = True
     query_rewrite_enabled: bool = False
     llm_api_key: str = ""
     llm_base_url: str = ""

@@ -175,6 +175,8 @@ def load_storage_config(
             1,
             env_int("PTT_REMEMBER_MAX_RESULTS", int(sqlite_cfg.get("max_results", global_max_results))),
         ),
+        keyword_search_enabled=env_bool("PTT_ENABLE_KEYWORD_SEARCH", True),
+        semantic_search_enabled=env_bool("PTT_ENABLE_SEMANTIC_SEARCH", True),
         query_rewrite_enabled=env_bool(
             "PTT_QUERY_REWRITE_ENABLED",
             env_bool("PTT_GROQ_REWRITE_ENABLED", bool(rewrite_cfg.get("enabled", False))),

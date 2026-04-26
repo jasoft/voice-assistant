@@ -8,7 +8,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from ..utils.env import (
-    load_env_files, env_int, env_float, env_str, env_path,
+    load_env_files, env_int, env_float, env_str, env_path, env_bool,
     PROJECT_ROOT, WORKFLOW_CONFIG_PATH, load_json_file
 )
 
@@ -42,6 +42,8 @@ class Config:
     user_id: str = "default"
     user_token: str | None = None
     use_cli: bool = True
+    keyword_search_enabled: bool = True
+    semantic_search_enabled: bool = True
     photo_path: str | None = None
 
 @dataclass
@@ -259,5 +261,7 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
         user_token=api_key,
         force_ask=args.ask,
         force_record=force_record,
+        keyword_search_enabled=env_bool("PTT_ENABLE_KEYWORD_SEARCH", True),
+        semantic_search_enabled=env_bool("PTT_ENABLE_SEMANTIC_SEARCH", True),
         photo_path=photo_path
     )
