@@ -151,6 +151,7 @@ class MemoryItem(BaseModel):
     created_at: str
     photo_path: Optional[str] = None
     photo_url: Optional[str] = None # 新增
+    score: float = Field(0.0, description="搜索匹配分数 (0.0 - 1.0)") # 新增
 
 class QueryResponse(BaseModel):
     reply: str
@@ -241,7 +242,8 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
                 memory=m.get("memory", ""),
                 created_at=str(m.get("created_at", "")),
                 photo_path=m.get("photo_path"),
-                photo_url=get_photo_url(m.get("photo_path"))
+                photo_url=get_photo_url(m.get("photo_path")),
+                score=float(m.get("score") or 0.0)
             ))
 
         return QueryResponse(
@@ -286,10 +288,12 @@ async def get_memories(user_id: str = Depends(get_user_id)):
                 memory=m.memory,
                 created_at=str(m.created_at),
                 photo_path=m.photo_path,
-                photo_url=get_photo_url(m.photo_path)
-            )
-            for m in memories
-        ]
+                photo_url=get_photo_url(m.photo_path),
+                score=0.0 # 列表接口暂无搜索评分
+                )
+                for m in memories
+                ]
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
