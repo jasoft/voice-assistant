@@ -2,6 +2,9 @@ from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import os
+import base64
+import uuid
+from datetime import datetime
 import dataclasses
 from contextlib import asynccontextmanager
 
@@ -57,12 +60,14 @@ class QueryRequest(BaseModel):
             "- `intent`: `database` 模式的别名。"
         )
     )
+    photo: Optional[str] = Field(None, description="可选。Base64 编码的图片字符串。如果提供，将作为记忆的附件保存。")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "query": "最近三天的记录",
-                "mode": "memory-chat"
+                "mode": "memory-chat",
+                "photo": "base64_string_here"
             }
         }
 
@@ -79,6 +84,7 @@ class MemoryItem(BaseModel):
     id: str
     memory: str
     created_at: str
+    photo_path: Optional[str] = None
 
 @app.post("/v1/query", response_model=QueryResponse, summary="执行自然语言查询", description="接收用户的自然语言输入，并根据选定的模式进行意图识别、数据库操作或对话生成。")
 async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
@@ -97,7 +103,38 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
         if req.mode:
             cfg.execution_mode = req.mode.value if hasattr(req.mode, "value") else req.mode
             
-        reply = await execute_transcript_async(cfg, req.query)
+        # Handle photo attachment
+        photo_path = None
+        if req.photo:
+            try:
+                # Remove prefix if present: data:image/jpeg;base64,...
+                b64_str = req.photo
+                if "," in b64_str:
+                    b64_str = b64_str.split(",")[1]
+                
+                photo_bytes = base64.b64decode(b64_str)
+                
+                # Ensure photo directory exists
+                photo_dir = os.path.join("data", "photos")
+                os.makedirs(photo_dir, exist_ok=True)
+                
+                # Generate unique filename
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                unique_id = uuid.uuid4().hex[:8]
+                filename = f"photo_{timestamp}_{unique_id}.jpg"
+                
+                # Save file
+                full_path = os.path.join(photo_dir, filename)
+                with open(full_path, "wb") as f:
+                    f.write(photo_bytes)
+                
+                # Relative path for storage
+                photo_path = f"photos/{filename}"
+            except Exception as photo_err:
+                print(f"Warning: Failed to process photo: {photo_err}")
+                # We continue even if photo processing fails
+            
+        reply = await execute_transcript_async(cfg, req.query, photo_path=photo_path)
         return QueryResponse(reply=reply)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -134,7 +171,8 @@ async def get_memories(user_id: str = Depends(get_user_id)):
             MemoryItem(
                 id=m.id,
                 memory=m.memory,
-                created_at=str(m.created_at)
+                created_at=str(m.created_at),
+                photo_path=m.photo_path
             )
             for m in memories
         ]
