@@ -179,23 +179,23 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    # 1. 解析参数
-    args = parser.parse_args(input_args)
+    # 1. 解析参数 (使用 remaining_argv 避免干扰)
+    args = parser.parse_args(remaining_argv)
 
     # 2. 身份识别逻辑 (Token优先)
     effective_user_id = None
-    cli_api_key = (args.api_key or global_args.api_key or "").strip()
+    cli_api_key = (global_args.api_key or "").strip()
     env_api_key = (
         os.environ.get("PTT_API_KEY")
         or os.environ.get("PTT_USER_API_KEY")
         or ""
     ).strip()
-    explicit_user_id = args.user_id or global_args.user_id
+    explicit_user_id = global_args.user_id
     api_key = cli_api_key or ("" if explicit_user_id else env_api_key)
     if api_key:
         effective_user_id = resolve_user_id_from_api_key(api_key)
         if not effective_user_id:
-            parser.error("invalid --api-key")
+            parser.error(f"invalid --api-key: {api_key}")
 
     # 3. 兜底使用 user_id (Admin 模式)
     if not effective_user_id:
@@ -208,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     from press_to_talk.utils.logging import set_global_log_level
     from press_to_talk.storage.memory_backends import export_memories_to_provider
 
-    if args.debug:
+    if global_args.debug:
         set_global_log_level("DEBUG")
     else:
         set_global_log_level("INFO")
