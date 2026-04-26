@@ -178,32 +178,36 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
         photo_path = None
         if req.photo:
             try:
-                # Remove prefix if present: data:image/jpeg;base64,...
-                b64_str = req.photo
-                if "," in b64_str:
-                    b64_str = b64_str.split(",")[1]
-                
-                photo_bytes = base64.b64decode(b64_str)
-                
-                # Ensure photo directory exists
                 photo_dir = os.path.join("data", "photos")
                 os.makedirs(photo_dir, exist_ok=True)
-                
-                # Generate unique filename
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 unique_id = uuid.uuid4().hex[:8]
-                filename = f"photo_{timestamp}_{unique_id}.jpg"
                 
-                # Save file
-                full_path = os.path.join(photo_dir, filename)
-                with open(full_path, "wb") as f:
-                    f.write(photo_bytes)
-                
-                # Relative path for storage
-                photo_path = f"photos/{filename}"
+                if req.photo.type == "base64":
+                    b64_str = req.photo.data
+                    if b64_str and "," in b64_str:
+                        b64_str = b64_str.split(",")[1]
+                    
+                    if b64_str:
+                        photo_bytes = base64.b64decode(b64_str)
+                        filename = f"photo_{timestamp}_{unique_id}.jpg"
+                        full_path = os.path.join(photo_dir, filename)
+                        with open(full_path, "wb") as f:
+                            f.write(photo_bytes)
+                        photo_path = f"photos/{filename}"
+                elif req.photo.type == "url":
+                    # 简单实现：下载 URL 
+                    import httpx
+                    filename = f"photo_{timestamp}_{unique_id}.jpg"
+                    full_path = os.path.join(photo_dir, filename)
+                    async with httpx.AsyncClient() as client:
+                        resp = await client.get(req.photo.url)
+                        if resp.status_code == 200:
+                            with open(full_path, "wb") as f:
+                                f.write(resp.content)
+                            photo_path = f"photos/{filename}"
             except Exception as photo_err:
-                print(f"Warning: Failed to process photo: {photo_err}")
-                # We continue even if photo processing fails
+                log(f"Warning: Failed to process photo: {photo_err}", level="warn")
             
         reply = await execute_transcript_async(cfg, req.query, photo_path=photo_path)
         return QueryResponse(reply=reply)
