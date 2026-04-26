@@ -46,6 +46,7 @@ class RememberEntry(BaseModel):
     source_memory_id = CharField(null=True)
     memory = TextField()
     original_text = TextField()
+    photo_path = CharField(null=True)
     created_at = CharField()
     updated_at = CharField()
 
@@ -87,6 +88,7 @@ class RememberItemRecord:
     user_id: str = "default"
     memory: str = ""
     original_text: str = ""
+    photo_path: str = ""
     created_at: str = ""
     updated_at: str = ""
     source_memory_id: str = ""
