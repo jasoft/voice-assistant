@@ -34,6 +34,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # 复制项目文件
 COPY . .
 
+# 创建 data 目录（用于挂载和持久化数据）
+RUN mkdir -p /app/data
+
 # 复制启动脚本并添加执行权限
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
@@ -54,6 +57,9 @@ RUN uv sync --frozen
 
 # 暴露端口
 EXPOSE 10031 8080
+
+# 声明 data 卷，可被外部映射
+VOLUME ["/app/data"]
 
 # 默认启动命令：运行启动脚本，同时启动 ptt-api 和 sqlite_web
 ENTRYPOINT ["/app/start.sh"]
