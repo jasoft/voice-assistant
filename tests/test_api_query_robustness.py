@@ -53,7 +53,7 @@ def api_sandbox(tmp_path):
     
     # Patch external dependencies
     with patch("press_to_talk.api.main.execute_transcript_async", new_callable=AsyncMock) as mock_exec:
-        mock_exec.return_value = ExecutionResult(reply="API Response OK", photos=[], memories=[])
+        mock_exec.return_value = ExecutionResult(reply="API Response OK", memories=[])
         yield {
             "client": TestClient(app),
             "mock_exec": mock_exec,

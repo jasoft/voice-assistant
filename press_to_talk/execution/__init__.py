@@ -33,7 +33,6 @@ from dataclasses import dataclass, field
 @dataclass
 class ExecutionResult:
     reply: str
-    photos: List[str] = field(default_factory=list)
     memories: List[dict] = field(default_factory=list)
 
 async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | None = None) -> ExecutionResult:
@@ -102,17 +101,12 @@ async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | 
                     if item:
                         if item not in bb.selected_memories:
                             bb.selected_memories.append(item)
-                        path = item.get("photo_path")
-                        if path:
-                            url = get_photo_url(path)
-                            if url and url not in bb.reply_photos:
-                                bb.reply_photos.append(url)
-                log(f"DEBUG: resolved {len(bb.selected_memories)} items and {len(bb.reply_photos)} photos", level="debug")
+                log(f"DEBUG: resolved {len(bb.selected_memories)} items", level="debug")
             except Exception as e:
                 log(f"DEBUG: resolution error: {e}", level="warn")
 
     if bb.reply:
-        return ExecutionResult(reply=bb.reply, photos=bb.reply_photos, memories=bb.selected_memories)
+        return ExecutionResult(reply=bb.reply, memories=bb.selected_memories)
         
     if bb.error:
         return ExecutionResult(reply=f"Error: {bb.error}")
