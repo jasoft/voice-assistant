@@ -26,8 +26,8 @@ async def lifespan(app: FastAPI):
     
     # Load base config once
     try:
-        # Web API 不读取 .env；它只使用进程环境和请求 Bearer token。
-        base_config = parse_args(["--user-id", "api-server", "--no-tts"], load_env=False)
+        # Web API 使用进程环境和 .env 文件
+        base_config = parse_args(["--user-id", "api-server", "--no-tts"], load_env=True)
     except SystemExit:
         # If parse_args failed, we might be missing critical env vars
         # In a real API we might want to log this or handle more gracefully
@@ -95,13 +95,20 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
         # Clone base config and modify for this request
         cfg = dataclasses.replace(base_config)
         cfg.user_id = user_id
+        
+        # 核心修复：确保执行层的 LLM API Key 使用的是服务器配置的密钥，
+        # 而不是用户请求带来的 Authorization Token (PTT API Key)。
+        cfg.llm_api_key = os.environ.get("OPENAI_API_KEY", cfg.llm_api_key)
+        cfg.llm_base_url = os.environ.get("OPENAI_BASE_URL", cfg.llm_base_url)
+        
         cfg.user_token = None
         cfg.text_input = req.query
         cfg.no_tts = True
         cfg.use_cli = False  # Ensure direct database access
         
         if req.mode:
-            cfg.execution_mode = req.mode.value if hasattr(req.mode, "value") else req.mode
+            mode_val = req.mode.value if hasattr(req.mode, "value") else req.mode
+            cfg.execution_mode = mode_val
             
         # Handle photo attachment
         photo_path = None
