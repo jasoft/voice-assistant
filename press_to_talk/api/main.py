@@ -185,63 +185,74 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
             mode_val = req.mode.value if hasattr(req.mode, "value") else req.mode
             cfg.execution_mode = mode_val
             
-        # Handle photo attachment
+        # 1. 严格图片处理逻辑
         photo_path = None
         if req.photo:
-            try:
-                photo_dir = os.path.join("data", "photos")
-                os.makedirs(photo_dir, exist_ok=True)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                unique_id = uuid.uuid4().hex[:8]
+            is_valid = False
+            if req.photo.type == "url" and req.photo.url and str(req.photo.url).strip():
+                is_valid = True
+            elif req.photo.type == "base64" and req.photo.data and str(req.photo.data).strip():
+                is_valid = True
                 
-                # Determine extension based on mime
-                def get_extension(mime: Optional[str]) -> str:
-                    if not mime:
-                        return ".jpg"
-                    mime_lower = mime.lower()
-                    if "png" in mime_lower:
-                        return ".png"
-                    if "gif" in mime_lower:
-                        return ".gif"
-                    if "webp" in mime_lower:
-                        return ".webp"
-                    return ".jpg"
-                
-                ext = get_extension(req.photo.mime)
-                
-                if req.photo.type == "base64":
-                    b64_str = req.photo.data
-                    if b64_str and "," in b64_str:
-                        b64_str = b64_str.split(",")[1]
+            if is_valid:
+                try:
+                    photo_dir = os.path.join("data", "photos")
+                    os.makedirs(photo_dir, exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    unique_id = uuid.uuid4().hex[:8]
                     
-                    if b64_str:
-                        photo_bytes = base64.b64decode(b64_str)
+                    # Determine extension based on mime
+                    def get_extension(mime: Optional[str]) -> str:
+                        if not mime:
+                            return ".jpg"
+                        mime_lower = mime.lower()
+                        if "png" in mime_lower:
+                            return ".png"
+                        if "gif" in mime_lower:
+                            return ".gif"
+                        if "webp" in mime_lower:
+                            return ".webp"
+                        return ".jpg"
+                    
+                    ext = get_extension(req.photo.mime)
+                    
+                    if req.photo.type == "base64":
+                        b64_str = req.photo.data
+                        if b64_str and "," in b64_str:
+                            b64_str = b64_str.split(",")[1]
+                        
+                        if b64_str:
+                            photo_bytes = base64.b64decode(b64_str)
+                            filename = f"photo_{timestamp}_{unique_id}{ext}"
+                            full_path = os.path.join(photo_dir, filename)
+                            with open(full_path, "wb") as f:
+                                f.write(photo_bytes)
+                            photo_path = f"photos/{filename}"
+                    elif req.photo.type == "url":
+                        import httpx
                         filename = f"photo_{timestamp}_{unique_id}{ext}"
                         full_path = os.path.join(photo_dir, filename)
-                        with open(full_path, "wb") as f:
-                            f.write(photo_bytes)
-                        photo_path = f"photos/{filename}"
-                elif req.photo.type == "url":
-                    # 改进下载逻辑：增加详细日志和错误处理
-                    import httpx
-                    filename = f"photo_{timestamp}_{unique_id}{ext}"
-                    full_path = os.path.join(photo_dir, filename)
-                    log(f"Downloading photo from URL: {req.photo.url}")
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        try:
-                            resp = await client.get(req.photo.url)
-                            if resp.status_code == 200:
-                                with open(full_path, "wb") as f:
-                                    f.write(resp.content)
-                                photo_path = f"photos/{filename}"
-                                log(f"Successfully downloaded photo from URL to {photo_path}")
-                            else:
-                                log(f"Failed to download photo. Status: {resp.status_code}, URL: {req.photo.url}", level="error")
-                        except Exception as e:
-                            log(f"Error downloading photo from {req.photo.url}: {e}", level="error")
-            except Exception as photo_err:
-                log(f"Warning: Failed to process photo: {photo_err}", level="warn")
+                        log(f"Downloading photo from URL: {req.photo.url}")
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            try:
+                                resp = await client.get(req.photo.url)
+                                if resp.status_code == 200:
+                                    with open(full_path, "wb") as f:
+                                        f.write(resp.content)
+                                    photo_path = f"photos/{filename}"
+                                    log(f"Successfully downloaded photo from URL to {photo_path}")
+                                else:
+                                    log(f"Failed to download photo. Status: {resp.status_code}, URL: {req.photo.url}", level="error")
+                            except Exception as e:
+                                log(f"Error downloading photo from {req.photo.url}: {e}", level="error")
+                except Exception as photo_err:
+                    log(f"Warning: Failed to process photo: {photo_err}", level="warn")
             
+        # 2. 只有在图片处理成功并获取了 photo_path 后，才强制开启 record 模式
+        if photo_path:
+            cfg.force_record = True
+            log(f"Photo attached and saved: {photo_path}, forcing record mode", level="info")
+
         result = await execute_transcript_async(cfg, req.query, photo_path=photo_path)
 
         # Map raw memories to MemoryItem
