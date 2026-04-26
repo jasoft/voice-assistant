@@ -113,21 +113,6 @@ class LLMSummarizeAction(Action):
             # 清理回复中的标记，以免显示给用户
             bb.reply = re.sub(r"\[SELECTED_IDS[:：]\s*[^\]]+\]", "", full_reply, flags=re.IGNORECASE).strip()
 
-            # 现在采用全量透传策略，将 bb.selected_memories 填充为所有搜到的记录
-            bb.selected_memories = bb.memories
-            
-            # 处理图片 URL (提取全量 records 里的图片)
-            resolved_urls = []
-            for item in bb.memories:
-                path = item.get("photo_path")
-                if path:
-                    url = get_photo_url(path)
-                    if url:
-                        resolved_urls.append(url)
-            
-            # 3. 存入黑板
-            bb.reply_photos = resolved_urls # 保存列表
-            
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
