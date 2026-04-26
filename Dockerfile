@@ -34,6 +34,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # 复制项目文件
 COPY . .
 
+# 复制启动脚本并添加执行权限
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 # 再次确保 libsimple.so 存在 (防止本地 COPY 覆盖掉了刚刚生成的目录)
 RUN [ -f /app/third_party/simple/libsimple.so ] || ( \
     git clone https://github.com/wangfenjin/simple.git /tmp/simple_rebuild && \
@@ -49,7 +53,7 @@ RUN [ -f /app/third_party/simple/libsimple.so ] || ( \
 RUN uv sync --frozen
 
 # 暴露端口
-EXPOSE 10031
+EXPOSE 10031 8080
 
-# 默认启动命令：运行 ptt-api
-ENTRYPOINT ["uv", "run", "ptt-api"]
+# 默认启动命令：运行启动脚本，同时启动 ptt-api 和 sqlite_web
+ENTRYPOINT ["/app/start.sh"]

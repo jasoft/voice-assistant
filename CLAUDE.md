@@ -45,5 +45,5 @@ The "remember" functionality (adding/finding memories) typically delegates to an
 
 ## 总结
 
-- 在最后的总结里，在末尾输出一段便于 tts 工具读的总结，不多于 30 字。用 `<tts></tts>` 包裹起来，例如 `<tts>我的任务完成了, 已经解决了不能写入的问题!</tts>`
-- 确保 TTS tag 是成对出现，不要出现丢失。
+- 在最后的总结里，在末尾输出一段便于 tts 工具读的总结，不多于 30 字。用 `<tts></tts>` 包裹起来，例如 `<tts>我的任务完成了!</tts>`
+- 确保 TTS tag 是成对出现，不要出现丢失。Hook 脚本会自动提取最后一对标签内容。
