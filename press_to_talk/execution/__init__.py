@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 class ExecutionResult:
     reply: str
     photos: List[str] = field(default_factory=list)
+    memories: List[dict] = field(default_factory=list)
 
 async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | None = None) -> ExecutionResult:
     mode = resolve_execution_mode(cfg)
@@ -46,7 +47,7 @@ async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | 
     await tree.tick(bb)
     
     if bb.reply:
-        return ExecutionResult(reply=bb.reply, photos=bb.reply_photos)
+        return ExecutionResult(reply=bb.reply, photos=bb.reply_photos, memories=bb.selected_memories)
         
     if bb.error:
         return ExecutionResult(reply=f"Error: {bb.error}")
