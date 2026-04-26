@@ -128,5 +128,11 @@ API 支持在 `/v1/query` 请求中携带结构化的 `photo` 节点：
   }
 }
 ```
-系统会自动处理 Base64 解码或 URL 下载，并将文件存入 `data/photos/` 目录，生成的本地路径会注入黑板 (Blackboard) 供行为树节点使用。
+系统会自动处理 Base64 解码或 URL 下载，并将文件存入 `data/photos/` 目录，生成的本地路径会注入黑板 (Blackboard) 供行为树节点使用。API 响应中会返回 `photo_url` 供前端展示。
+
+### 5.4 静态资源访问与 URL 映射
+为了让客户端能直接展示存储在服务器上的图片，系统通过 FastAPI 挂载了静态资源：
+- **挂载点**: `/assets` -> 映射到本地目录 `data/photos/`
+- **URL 转换**: 系统内存储的 `photo_path` (如 `photos/abc.jpg`) 会被自动转换为 Web 可访问的 `photo_url` (如 `/assets/abc.jpg`)。
+- **涉及模型**: `QueryResponse` 和 `MemoryItem` 模型均包含 `photo_url` 字段。
 
