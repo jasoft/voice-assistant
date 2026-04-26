@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import os
@@ -25,6 +26,15 @@ def mask_auth_header(auth_str: str) -> str:
     if not auth_str or len(auth_str) < 10:
         return "***"
     return f"{auth_str[:6]}...{auth_str[-4:]}"
+
+def get_photo_url(photo_path: Optional[str]) -> Optional[str]:
+    """Convert database photo path to web accessible URL."""
+    if not photo_path:
+        return None
+    # photo_path is typically "photos/filename.jpg"
+    # we want to map it to "/assets/filename.jpg"
+    filename = os.path.basename(photo_path)
+    return f"/assets/{filename}"
 
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
@@ -92,6 +102,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 app = FastAPI(title="Press-to-Talk API", lifespan=lifespan)
+app.mount("/assets", StaticFiles(directory="data/photos"), name="assets")
 app.add_middleware(LoggingMiddleware)
 
 from enum import Enum
