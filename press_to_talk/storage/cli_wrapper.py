@@ -101,8 +101,13 @@ class CLIRememberStore(BaseRememberStore, CLIStoreBase):
         end_date: str | None = None,
     ) -> str:
         args = ["memory", "search", "--query", query]
-        if min_score > 0:
-            args.extend(["--min-score", str(min_score)])
+        
+        final_min_score = min_score
+        if final_min_score <= 0 and hasattr(self, "config") and hasattr(self.config, "mem0_min_score"):
+            final_min_score = self.config.mem0_min_score
+
+        if final_min_score > 0:
+            args.extend(["--min-score", str(final_min_score)])
         if start_date:
             args.extend(["--start-date", start_date])
         if end_date:

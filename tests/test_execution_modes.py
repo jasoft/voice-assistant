@@ -292,7 +292,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             ):
                 reply = runner.run("usb测试版在哪")
 
-        self.assertEqual(reply, "记忆聊天回复")
+        self.assertIn("记忆聊天回复", reply)
 
     def test_runner_logs_intent_and_summary_steps(self) -> None:
         from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
@@ -360,9 +360,9 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             runner = MemoryChatExecutionRunner(cfg)
             reply = runner.run("今天股市收盘多少")
 
-        self.assertEqual(
-            reply,
+        self.assertIn(
             "今天上证收盘我现在没法确认精确点位，但你可以让我继续查实时来源。",
+            reply,
         )
         create = openai_mock.return_value.chat.completions.create
         self.assertEqual(create.call_count, 2)

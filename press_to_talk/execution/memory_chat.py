@@ -206,7 +206,14 @@ class MemoryChatExecutionRunner:
         log_multiline("memory-chat summary cleaned", reply)
         if not reply:
             raise RuntimeError("memory-chat returned empty reply")
-        return reply
+            
+        # 组装返回的 payload
+        output_payload = {
+            "reply": reply,
+            "query": transcript,
+            "memories": items
+        }
+        return json.dumps(output_payload, ensure_ascii=False)
 
     def run(self, transcript: str) -> str:
         import asyncio

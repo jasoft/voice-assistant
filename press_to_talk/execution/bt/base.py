@@ -18,6 +18,8 @@ class Blackboard:
     memories: list = field(default_factory=list)
     memories_raw: Optional[str] = None  # Original JSON string from search
     reply: Optional[str] = None
+    query: Optional[str] = None
+    debug_info: dict = field(default_factory=dict)
     error: Optional[str] = None
 
 class Node:

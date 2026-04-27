@@ -103,13 +103,23 @@ class ExecuteSearchAction(Action):
             query = args.get("query") or bb.transcript
             start_date = args.get("start_date")
             end_date = args.get("end_date")
-            
+
+            bb.query = query
+            bb.debug_info["intent"] = bb.intent
+            bb.debug_info["query_args"] = args
+
             if intent_key == "find" or bb.mode == "memory-chat":
                 remember_store = agent.storage.remember_store()
+
+                final_min_score = 0.0
+                if hasattr(bb.cfg, "mem0_min_score"):
+                    final_min_score = bb.cfg.mem0_min_score
+
                 # 如果有日期范围，优先透传
                 raw = remember_store.find(
-                    query=query, 
-                    start_date=start_date, 
+                    query=query,
+                    min_score=final_min_score,
+                    start_date=start_date,
                     end_date=end_date
                 )
                 bb.memories_raw = raw

@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 class ExecutionResult:
     reply: str
     memories: List[dict] = field(default_factory=list)
+    query: Optional[str] = None
+    debug_info: Optional[dict] = None
 
 async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | None = None) -> ExecutionResult:
     mode = resolve_execution_mode(cfg)
@@ -46,14 +48,13 @@ async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | 
     await tree.tick(bb)
     
     if bb.reply:
-        return ExecutionResult(reply=bb.reply, memories=bb.memories)
-        
+        return ExecutionResult(reply=bb.reply, memories=bb.memories, query=bb.query, debug_info=bb.debug_info)
+
     if bb.error:
-        return ExecutionResult(reply=f"Error: {bb.error}")
+        return ExecutionResult(reply=f"Error: {bb.error}", debug_info=bb.debug_info)
 
     # Default fallback if tree didn't produce a reply
-    return ExecutionResult(reply="I'm sorry, I couldn't process that request.")
-
+    return ExecutionResult(reply="I'm sorry, I couldn't process that request.", debug_info=bb.debug_info)
 def execute_transcript(cfg: Any, transcript: str, photo_path: str | None = None) -> ExecutionResult:
     return asyncio.run(execute_transcript_async(cfg, transcript, photo_path=photo_path))
 

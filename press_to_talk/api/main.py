@@ -2,7 +2,7 @@ from __future__ import annotations
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import os
 import base64
 import uuid
@@ -165,6 +165,8 @@ class MemoryItem(BaseModel):
 class QueryResponse(BaseModel):
     reply: str
     memories: List[MemoryItem] = Field(default_factory=list, description="所选记忆的完整数据")
+    query: Optional[str] = Field(None, description="本次查询所实际使用的语句")
+    debug_info: Optional[Dict[str, Any]] = Field(None, description="本次查询的调试信息")
 
 
 @app.post("/v1/query", response_model=QueryResponse, summary="执行自然语言查询", description="接收用户的自然语言输入，并根据选定的模式进行意图识别、数据库操作或对话生成。")
@@ -264,11 +266,30 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
 
         result = await execute_transcript_async(cfg, req.query, photo_path=photo_path)
 
-        # Map raw memories to MemoryItem
+        reply_text = result.reply
         memories = []
+        result_query = result.query
+        
+        # Check if the reply is a JSON containing the structured payload
+        if reply_text.strip().startswith("{") and reply_text.strip().endswith("}"):
+            try:
+                parsed = json.loads(reply_text)
+                if isinstance(parsed, dict) and "reply" in parsed:
+                    reply_text = str(parsed.get("reply", ""))
+                    
+                    if "query" in parsed:
+                        result_query = str(parsed["query"])
+                        
+                    # Some modes like memory-chat might inject memories inside the JSON
+                    if "memories" in parsed and isinstance(parsed["memories"], list):
+                        result.memories = parsed["memories"]
+            except Exception:
+                pass
+
+        # Map raw memories to MemoryItem
         for m in result.memories:
             memories.append(MemoryItem(
-                id=str(m.get("id")),
+                id=str(m.get("id", "")),
                 memory=m.get("memory", ""),
                 created_at=str(m.get("created_at", "")),
                 photo_path=m.get("photo_path"),
@@ -277,11 +298,15 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
             ))
 
         return QueryResponse(
-            reply=result.reply,
-            memories=memories
+            reply=reply_text,
+            memories=memories,
+            query=result_query or req.query,
+            debug_info=result.debug_info
         )
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/v1/history", response_model=List[HistoryItem], summary="获取会话历史记录", description="按时间倒序返回当前用户的最近 20 条会话历史记录（包含请求文本和助手回复）。")

@@ -215,11 +215,16 @@ class Mem0RememberStore(BaseRememberStore):
         # Note: Mem0 current search API might not support direct date range filtering via SDK
         # Maintaining the interface for consistency.
         response = self.client.search(query, **self._read_scope_kwargs())
-        if min_score > 0 and isinstance(response, list):
+        
+        final_min_score = min_score
+        if final_min_score <= 0 and hasattr(self, "config") and hasattr(self.config, "mem0_min_score"):
+            final_min_score = self.config.mem0_min_score
+            
+        if final_min_score > 0 and isinstance(response, list):
             response = [
                 item
                 for item in response
-                if isinstance(item, dict) and float(item.get("score", 0)) >= min_score
+                if isinstance(item, dict) and float(item.get("score", 0)) >= final_min_score
             ]
         return json.dumps(_localize_timestamp_fields(response), ensure_ascii=False)
 
