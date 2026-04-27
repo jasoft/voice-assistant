@@ -2,11 +2,15 @@ services:
   voice-assistant:
     build: .
     environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - PTT_RERANKER_API_KEY=${PTT_RERANKER_API_KEY}
+      - PTT_RERANKER_MODEL=${PTT_RERANKER_MODEL}
       - TZ=Asia/Shanghai
     ports:
-      - "10031:10031"  # ptt-api
-      - "8880:8080"    # sqlite_web (容器8080 -> 主机8880)
+      - "10031:10031"
+      - "8880:8080"
     volumes:
-      - .:/app            # 映射整个项目目录以便热重载
-      - ./data:/app/data  # 显式映射 data 目录
+      - ./data:/app/data
+      - .:/app
     restart: unless-stopped
