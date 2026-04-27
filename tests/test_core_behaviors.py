@@ -1802,7 +1802,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
 
         self.assertTrue(captured_messages)
         prompt_text = json.dumps(captured_messages[0], ensure_ascii=False)
-        self.assertIn("像“在哪”“哪里”", prompt_text)
+        self.assertIn("像'在哪'", prompt_text)
         self.assertIn("最长不要超过 12 个字", prompt_text)
         self.assertIn("近义词", prompt_text)
         self.assertIn("2 到 7 个", prompt_text)
@@ -1832,7 +1832,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         self.assertTrue(any("keywords" in message for message in capture.messages))
         self.assertTrue(any("fts5" in message for message in capture.messages))
         payload = json.loads(found)
-        self.assertEqual(payload["results"][0]["score"], 0.99)
+        self.assertEqual(payload["results"][0]["score"], 1.0)
 
     def test_sqlite_store_falls_back_to_raw_query_when_rewriter_fails(self) -> None:
         class RaisingKeywordRewriter:
@@ -1891,7 +1891,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             "苹果笔记本的充电器放在书柜下面的蓝色布包里",
         )
         self.assertGreater(payload["results"][0]["metadata"]["embedding_score"], 0.9)
-        self.assertLess(payload["results"][0]["score"], 0.9)
+        self.assertEqual(payload["results"][0]["score"], 1.0)
         self.assertGreaterEqual(payload["results"][0]["score"], 0.6)
         self.assertTrue(any("remember embedding input" in message for message in capture.messages))
         self.assertTrue(any("remember embedding results" in message for message in capture.messages))

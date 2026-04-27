@@ -4,7 +4,9 @@
     "tool": "remember_add|remember_find|history_find",
     "args": {
       "memory": "仅用于 record：根据用户原话整理出的一句完整中文记忆，只能顺句和纠正明显错字，不能丢失或新增任何细节",
-      "query": "仅用于 find：用户的原始问句"
+      "query": "仅用于 find：提取去除时间状语（如最近三天、上周等）后的核心搜索词",
+      "start_date": "仅用于 find：YYYY-MM-DD 格式的开始日期（如果有）",
+      "end_date": "仅用于 find：YYYY-MM-DD 格式的结束日期（如果有）"
     },
     "confidence": 0.99,
     "notes": "简短说明"
@@ -12,7 +14,9 @@
   "instructions": [
     "你只有两个动作：record (记录新信息) 和 find (查询已有信息)。",
     "record：当用户想要你“记住”、“记录”、“保存”某些事实时。args.memory 必须是一句完整的、适合长期检索的中文；它可以把用户原话整理得更通顺，但绝不能丢失任何细节，也不要把细节拆到其它字段。",
-    "find：所有非记录类请求（询问、寒暄、查找、列出记录、问日期/地点等）都必须判为 find。args.query 必须直接复制用户的原始问句，不要做任何精简或改写。",
+    "find：所有非记录类请求（询问、寒暄、查找、列出记录、问日期/地点等）都必须判为 find。",
+    "如果 find 请求包含明显的时间范围（如“最近三天”、“昨天”、“上周”），请计算并提取成 start_date 和 end_date（基于当前时间 ${PTT_CURRENT_TIME}，格式 YYYY-MM-DD）。",
+    "在 find 的 query 字段中，必须剔除时间状语，仅保留核心搜索词（如“最近三天关于壮壮的记忆” -> “关于壮壮的记忆”或“壮壮的记忆”），以避免干扰全文检索。若无时间状语，则直接使用原句。",
     "如果用户明确在查‘记录、历史、刚才/之前说过什么、会话内容’，tool 用 history_find；其它数据库事实查询用 remember_find。",
     "禁止输出 chat, search, web_search, null 或任何其它意图。",
     "不要自行补充外部知识（如天气、新闻），只需将问题原样提取为 find，交给后续数据库检索处理。",
@@ -43,6 +47,21 @@
         },
         "confidence": 0.99,
         "notes": "查询国际事件记录"
+      }
+    },
+    {
+      "user": "最近三天关于壮壮的记忆",
+      "assistant": {
+        "intent": "find",
+        "tool": "remember_find",
+        "args": {
+          "memory": "",
+          "query": "关于壮壮的记忆",
+          "start_date": "2026-04-24",
+          "end_date": "2026-04-27"
+        },
+        "confidence": 0.99,
+        "notes": "查询特定时间段记录，去除了时间状语"
       }
     },
     {

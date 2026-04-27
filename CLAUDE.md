@@ -43,7 +43,14 @@ The "remember" functionality (adding/finding memories) typically delegates to an
 - `database`: Strictly queries the internal database without LLM fallback.
 - `hermes`: Delegates processing to an external `hermes chat` agent.
 
-## 总结
+## 强制要求：TTS 语音总结
 
-- 在最后的总结里，在末尾输出一段便于 tts 工具读的总结，不多于 30 字。用 `<tts></tts>` 包裹起来，例如 `<tts>我的任务完成了!</tts>`
-- 确保 TTS tag 是成对出现，不要出现丢失。Hook 脚本会自动提取最后一对标签内容。
+**每次回复结束时，必须在末尾输出一段便于 tts 工具读的总结（不超过 30 字），用 `<tts></tts>` 包裹。**
+
+例如：`<tts>已修复完成，测试通过！</tts>`
+
+- 这是强制要求，不是建议！
+- 确保标签成对出现，不要丢失闭合标签。
+- Hook 脚本会自动提取最后一对 `<tts>...</tts>` 内容用于语音播报。
+- **重要**：输出 `<tts>总结</tts>` 后，必须立即执行：`echo "总结内容" > /tmp/claude_last_tts.txt`
+  - 这样 stop hook 能立即读到总结，无需等待 transcript 写入。

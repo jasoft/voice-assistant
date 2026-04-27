@@ -6,7 +6,7 @@ import math
 import re
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -151,6 +151,16 @@ def _embedding_confidence(raw_score: float, context_min_score: float) -> float:
         ),
     )
     return round(lower_bound + ((upper_bound - lower_bound) * normalized), 2)
+
+
+def _rrf_score(fts_rank: int | None = None, vector_rank: int | None = None, k: int = 60) -> float:
+    """Reciprocal Rank Fusion 分数计算"""
+    score = 0.0
+    if fts_rank is not None:
+        score += 1.0 / (k + fts_rank)
+    if vector_rank is not None:
+        score += 1.0 / (k + vector_rank)
+    return score
 
 
 def _cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -463,7 +473,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 embedding=embedding,
             )
 
-    def _embedding_search(self, *, query: str) -> list[dict[str, Any]]:
+    def _embedding_search(self, *, query: str, start_date: str | None = None, end_date: str | None = None) -> list[dict[str, Any]]:
         if not self._embedding_enabled():
             return []
         self._sync_missing_embeddings()
@@ -484,6 +494,17 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             )
         )
 
+        # 构建日期过滤条件
+        date_where = ""
+        date_params: list[Any] = []
+        if start_date:
+            date_where += " AND items.created_at >= ?"
+            date_params.append(start_date)
+        if end_date:
+            date_where += " AND items.created_at < ?"
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            date_params.append(end_dt.strftime("%Y-%m-%d"))
+
         self._connect() # Ensure extension loaded
         cursor = db.execute_sql(
             f"""
@@ -495,14 +516,14 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 items.updated_at,
                 embeds.embedding_json
             FROM {self.embedding_table_name} embeds
-            JOIN {self.table_name} items 
+            JOIN {self.table_name} items
                 ON items.id = embeds.item_id
                 AND items.user_id = embeds.user_id
             WHERE embeds.embedding_model = ?
-              AND items.user_id = ?
+              AND items.user_id = ?{date_where}
             ORDER BY items.updated_at DESC
             """,
-            (self.embedding_model, self.user_id),
+            (self.embedding_model, self.user_id, *date_params),
         )
         rows = cursor.fetchall()
         scored_rows: list[tuple[float, sqlite3.Row]] = []
@@ -559,8 +580,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         self,
         *,
         query: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
     ) -> list[dict[str, Any]]:
-        semantic_rows = self._embedding_search(query=query)
+        semantic_rows = self._embedding_search(query=query, start_date=start_date, end_date=end_date)
         if not semantic_rows:
             return []
         accepted = [
@@ -725,22 +748,21 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> str:
-        # 1. 优先处理日期范围查询（大王要求的偷懒模式）
-        if start_date or end_date:
-            if start_date and end_date:
-                if start_date > end_date:
-                    log(f"Detected inverted dates: start={start_date}, end={end_date}. Swapping.", level="warn")
-                    start_date, end_date = end_date, start_date
 
-            log(f"remember search mode: date range ({start_date} to {end_date})")
+        # 日期范围如果同时提供，自动修正倒置
+        if start_date and end_date and start_date > end_date:
+            log(f"Detected inverted dates: start={start_date}, end={end_date}. Swapping.", level="warn")
+            start_date, end_date = end_date, start_date
 
+        # 1. 优先处理无查询词的纯日期范围查询
+        if not query.strip() and (start_date or end_date):
+            log(f"remember search mode: pure date range ({start_date} to {end_date})")
             q = RememberEntry.select().where(RememberEntry.user_id == self.user_id)
             if start_date:
                 q = q.where(RememberEntry.created_at >= f"{start_date}T00:00:00")
             if end_date:
                 q = q.where(RememberEntry.created_at <= f"{end_date}T23:59:59")
-            
-            q = q.order_by(RememberEntry.created_at.desc()).limit(100)
+            q = q.order_by(RememberEntry.created_at.desc()).limit(self.max_results)
             
             results = [
                 {
@@ -750,7 +772,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     "photo_path": str(row.photo_path or ""),
                     "created_at": format_local_datetime(str(row.created_at)),
                     "updated_at": format_local_datetime(str(row.updated_at)),
-                    "score": 1.0, # 时间范围查询默认高置信度，交给 LLM 筛选
+                    "score": 1.0, 
                     "source": "date_range",
                     "metadata": {"original_text": str(row.original_text)},
                 }
@@ -773,7 +795,19 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 log(f"remember search keywords: {keywords}", level="debug")
                 self._connect() # Ensure extension loaded
                 log(f"remember search sql: fts5 match={match_query}", level="debug")
-                
+
+                # 构建日期过滤条件
+                date_where = ""
+                date_params: list[Any] = []
+                if start_date:
+                    date_where += " AND items.created_at >= ?"
+                    date_params.append(start_date)
+                if end_date:
+                    # 结束日期需要包含当天，所以加到第二天的 00:00:00
+                    date_where += " AND items.created_at < ?"
+                    end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+                    date_params.append(end_dt.strftime("%Y-%m-%d"))
+
                 cursor = db.execute_sql(
                     f"""
                     SELECT
@@ -786,11 +820,11 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     FROM {self.fts_table_name} fts
                     JOIN {self.table_name} items ON items.id = fts.item_id
                     WHERE fts.user_id = ? AND {self.fts_table_name} MATCH ?
-                      AND items.user_id = ?
+                      AND items.user_id = ?{date_where}
                     ORDER BY bm25({self.fts_table_name}), items.updated_at DESC
                     LIMIT ?
                     """,
-                    (self.user_id, match_query, self.user_id, self.max_results),
+                    (self.user_id, match_query, self.user_id, *date_params, self.max_results),
                 )
                 rows = cursor.fetchall()
                 
@@ -807,6 +841,15 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     for keyword in keywords:
                         pattern = f"%{keyword}%"
                         params.extend([pattern, pattern])
+                    # 加入日期过滤
+                    like_date_where = ""
+                    if start_date:
+                        like_date_where += " AND created_at >= ?"
+                        params.append(start_date)
+                    if end_date:
+                        like_date_where += " AND created_at < ?"
+                        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+                        params.append(end_dt.strftime("%Y-%m-%d"))
                     params.append(self.max_results)
                     cursor = db.execute_sql(
                         f"""
@@ -818,7 +861,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                             created_at,
                             updated_at
                         FROM {self.table_name}
-                        WHERE (user_id = ?) AND ({like_clauses})
+                        WHERE (user_id = ?) AND ({like_clauses}){like_date_where}
                         ORDER BY updated_at DESC
                         LIMIT ?
                         """,
@@ -855,68 +898,168 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 else:
                     log("Keyword Search Results: <none>", level="info")
 
-                for index, row in enumerate(filtered_rows):
+                # 收集 FTS 结果，记录排名
+                fts_items = []
+                for rank, row in enumerate(filtered_rows, start=1):
                     item_id = str(row["id"])
-                    results.append(
-                        {
-                            "id": item_id,
-                            "memory": str(row["memory"]),
-                            "original_text": str(row["original_text"]),
-                            "photo_path": str(row["photo_path"] or ""),
-                            "created_at": format_local_datetime(str(row["created_at"])),
-                            "updated_at": format_local_datetime(str(row["updated_at"])),
-                            "score": float(_fts_confidence(index)),
-                            "source": "keyword",
-                            "metadata": {"original_text": str(row["original_text"])},
-                        }
-                    )
+                    fts_items.append({
+                        "id": item_id,
+                        "memory": str(row["memory"]),
+                        "original_text": str(row["original_text"]),
+                        "photo_path": str(row["photo_path"] or ""),
+                        "created_at": str(row["created_at"]),
+                        "updated_at": str(row["updated_at"]),
+                        "fts_rank": rank,
+                        "embedding_score": None,
+                        "metadata": {"original_text": str(row["original_text"])},
+                    })
                     seen_ids.add(item_id)
+                # 暂存到临时列表，等语义搜索完成后再 RRF 融合
+                results.extend(fts_items)
 
         # 3. 语义搜索流程
+        semantic_items = []
         if self.semantic_search_enabled and self._embedding_enabled():
             try:
-                semantic_rows = self._embedding_results_for_context(query=query)
-                for semantic_row in semantic_rows:
+                semantic_rows = self._embedding_results_for_context(
+                    query=query,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                for rank, semantic_row in enumerate(semantic_rows, start=1):
                     semantic_id = str(semantic_row["id"])
                     embedding_score = float(semantic_row["embedding_score"])
-                    confidence_score = float(_embedding_confidence(
-                        embedding_score,
-                        self.embedding_context_min_score,
-                    ))
-                    
-                    if semantic_id in seen_ids:
-                        for item in results:
-                            if item["id"] == semantic_id:
-                                item["source"] = "both"
-                                item.setdefault("metadata", {})["embedding_score"] = embedding_score
-                                # 综合考虑分数，这里可以根据需要调整策略，目前保持 keyword 优先的分数或更新为更高的
-                                item["score"] = max(item["score"], confidence_score)
-                        continue
-                    
-                    results.append(
-                        {
-                            "id": semantic_id,
-                            "memory": str(semantic_row["memory"]),
+                    semantic_items.append({
+                        "id": semantic_id,
+                        "memory": str(semantic_row["memory"]),
+                        "original_text": str(semantic_row["original_text"]),
+                        "photo_path": str(semantic_row.get("photo_path") or ""),
+                        "created_at": str(semantic_row["created_at"]),
+                        "updated_at": str(semantic_row["updated_at"]),
+                        "vector_rank": rank,
+                        "embedding_score": embedding_score,
+                        "metadata": {
                             "original_text": str(semantic_row["original_text"]),
-                            "photo_path": str(semantic_row.get("photo_path") or ""),
-                            "created_at": format_local_datetime(str(semantic_row["created_at"])),
-                            "updated_at": format_local_datetime(str(semantic_row["updated_at"])),
-                            "score": confidence_score,
-                            "source": "semantic",
-                            "metadata": {
-                                "original_text": str(semantic_row["original_text"]),
-                                "embedding_score": embedding_score,
-                            },
-                        }
-                    )
+                            "embedding_score": embedding_score,
+                        },
+                    })
                     seen_ids.add(semantic_id)
             except Exception as exc:
                 log(f"remember embedding search failed: {exc}")
 
-        # 4. 过滤最小分数
-        if min_score > 0:
-            results = [r for r in results if float(r.get("score", 0)) >= min_score]
+        # 4. RRF 融合排序
+        # 合并两个列表，去重（优先保留有双排名的项）
+        merged: dict[str, dict] = {}
+        for item in results:
+            existing = merged.get(item["id"])
+            if existing:
+                # 合并排名信息
+                if "fts_rank" in item:
+                    existing["fts_rank"] = item["fts_rank"]
+                if "vector_rank" in item:
+                    existing["vector_rank"] = item["vector_rank"]
+                if item.get("embedding_score"):
+                    existing["embedding_score"] = item["embedding_score"]
+            else:
+                merged[item["id"]] = item.copy()
 
+        for item in semantic_items:
+            existing = merged.get(item["id"])
+            if existing:
+                if "vector_rank" in item:
+                    existing["vector_rank"] = item["vector_rank"]
+                if item.get("embedding_score"):
+                    existing["embedding_score"] = item["embedding_score"]
+            else:
+                merged[item["id"]] = item.copy()
+
+        # 根据 min_score 进行绝对阈值初筛
+        if min_score > 0:
+            filtered_merged = {}
+            for k, item in merged.items():
+                pass_filter = False
+                # Check vector absolute score
+                if item.get("embedding_score") and float(item["embedding_score"]) >= min_score:
+                    pass_filter = True
+                # Check FTS absolute confidence (1-based rank -> 0-based index)
+                elif "fts_rank" in item and _fts_confidence(item["fts_rank"] - 1) >= min_score:
+                    pass_filter = True
+                
+                if pass_filter:
+                    filtered_merged[k] = item
+            merged = filtered_merged
+
+        if not merged:
+            log("RRF Merged Results: <none> (all filtered by min_score)", level="info")
+            return json.dumps({"results": []}, ensure_ascii=False)
+
+        # 计算 RRF 分数，并归一化到 0-1 范围
+        rrf_k = 60  # RRF 常数
+        rrf_scores = []
+        for item in merged.values():
+            score = _rrf_score(
+                fts_rank=item.get("fts_rank"),
+                vector_rank=item.get("vector_rank"),
+                k=rrf_k,
+            )
+            item["score"] = score
+            rrf_scores.append(score)
+        
+        # 归一化：让最高分约为 1.0，最低分约为 0.0
+        if rrf_scores:
+            max_score = max(rrf_scores)
+            min_score_actual = min(rrf_scores)
+            score_range = max_score - min_score_actual
+            if score_range > 0:
+                for item in merged.values():
+                    item["score"] = round((item["score"] - min_score_actual) / score_range, 4)
+            else:
+                # 所有分数相同，设为 1.0
+                for item in merged.values():
+                    item["score"] = 1.0
+            # 为所有 item 设置 source = "both"
+            for item in merged.values():
+                item["source"] = "both"
+
+        # 按 RRF 分数降序排序
+        # 注意：RRF 分数已归一化到 0-1，不再需要 min_score 过滤
+        # RRF 已经按排名排好序，直接取前 N 条即可
+
+        results = sorted(merged.values(), key=lambda x: x["score"], reverse=True)
+
+        # 日志记录最终结果（显示时格式化日期）
+        if results:
+            final_text = "\n".join(
+                [
+                    f"  - [{item['score']:.6f}] [{item['source']}] [{format_local_datetime(item.get('created_at', ''))}] {item['memory'][:80]}..."
+                    for item in results[:10]
+                ]
+            )
+            log_multiline("RRF Merged Results", final_text, level="info")
+        else:
+            log("RRF Merged Results: <none>", level="info")
+
+
+
+        # 如果指定了日期范围，过滤结果
+        if start_date or end_date:
+            filtered = []
+            for item in results:
+                item_date_str = item.get("created_at") or item.get("updated_at") or ""
+                if not item_date_str:
+                    continue
+                # 提取日期部分（YYYY-MM-DD）
+                item_date = item_date_str[:10] if len(item_date_str) >= 10 else ""
+                if not item_date:
+                    continue
+                in_range = True
+                if start_date and item_date < start_date:
+                    in_range = False
+                if end_date and item_date > end_date:
+                    in_range = False
+                if in_range:
+                    filtered.append(item)
+            results = filtered
         return json.dumps({"results": results}, ensure_ascii=False)
 
     def extract_summary_items(

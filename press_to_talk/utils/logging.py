@@ -97,6 +97,9 @@ def log(msg: str, *, level: str = "info", stack_depth: int = 1) -> None:
             _SESSION_LOG_FILE.write(file_line + "\n")
             _SESSION_LOG_FILE.flush()
 
+    # 3. Force flush stderr so logs appear in real-time (e.g. uv run ptt-api)
+    sys.stderr.flush()
+
 def log_multiline(title: str, content: str, *, level: str = "debug") -> None:
     normalized = content if content else "<empty>"
     t = title if title.endswith(":") else f"{title}:"
