@@ -135,6 +135,10 @@ class MemoryChatExecutionRunner:
         time_text = current_time_text()
         system_prompt = system_prompt_tpl.replace("${PTT_CURRENT_TIME}", time_text)
         
+        # Inject user nickname
+        nickname = self._storage().get_user_nickname()
+        system_prompt = system_prompt.replace("${USER_NICKNAME}", nickname)
+        
         return [
             {
                 "role": "system",

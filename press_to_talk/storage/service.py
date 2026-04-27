@@ -632,3 +632,14 @@ class StorageService:
 
     def history_store(self) -> BaseHistoryStore:
         return self._history_store
+
+    def get_user_nickname(self) -> str:
+        """Fetch user nickname from database, fallback to user_id."""
+        try:
+            with db.connection_context():
+                user = User.get_or_none(User.user_id == self.config.user_id)
+                if user and user.nickname:
+                    return str(user.nickname)
+        except Exception as e:
+            log(f"Failed to fetch user nickname: {e}", level="error")
+        return str(self.config.user_id)

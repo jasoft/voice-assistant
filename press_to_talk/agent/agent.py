@@ -455,6 +455,9 @@ class OpenAICompatibleAgent:
         system_prompt = system_prompt.replace(
             "${PTT_CURRENT_TIME}", _runtime_current_time_text()
         )
+        # Inject user nickname
+        nickname = self.storage.get_user_nickname()
+        system_prompt = system_prompt.replace("${USER_NICKNAME}", nickname)
 
         user_prompt = (
             f"我的问题：{user_question or query or '（无）'}\n"
