@@ -302,7 +302,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         db.execute_sql(f"INSERT INTO {self.table_name} (id, user_id, memory, original_text, source_memory_id, photo_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (item_id, self.user_id, str(memory or "").strip(), str(original_text or "").strip(), str(source_memory_id or "").strip(), photo_path, ts, ts))
         db.execute_sql(f"INSERT INTO {self.fts_table_name} (memory, original_text, user_id, item_id) VALUES (?, ?, ?, ?)", (str(memory or ""), str(original_text or ""), self.user_id, item_id))
-        return item_id
+        
+        # 返回格式化的友好消息，供上层解析或显示
+        return f"✅ 已记录：{memory}\n🕒 时间：{ts}\n🆔 ID：{item_id}"
 
     def delete(self, *, memory_id: str) -> None:
         self._connect()
