@@ -4,7 +4,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL}
-      - PTT_RERANKER_API_KEY=${PTT_RERANKER_API_KEY}
+      - JINA_API_KEY=${JINA_API_KEY}
       - PTT_RERANKER_MODEL=${PTT_RERANKER_MODEL}
       - TZ=Asia/Shanghai
     ports:
@@ -12,5 +12,10 @@ services:
       - "8880:8080"
     volumes:
       - ./data:/app/data
-      - .:/app
+      # 挂载代码文件以支持热重载，但避开编译产物目录
+      - ./press_to_talk:/app/press_to_talk
+      - ./patch_sqlite_web.py:/app/patch_sqlite_web.py
+      - ./start.sh:/app/start.sh
+      - ./workflow_config.json:/app/workflow_config.json
+      - ./pyproject.toml:/app/pyproject.toml
     restart: unless-stopped
