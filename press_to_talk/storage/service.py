@@ -639,7 +639,12 @@ class StorageService:
             with db.connection_context():
                 user = User.get_or_none(User.user_id == self.config.user_id)
                 if user and user.nickname:
-                    return str(user.nickname)
+                    nick = str(user.nickname).strip()
+                    if nick and nick != "None" and nick != "default":
+                        return nick
         except Exception as e:
             log(f"Failed to fetch user nickname: {e}", level="error")
-        return str(self.config.user_id)
+        
+        # Final fallbacks
+        base_id = str(self.config.user_id or "default")
+        return "大王" if base_id == "default" else base_id
