@@ -101,7 +101,10 @@ class OpenAICompatibleAgent:
         from openai import AsyncOpenAI
 
         self.cfg = cfg
-        client_kwargs: dict[str, Any] = {"api_key": cfg.llm_api_key}
+        client_kwargs: dict[str, Any] = {
+            "api_key": cfg.llm_api_key,
+            "timeout": 30.0  # 增加 30 秒超时控制，防止 API 响应卡死
+        }
         raw_url = str(cfg.llm_base_url or "").strip()
         if raw_url:
             # Strip trailing slash to avoid double-slash issues with proxies

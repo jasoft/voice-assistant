@@ -35,7 +35,10 @@ def _format_memory_context_items(items: list[dict[str, Any]]) -> str:
 
 class MemoryChatExecutionRunner:
     def __init__(self, cfg: Any) -> None:
-        client_kwargs: dict[str, Any] = {"api_key": cfg.llm_api_key}
+        client_kwargs: dict[str, Any] = {
+            "api_key": cfg.llm_api_key,
+            "timeout": 30.0  # 增加 30 秒超时
+        }
         if str(getattr(cfg, "llm_base_url", "") or "").strip():
             client_kwargs["base_url"] = str(cfg.llm_base_url).strip()
         self.client = AsyncOpenAI(**client_kwargs)

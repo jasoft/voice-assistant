@@ -53,24 +53,17 @@ def setup_test_db():
     conn = sqlite3.connect(TEST_DB_PATH)
     cursor = conn.cursor()
     
-    # 1. 强制将所有存量记忆改为测试用户，确保召回
-    print(f"Reassigning all records in {TEST_DB_PATH} to {TEST_USER_ID}...")
-    cursor.execute("UPDATE remember_entries SET user_id = ?", (TEST_USER_ID,))
-    
+    # 强制将所有存量记忆改为测试用户，确保召回
+    print(f"Reassigning all records to {TEST_USER_ID}...")
     try:
+        cursor.execute("UPDATE remember_entries SET user_id = ?", (TEST_USER_ID,))
         cursor.execute("UPDATE remember_entry_embeddings SET user_id = ?", (TEST_USER_ID,))
-    except sqlite3.OperationalError:
-        pass
-        
-    try:
         cursor.execute("UPDATE remember_entries_simple_fts SET user_id = ?", (TEST_USER_ID,))
-    except sqlite3.OperationalError:
+    except Exception:
         pass
         
-    # 2. 插入测试 Token
     cursor.execute("INSERT OR REPLACE INTO api_tokens (token, user_id, created_at) VALUES (?, ?, ?)", 
                    (TEST_USER_ID, TEST_USER_ID, "2026-04-27 00:00:00"))
-    
     conn.commit()
     conn.close()
 
@@ -82,7 +75,11 @@ def generate_html(results):
     with TEMPLATE_FILE.open("r", encoding="utf-8") as f:
         template = f.read()
 
-    final_html = template.replace("{{results_json}}", json.dumps(results, ensure_ascii=False))
+    # 关键修复：使用 ensure_ascii=True 确保生成的 HTML 字符完全由 ASCII 组成
+    # 这样即便 HTTP Server 或浏览器编码猜测错误，中文也能正常显示
+    json_data = json.dumps(results, ensure_ascii=True)
+    
+    final_html = template.replace("{{results_json}}", json_data)
     final_html = final_html.replace("{{current_time}}", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     
     REPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -91,7 +88,7 @@ def generate_html(results):
     print(f"Report generated: {REPORT_FILE.absolute()}")
 
 def main():
-    print("Starting Vibe Check Skill...")
+    print("Starting Vibe Check (Safe & Stable Mode)...")
     setup_test_db()
     
     env = os.environ.copy()
@@ -109,54 +106,61 @@ def main():
     )
     
     # Wait for API to warm up
-    print("Waiting for API server to start...")
-    time.sleep(5)
+    time.sleep(8)
     
+    results = []
     headers = {"Authorization": f"Bearer {TEST_USER_ID}"}
-    results = [None] * len(SCENARIOS)
-
-    from concurrent.futures import ThreadPoolExecutor
-
-    def run_scenario(index):
-        scenario = SCENARIOS[index]
-        print(f"[{index+1}/{len(SCENARIOS)}] Testing: {scenario['query']}")
+    
+    # 改为串行执行，确保稳定性，增加超时到 180s
+    for i, scenario in enumerate(SCENARIOS):
+        print(f"[{i+1}/{len(SCENARIOS)}] Testing: {scenario['query']}...", end="", flush=True)
         try:
+            start_t = time.time()
             resp = requests.post(API_URL, json={
                 "query": scenario["query"],
                 "mode": "memory-chat"
-            }, headers=headers, timeout=60)
-            data = resp.json()
-            return {
-                "user_query": scenario["query"],
-                "desc": scenario["desc"],
-                "refined_query": data.get("query", ""),
-                "reply": data.get("reply", ""),
-                "memories": data.get("memories", [])[:5],
-                "debug_info": data.get("debug_info", {})
-            }
+            }, headers=headers, timeout=180)
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                results.append({
+                    "user_query": scenario["query"],
+                    "desc": scenario["desc"],
+                    "refined_query": data.get("query", ""),
+                    "reply": data.get("reply", ""),
+                    "memories": data.get("memories", [])[:5],
+                    "debug_info": data.get("debug_info", {})
+                })
+                print(f" OK ({time.time()-start_t:.1f}s)")
+            else:
+                print(f" FAILED (Status {resp.status_code})")
+                results.append({
+                    "user_query": scenario["query"],
+                    "desc": scenario["desc"],
+                    "refined_query": "ERROR",
+                    "reply": f"API 返回错误: {resp.text}",
+                    "memories": [],
+                    "debug_info": {}
+                })
         except Exception as e:
-            print(f"Error testing {scenario['query']}: {e}")
-            return {
+            print(f" TIMEOUT/ERROR: {e}")
+            results.append({
                 "user_query": scenario["query"],
                 "desc": scenario["desc"],
                 "refined_query": "ERROR",
-                "reply": f"请求失败: {e}",
+                "reply": f"请求异常: {e}",
                 "memories": [],
                 "debug_info": {}
-            }
-
-    print(f"Starting parallel execution with 2 workers (safe mode)...")
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        execution_results = list(executor.map(run_scenario, range(len(SCENARIOS))))
+            })
 
     proc.terminate()
-    generate_html(execution_results)
+    generate_html(results)
     
     if TEST_DB_PATH.exists():
         os.remove(TEST_DB_PATH)
     
-    # Start server
-    print("\nStarting Web Server to show report...")
+    print("\nStarting Web Server on port 10077...")
+    # 强制让 http.server 支持 .html 的 utf-8
     server_proc = subprocess.Popen(
         ["python3", "-m", "http.server", "10077", "--directory", "data"],
         stdout=subprocess.DEVNULL,

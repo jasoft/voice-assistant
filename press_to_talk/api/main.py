@@ -361,8 +361,13 @@ def run_server():
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind the server to.")
     parser.add_argument("--port", type=int, default=10031, help="Port to bind the server to.")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload.")
+    parser.add_argument("--workers", type=int, default=4, help="Number of worker processes.")
     
     args = parser.parse_args()
     
     # We use the string import pattern to allow reload to work correctly
-    uvicorn.run("press_to_talk.api.main:app", host=args.host, port=args.port, reload=args.reload)
+    # Note: reload and workers are mutually exclusive in uvicorn
+    if args.reload:
+        uvicorn.run("press_to_talk.api.main:app", host=args.host, port=args.port, reload=True)
+    else:
+        uvicorn.run("press_to_talk.api.main:app", host=args.host, port=args.port, workers=args.workers)
