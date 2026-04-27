@@ -6,7 +6,7 @@ import math
 import re
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,9 @@ MAX_REWRITE_KEYWORD_COUNT = 7
 
 
 def _now_iso() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    # 强制使用上海时区 (UTC+8)
+    tz_sh = timezone(timedelta(hours=8))
+    return datetime.now(tz_sh).isoformat(timespec="seconds")
 
 
 def _tokenize_for_match(query: str) -> list[str]:
@@ -512,11 +514,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         date_params: list[Any] = []
         if start_date:
             date_where += " AND items.created_at >= ?"
-            date_params.append(start_date)
+            date_params.append(f"{start_date}T00:00:00+08:00")
         if end_date:
-            date_where += " AND items.created_at < ?"
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-            date_params.append(end_dt.strftime("%Y-%m-%d"))
+            date_where += " AND items.created_at <= ?"
+            date_params.append(f"{end_date}T23:59:59+08:00")
 
         self._connect() # Ensure extension loaded
         cursor = db.execute_sql(
@@ -525,6 +526,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 items.id,
                 items.memory,
                 items.original_text,
+                items.photo_path,
                 items.created_at,
                 items.updated_at,
                 embeds.embedding_json
@@ -582,6 +584,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 "id": str(row["id"]),
                 "memory": str(row["memory"]),
                 "original_text": str(row["original_text"]),
+                "photo_path": str(row["photo_path"] or ""),
                 "created_at": str(row["created_at"]),
                 "updated_at": str(row["updated_at"]),
                 "embedding_score": round(score, 4),
@@ -799,9 +802,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             log(f"remember search mode: pure date range ({start_date} to {end_date})")
             q = RememberEntry.select().where(RememberEntry.user_id == self.user_id)
             if start_date:
-                q = q.where(RememberEntry.created_at >= f"{start_date}T00:00:00")
+                q = q.where(RememberEntry.created_at >= f"{start_date}T00:00:00+08:00")
             if end_date:
-                q = q.where(RememberEntry.created_at <= f"{end_date}T23:59:59")
+                q = q.where(RememberEntry.created_at <= f"{end_date}T23:59:59+08:00")
             q = q.order_by(RememberEntry.created_at.desc()).limit(self.max_results)
             
             results = [
@@ -841,12 +844,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                 date_params: list[Any] = []
                 if start_date:
                     date_where += " AND items.created_at >= ?"
-                    date_params.append(start_date)
+                    date_params.append(f"{start_date}T00:00:00+08:00")
                 if end_date:
-                    # 结束日期需要包含当天，所以加到第二天的 00:00:00
-                    date_where += " AND items.created_at < ?"
-                    end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-                    date_params.append(end_dt.strftime("%Y-%m-%d"))
+                    date_where += " AND items.created_at <= ?"
+                    date_params.append(f"{end_date}T23:59:59+08:00")
 
                 cursor = db.execute_sql(
                     f"""
@@ -885,11 +886,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
                     like_date_where = ""
                     if start_date:
                         like_date_where += " AND created_at >= ?"
-                        params.append(start_date)
+                        params.append(f"{start_date}T00:00:00+08:00")
                     if end_date:
-                        like_date_where += " AND created_at < ?"
-                        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-                        params.append(end_dt.strftime("%Y-%m-%d"))
+                        like_date_where += " AND created_at <= ?"
+                        params.append(f"{end_date}T23:59:59+08:00")
                     params.append(self.max_results)
                     cursor = db.execute_sql(
                         f"""

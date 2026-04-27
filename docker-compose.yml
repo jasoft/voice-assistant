@@ -1,6 +1,8 @@
 services:
   voice-assistant:
     build: .
+    environment:
+      - TZ=Asia/Shanghai
     ports:
       - "10031:10031"  # ptt-api
       - "8880:8080"    # sqlite_web (容器8080 -> 主机8880)
