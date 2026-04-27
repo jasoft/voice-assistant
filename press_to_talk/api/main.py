@@ -356,14 +356,23 @@ def run_server():
     """Entry point for ptt-api command."""
     import uvicorn
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(description="Run the Press-to-Talk API server.")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind the server to.")
     parser.add_argument("--port", type=int, default=10031, help="Port to bind the server to.")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload.")
     parser.add_argument("--workers", type=int, default=4, help="Number of worker processes.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging.")
     
     args = parser.parse_args()
+    
+    # Store verbose setting in environment so lifespan/init_session_log can pick it up
+    if args.verbose:
+        os.environ["PTT_LOG_LEVEL"] = "DEBUG"
+        os.environ["PTT_VERBOSE"] = "1"
+        from ..utils.logging import set_global_log_level
+        set_global_log_level("DEBUG")
     
     # We use the string import pattern to allow reload to work correctly
     # Note: reload and workers are mutually exclusive in uvicorn

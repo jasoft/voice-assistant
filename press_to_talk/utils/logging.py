@@ -21,6 +21,14 @@ PROCESS_START_TS = time.perf_counter()
 # Internal log level state
 _GLOBAL_LOG_LEVEL = logging.INFO
 
+def _normalize_level(level: str) -> str:
+    normalized = str(level or "INFO").strip().upper()
+    if normalized == "WARNING":
+        normalized = "WARN"
+    if normalized not in {"DEBUG", "INFO", "WARN", "ERROR"}:
+        normalized = "INFO"
+    return normalized
+
 def set_global_log_level(level: str) -> None:
     global _GLOBAL_LOG_LEVEL
     normalized = _normalize_level(level)
@@ -32,13 +40,11 @@ def set_global_log_level(level: str) -> None:
     }
     _GLOBAL_LOG_LEVEL = level_map.get(normalized, logging.INFO)
 
-def _normalize_level(level: str) -> str:
-    normalized = str(level or "INFO").strip().upper()
-    if normalized == "WARNING":
-        normalized = "WARN"
-    if normalized not in {"DEBUG", "INFO", "WARN", "ERROR"}:
-        normalized = "INFO"
-    return normalized
+# Initial setup from environment
+if os.environ.get("PTT_LOG_LEVEL"):
+    set_global_log_level(os.environ.get("PTT_LOG_LEVEL"))
+elif os.environ.get("PTT_VERBOSE") == "1":
+    set_global_log_level("DEBUG")
 
 def log(msg: str, *, level: str = "info", stack_depth: int = 1) -> None:
     normalized_level = _normalize_level(level)
