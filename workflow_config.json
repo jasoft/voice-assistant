@@ -286,7 +286,7 @@
         "provider": "sqlite_fts5",
         "sqlite_fts5": {
             "db_path": "data/voice_assistant_store.sqlite3",
-            "max_results": 10,
+            "max_results": 50,
             "query_rewrite": {
                 "enabled": true
             },
@@ -295,7 +295,7 @@
                 "base_url": "http://docker.home:11434/v1",
                 "api_key": "ollama",
                 "model": "bge-m3",
-                "max_results": 5,
+                "max_results": 20,
                 "min_score": 0.45,
                 "context_min_score": 0.55
             },
@@ -310,6 +310,6 @@
         "user_id": "soj",
         "app_id": "voice-assistant",
         "min_score": 0.7,
-        "max_items": 10
+        "max_items": 20
     }
 }

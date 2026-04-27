@@ -171,20 +171,24 @@ class QueryResponse(BaseModel):
 
 
 @app.post("/v1/query", response_model=QueryResponse, summary="执行自然语言查询", description="接收用户的自然语言输入，并根据选定的模式进行意图识别、数据库操作或对话生成。")
-async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
+async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_user_id)):
     if base_config is None:
         raise HTTPException(status_code=500, detail="Server configuration error")
         
+    # 获取基础 URL (例如 http://localhost:10031/ 或 https://va-dev.soj.myds.me:1443/)
+    # 考虑反向代理情况，检查 X-Forwarded-Proto
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    netloc = request.url.netloc
+    base_url = f"{proto}://{netloc}"
+    
     photo_path = None
     try:
         # Clone base config and modify for this request
         cfg = dataclasses.replace(base_config)
         cfg.user_id = user_id
-        if photo_path:
-            cfg.force_record = True
         
-        # 核心修复：确保执行层的 LLM API Key 使用的是服务器配置的密钥，
-        # 而不是用户请求带来的 Authorization Token (PTT API Key)。
+        # ... (此处省略中间的照片处理和执行逻辑，保持原有逻辑) ...
+        # 核心修复：确保执行层的 LLM API Key 使用的是服务器配置的密钥
         cfg.llm_api_key = os.environ.get("OPENAI_API_KEY", cfg.llm_api_key)
         cfg.llm_base_url = os.environ.get("OPENAI_BASE_URL", cfg.llm_base_url)
         
@@ -213,54 +217,37 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     unique_id = uuid.uuid4().hex[:8]
                     
-                    # Determine extension based on mime
                     def get_extension(mime: Optional[str]) -> str:
-                        if not mime:
-                            return ".jpg"
-                        mime_lower = mime.lower()
-                        if "png" in mime_lower:
-                            return ".png"
-                        if "gif" in mime_lower:
-                            return ".gif"
-                        if "webp" in mime_lower:
-                            return ".webp"
+                        if not mime: return ".jpg"
+                        m = mime.lower()
+                        if "png" in m: return ".png"
+                        if "gif" in m: return ".gif"
+                        if "webp" in m: return ".webp"
                         return ".jpg"
                     
                     ext = get_extension(req.photo.mime)
                     
                     if req.photo.type == "base64":
                         b64_str = req.photo.data
-                        if b64_str and "," in b64_str:
-                            b64_str = b64_str.split(",")[1]
-                        
+                        if b64_str and "," in b64_str: b64_str = b64_str.split(",")[1]
                         if b64_str:
                             photo_bytes = base64.b64decode(b64_str)
                             filename = f"photo_{timestamp}_{unique_id}{ext}"
                             full_path = os.path.join(photo_dir, filename)
-                            with open(full_path, "wb") as f:
-                                f.write(photo_bytes)
+                            with open(full_path, "wb") as f: f.write(photo_bytes)
                             photo_path = f"photos/{filename}"
                     elif req.photo.type == "url":
                         import httpx
                         filename = f"photo_{timestamp}_{unique_id}{ext}"
                         full_path = os.path.join(photo_dir, filename)
-                        log(f"Downloading photo from URL: {req.photo.url}")
                         async with httpx.AsyncClient(timeout=10.0) as client:
-                            try:
-                                resp = await client.get(req.photo.url)
-                                if resp.status_code == 200:
-                                    with open(full_path, "wb") as f:
-                                        f.write(resp.content)
-                                    photo_path = f"photos/{filename}"
-                                    log(f"Successfully downloaded photo from URL to {photo_path}")
-                                else:
-                                    log(f"Failed to download photo. Status: {resp.status_code}, URL: {req.photo.url}", level="error")
-                            except Exception as e:
-                                log(f"Error downloading photo from {req.photo.url}: {e}", level="error")
+                            resp = await client.get(req.photo.url)
+                            if resp.status_code == 200:
+                                with open(full_path, "wb") as f: f.write(resp.content)
+                                photo_path = f"photos/{filename}"
                 except Exception as photo_err:
                     log(f"Warning: Failed to process photo: {photo_err}", level="warn")
             
-        # 2. 只有在图片处理成功并获取了 photo_path 后，才强制开启 record 模式
         if photo_path:
             cfg.force_record = True
             log(f"Photo attached and saved: {photo_path}, forcing record mode", level="info")
@@ -271,34 +258,33 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
         memories = []
         result_query = result.query
         
-        # Check if the reply is a JSON containing the structured payload
         if reply_text.strip().startswith("{") and reply_text.strip().endswith("}"):
             try:
                 parsed = json.loads(reply_text)
                 if isinstance(parsed, dict) and "reply" in parsed:
                     reply_text = str(parsed.get("reply", ""))
-                    
-                    if "query" in parsed:
-                        result_query = str(parsed["query"])
-                        
-                    # Some modes like memory-chat might inject memories inside the JSON
+                    if "query" in parsed: result_query = str(parsed["query"])
                     if "memories" in parsed and isinstance(parsed["memories"], list):
                         result.memories = parsed["memories"]
-            except Exception:
-                pass
+            except Exception: pass
 
-        # Map raw memories to MemoryItem
+        # Map raw memories to MemoryItem and supplement full URLs
         for m in result.memories:
+            p_path = m.get("photo_path")
+            rel_url = get_photo_url(p_path)
+            # 确保拼接时不会出现双斜杠：去掉 base_url 尾部斜杠，去掉 rel_url 开头斜杠，中间补一个
+            full_url = f"{base_url}/{rel_url.lstrip('/')}" if rel_url else None
+            
             memories.append(MemoryItem(
                 id=str(m.get("id", "")),
                 memory=m.get("memory", ""),
                 created_at=str(m.get("created_at", "")),
-                photo_path=m.get("photo_path"),
-                photo_url=get_photo_url(m.get("photo_path")),
+                photo_path=p_path,
+                photo_url=full_url,
                 score=float(m.get("score") or 0.0)
             ))
 
-        # Extract top 3 unique non-empty photo URLs
+        # Extract top 3 absolute photo URLs
         images = []
         for m in memories:
             if m.photo_url:

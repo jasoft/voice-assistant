@@ -7,5 +7,6 @@ services:
       - "10031:10031"  # ptt-api
       - "8880:8080"    # sqlite_web (容器8080 -> 主机8880)
     volumes:
-      - ./data:/app/data  # 映射 data 目录下的所有文件和子目录
+      - .:/app            # 映射整个项目目录以便热重载
+      - ./data:/app/data  # 显式映射 data 目录
     restart: unless-stopped
