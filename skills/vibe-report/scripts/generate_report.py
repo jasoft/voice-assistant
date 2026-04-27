@@ -108,33 +108,49 @@ def main():
         stderr=subprocess.DEVNULL
     )
     
-    # Wait for API
+    # Wait for API to warm up
+    print("Waiting for API server to start...")
     time.sleep(5)
     
-    results = []
     headers = {"Authorization": f"Bearer {TEST_USER_ID}"}
-    
-    for i, scenario in enumerate(SCENARIOS):
-        print(f"[{i+1}/{len(SCENARIOS)}] Testing: {scenario['query']}")
+    results = [None] * len(SCENARIOS)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    def run_scenario(index):
+        scenario = SCENARIOS[index]
+        print(f"[{index+1}/{len(SCENARIOS)}] Testing: {scenario['query']}")
         try:
             resp = requests.post(API_URL, json={
                 "query": scenario["query"],
                 "mode": "memory-chat"
             }, headers=headers, timeout=60)
             data = resp.json()
-            results.append({
+            return {
                 "user_query": scenario["query"],
                 "desc": scenario["desc"],
                 "refined_query": data.get("query", ""),
                 "reply": data.get("reply", ""),
                 "memories": data.get("memories", [])[:5],
                 "debug_info": data.get("debug_info", {})
-            })
+            }
         except Exception as e:
             print(f"Error testing {scenario['query']}: {e}")
+            return {
+                "user_query": scenario["query"],
+                "desc": scenario["desc"],
+                "refined_query": "ERROR",
+                "reply": f"请求失败: {e}",
+                "memories": [],
+                "debug_info": {}
+            }
+
+    print(f"Starting parallel execution with 2 workers (safe mode)...")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        execution_results = list(executor.map(run_scenario, range(len(SCENARIOS))))
 
     proc.terminate()
-    generate_html(results)
+    generate_html(execution_results)
     
     if TEST_DB_PATH.exists():
         os.remove(TEST_DB_PATH)
