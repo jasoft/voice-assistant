@@ -13,5 +13,4 @@ tests/__pycache__/
 *.pyc
 tmp/
 logs/
-data/*.sqlite3
-data/photos/
+data/
