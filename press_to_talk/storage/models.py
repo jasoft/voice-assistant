@@ -12,6 +12,17 @@ class BaseModel(Model):
         database = db
 
 
+class User(BaseModel):
+    user_id = CharField(primary_key=True)
+    nickname = CharField(null=True)
+    system_prompt = TextField(null=True)
+    preferences = TextField(null=True)  # JSON storage for user preferences
+    created_at = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
+
+    class Meta:
+        table_name = 'users'
+
+
 class APIToken(BaseModel):
     token = CharField(primary_key=True)
     user_id = CharField(index=True)

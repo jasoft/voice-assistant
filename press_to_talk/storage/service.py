@@ -35,6 +35,7 @@ from .models import (
     SessionHistory,
     SessionHistoryRecord,
     StorageConfig,
+    User,
     db,
 )
 from .providers import Mem0RememberStore, SQLiteFTS5RememberStore
@@ -236,7 +237,7 @@ def ensure_storage_database(config: StorageConfig | None = None) -> None:
     db_path_obj.parent.mkdir(parents=True, exist_ok=True)
     db.init(str(db_path_obj))
     db.connect(reuse_if_open=True)
-    db.create_tables([APIToken, SessionHistory, RememberEntry])
+    db.create_tables([User, APIToken, SessionHistory, RememberEntry])
 
 
 def resolve_user_id_from_api_key(api_key: str) -> str | None:
@@ -525,7 +526,8 @@ class StorageService:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         db.init(str(db_path))
         db.connect(reuse_if_open=True)
-        db.create_tables([APIToken, SessionHistory, RememberEntry])
+        db.create_tables([User, APIToken, SessionHistory, RememberEntry])
+        self._initialize_users()
 
         self._remember_provider: BaseRememberStore | None = None
         self._remember_store: BaseRememberStore | None = None
@@ -541,6 +543,24 @@ class StorageService:
             )
             return
         self._history_store = PeeweeHistoryStore(self.config.user_id)
+
+    def _initialize_users(self) -> None:
+        """Ensure all user_ids in api_tokens exist in users table."""
+        try:
+            with db.connection_context():
+                # Get unique user_ids from APIToken
+                token_user_ids = {str(t.user_id) for t in APIToken.select(APIToken.user_id)}
+                # Also include current config user_id
+                if self.config.user_id:
+                    token_user_ids.add(str(self.config.user_id))
+                
+                for uid in token_user_ids:
+                    if not uid or uid == "None":
+                        continue
+                    # Create if not exists, set default nickname as user_id
+                    User.get_or_create(user_id=uid, defaults={"nickname": uid})
+        except Exception as e:
+            log(f"Failed to initialize users: {e}", level="error")
 
     def _get_or_build_remember_provider(self) -> BaseRememberStore:
         if self._remember_provider is None:
