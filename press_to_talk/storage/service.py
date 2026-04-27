@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from press_to_talk.utils.logging import log, log_llm_prompt, log_multiline
+from press_to_talk.utils.env import expand_env_placeholders
 
 from .cli_wrapper import CLIHistoryStore, CLIRememberStore
 from .memory_backends import (
@@ -78,7 +79,7 @@ def load_workflow_config() -> dict[str, Any]:
         with WORKFLOW_CONFIG_PATH.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
         if isinstance(data, dict):
-            return data
+            return expand_env_placeholders(data)
     except Exception:
         pass
     return {}

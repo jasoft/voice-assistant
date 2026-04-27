@@ -302,7 +302,7 @@
             "reranker": {
                 "enabled": true,
                 "api_key": "${JINA_API_KEY}",
-                "model": "jina-reranker-v2-base-multilingual"
+                "model": "${PTT_RERANKER_MODEL}"
             }
         }
     },
