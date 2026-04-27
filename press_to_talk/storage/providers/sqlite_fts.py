@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import requests
 from press_to_talk.utils.logging import log, log_multiline
 from press_to_talk.utils.text import format_local_datetime
 
@@ -231,6 +232,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         embedding_context_min_score: float = 0.55,
         keyword_search_enabled: bool = True,
         semantic_search_enabled: bool = True,
+        reranker_enabled: bool = False,
+        reranker_api_key: str = "",
+        reranker_base_url: str = "https://api.jina.ai/v1/rerank",
+        reranker_model: str = "jina-reranker-v2-base-multilingual",
     ) -> None:
         self.user_id = user_id
         self.db_path = Path(db_path).expanduser()
@@ -243,6 +248,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         self.embedding_context_min_score = float(embedding_context_min_score)
         self.keyword_search_enabled = keyword_search_enabled
         self.semantic_search_enabled = semantic_search_enabled
+        self.reranker_enabled = reranker_enabled
+        self.reranker_api_key = reranker_api_key
+        self.reranker_base_url = reranker_base_url
+        self.reranker_model = reranker_model
         self.table_name = "remember_entries"
         self.fts_table_name = "remember_entries_simple_fts"
         self.embedding_table_name = "remember_entry_embeddings"
@@ -269,6 +278,10 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             embedding_context_min_score=config.embedding_context_min_score,
             keyword_search_enabled=config.keyword_search_enabled,
             semantic_search_enabled=config.semantic_search_enabled,
+            reranker_enabled=config.reranker_enabled,
+            reranker_api_key=config.reranker_api_key,
+            reranker_base_url=config.reranker_base_url,
+            reranker_model=config.reranker_model,
         )
 
     def _load_simple_extension(self, conn: sqlite3.Connection) -> bool:
@@ -740,6 +753,33 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         )
         return rewritten_query
 
+    def _rerank_with_jina(self, query: str, documents: list[str]) -> list[float]:
+        if not self.reranker_api_key or not documents:
+            return [0.0] * len(documents)
+        
+        try:
+            log(f"Jina Reranker: reranking {len(documents)} documents for query: {query}", level="debug")
+            resp = requests.post(
+                self.reranker_base_url,
+                headers={"Authorization": f"Bearer {self.reranker_api_key}"},
+                json={
+                    "model": self.reranker_model,
+                    "query": query,
+                    "documents": documents,
+                    "top_n": len(documents)
+                },
+                timeout=10
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            scores = [0.0] * len(documents)
+            for item in data.get("results", []):
+                scores[item["index"]] = item["relevance_score"]
+            return scores
+        except Exception as e:
+            log(f"Jina rerank error: {e}", level="error")
+            return [0.0] * len(documents)
+
     def find(
         self,
         *,
@@ -993,33 +1033,43 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             log("RRF Merged Results: <none> (all filtered by min_score)", level="info")
             return json.dumps({"results": []}, ensure_ascii=False)
 
-        # 计算 RRF 分数，并归一化到 0-1 范围
+        # 计算初步 RRF 分数（作为降级或重排前的参考）
         rrf_k = 60  # RRF 常数
-        rrf_scores = []
         for item in merged.values():
-            score = _rrf_score(
+            item["score"] = _rrf_score(
                 fts_rank=item.get("fts_rank"),
                 vector_rank=item.get("vector_rank"),
                 k=rrf_k,
             )
-            item["score"] = score
-            rrf_scores.append(score)
+
+        # 如果开启了 Reranker，则使用 Reranker 进行二次打分
+        if self.reranker_enabled and self.reranker_api_key and merged:
+            items_list = list(merged.values())
+            docs = [item["memory"] for item in items_list]
+            rerank_scores = self._rerank_with_jina(query, docs)
+            for i, item in enumerate(items_list):
+                # 记录原始 RRF 分数以便调试（可选）
+                item["rrf_score"] = item["score"]
+                item["score"] = round(rerank_scores[i], 4)
+            log(f"Jina Reranker: finished reranking {len(items_list)} items", level="info")
+        else:
+            # 归一化降级：让最高分约为 1.0，最低分约为 0.0
+            rrf_scores = [item["score"] for item in merged.values()]
+            if rrf_scores:
+                max_score = max(rrf_scores)
+                min_score_actual = min(rrf_scores)
+                score_range = max_score - min_score_actual
+                if score_range > 0:
+                    for item in merged.values():
+                        item["score"] = round((item["score"] - min_score_actual) / score_range, 4)
+                else:
+                    # 所有分数相同，设为 1.0
+                    for item in merged.values():
+                        item["score"] = 1.0
         
-        # 归一化：让最高分约为 1.0，最低分约为 0.0
-        if rrf_scores:
-            max_score = max(rrf_scores)
-            min_score_actual = min(rrf_scores)
-            score_range = max_score - min_score_actual
-            if score_range > 0:
-                for item in merged.values():
-                    item["score"] = round((item["score"] - min_score_actual) / score_range, 4)
-            else:
-                # 所有分数相同，设为 1.0
-                for item in merged.values():
-                    item["score"] = 1.0
-            # 为所有 item 设置 source = "both"
-            for item in merged.values():
-                item["source"] = "both"
+        # 为所有 item 设置 source = "both"
+        for item in merged.values():
+            item["source"] = "both"
 
         # 按 RRF 分数降序排序
         # 注意：RRF 分数已归一化到 0-1，不再需要 min_score 过滤

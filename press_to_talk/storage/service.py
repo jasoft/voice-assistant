@@ -128,6 +128,8 @@ def load_storage_config(
     rewrite_cfg = rewrite_cfg if isinstance(rewrite_cfg, dict) else {}
     embedding_cfg = sqlite_cfg.get("embedding_search", {})
     embedding_cfg = embedding_cfg if isinstance(embedding_cfg, dict) else {}
+    reranker_cfg = sqlite_cfg.get("reranker", {})
+    reranker_cfg = reranker_cfg if isinstance(reranker_cfg, dict) else {}
     global_max_results = int(storage_cfg.get("max_results", 20))
     raw_app_id = os.environ.get("MEM0_APP_ID")
     app_id = "voice-assistant" if raw_app_id is None else str(raw_app_id).strip()
@@ -218,6 +220,22 @@ def load_storage_config(
             "PTT_EMBEDDING_CONTEXT_MIN_SCORE",
             float(embedding_cfg.get("context_min_score", 0.55)),
         ),
+        reranker_enabled=env_bool(
+            "PTT_RERANKER_ENABLED",
+            bool(reranker_cfg.get("enabled", False)),
+        ),
+        reranker_api_key=env_str(
+            "JINA_API_KEY",
+            str(reranker_cfg.get("api_key", "")),
+        ).strip(),
+        reranker_base_url=env_str(
+            "PTT_RERANKER_BASE_URL",
+            str(reranker_cfg.get("base_url", "https://api.jina.ai/v1/rerank")),
+        ).strip(),
+        reranker_model=env_str(
+            "PTT_RERANKER_MODEL",
+            str(reranker_cfg.get("model", "jina-reranker-v2-base-multilingual")),
+        ).strip(),
     )
     safe_config = {
         key: (value if "api_key" not in key else ("***" if value else "None"))
@@ -635,16 +653,23 @@ class StorageService:
 
     def get_user_nickname(self) -> str:
         """Fetch user nickname from database, fallback to user_id."""
+        log(f"DEBUG get_user_nickname: config.user_id={repr(self.config.user_id)}", level="debug")
         try:
             with db.connection_context():
                 user = User.get_or_none(User.user_id == self.config.user_id)
-                if user and user.nickname:
-                    nick = str(user.nickname).strip()
-                    if nick and nick != "None" and nick != "default":
-                        return nick
+                if user:
+                    log(f"DEBUG get_user_nickname: found user={user.user_id} nickname={repr(user.nickname)}", level="debug")
+                    if user.nickname:
+                        nick = str(user.nickname).strip()
+                        if nick and nick != "None" and nick != "default":
+                            return nick
+                else:
+                    log(f"DEBUG get_user_nickname: user not found for id {self.config.user_id}", level="debug")
         except Exception as e:
             log(f"Failed to fetch user nickname: {e}", level="error")
         
         # Final fallbacks
         base_id = str(self.config.user_id or "default")
-        return "大王" if base_id == "default" else base_id
+        res = "大王" if base_id == "default" else base_id
+        log(f"DEBUG get_user_nickname: returning fallback {repr(res)}", level="debug")
+        return res

@@ -93,6 +93,11 @@ class StorageConfig:
     embedding_max_results: int = 5
     embedding_min_score: float = 0.45
     embedding_context_min_score: float = 0.55
+    reranker_enabled: bool = False
+    reranker_api_key: str = ""
+    reranker_base_url: str = "https://api.jina.ai/v1/rerank"
+    reranker_model: str = "jina-reranker-v2-base-multilingual"
+
 
 
 @dataclass

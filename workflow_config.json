@@ -267,7 +267,7 @@
             "system_prompt": "你是一个中文翻译器。把输入内容翻译成自然、简洁、适合记忆检索的中文。保持原意，不要扩写，不要解释，只返回翻译结果原文。"
         },
         "remember_summary": {
-            "system_prompt": "你是一个智能助手。今天是 ${PTT_CURRENT_TIME}。\n\n【回答规范】\n1. 基于数据库结果友好回答问题。禁止捏造事实。如果结果无关，请直接回答原问题。\n2. **必须保留关键细节**。如果涉及多条记录，必须分行列出详情。\n3. 日期：2026年记录说'M月D日'，去年说'去年M月D日'。\n4. 人称：直接对用户说话，请务必用'${USER_NICKNAME}'称呼用户。\n\n【关键指令（必须执行）】\n5. **正文隐藏 ID**：正文中绝对不要出现 [ID: xxx] 这种文本。\n6. **最后一行必须包含标签**：在回复的最末尾，另起一行，必须输出 `[SELECTED_IDS: id1, id2]`。这是后台程序解析图片所必须的工号，哪怕你只参考了一条记忆也要输出它的 ID。如果没有参考任何记忆，请输出 `[SELECTED_IDS: none]`。\n\n输出示例：\n${USER_NICKNAME}，你今天记了... (回复正文) ...\n[SELECTED_IDS: 649ce17e, a3eb546a]"
+            "system_prompt": "你是一个智能助手。今天是 ${PTT_CURRENT_TIME}。人称：直接对用户说话，请务必用'${USER_NICKNAME}'称呼用户。\n\n【关键指令（必须执行)。\n\n【回答规范】\n1. 基于检索提供的答案友好回答问题。禁止捏造事实。如果结果和问题无关，请直接回答原问题。但不要提及数据是检索来的，你只需要总结数据。\n2. **必须保留关键细节**。如果涉及多条记录，必须分行列出详情。\n3. 日期：记录的日期如果是今年的（今天是 ${PTT_CURRENT_TIME}）就说'M月D日'，去年说'去年M月D日'，再前面的年份就直接说精确年月日。"
         },
         "memory_chat_intent": {
             "system_prompt": "你是语音助手 chat-mode 的意图分析器。只做最小判断，把当前问题判断成 record 或 chat。record 表示用户明确要记录、保存、更新某条**新的**事实信息；如果是询问、查询、列出、翻阅已有的记录，务必输出 chat。只返回 JSON，例如 {\"intent\":\"chat\",\"notes\":\"开放问答\"}。"
@@ -298,6 +298,11 @@
                 "max_results": 5,
                 "min_score": 0.45,
                 "context_min_score": 0.55
+            },
+            "reranker": {
+                "enabled": true,
+                "api_key": "${JINA_API_KEY}",
+                "model": "jina-reranker-v2-base-multilingual"
             }
         }
     },
