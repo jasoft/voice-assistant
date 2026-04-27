@@ -165,6 +165,7 @@ class MemoryItem(BaseModel):
 class QueryResponse(BaseModel):
     reply: str
     memories: List[MemoryItem] = Field(default_factory=list, description="所选记忆的完整数据")
+    images: List[str] = Field(default_factory=list, description="相关图片的 URL 列表，最多 3 个")
     query: Optional[str] = Field(None, description="本次查询所实际使用的语句")
     debug_info: Optional[Dict[str, Any]] = Field(None, description="本次查询的调试信息")
 
@@ -297,9 +298,18 @@ async def query(req: QueryRequest, user_id: str = Depends(get_user_id)):
                 score=float(m.get("score") or 0.0)
             ))
 
+        # Extract top 3 unique non-empty photo URLs
+        images = []
+        for m in memories:
+            if m.photo_url:
+                images.append(m.photo_url)
+            if len(images) >= 3:
+                break
+
         return QueryResponse(
             reply=reply_text,
             memories=memories,
+            images=images,
             query=result_query or req.query,
             debug_info=result.debug_info
         )
