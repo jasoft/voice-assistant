@@ -161,6 +161,7 @@ def expand_env_placeholders(value: Any) -> Any:
                 "INTENT_DESCRIPTIONS",
                 "INTENT_EXTRACTION_RULES",
                 "INTENT_JSON_SCHEMA",
+                "USER_NICKNAME",
             ):
                 return match.group(0)
             return ""
