@@ -160,7 +160,7 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
     parser.add_argument("--openai-api-key", default=env_str("OPENAI_API_KEY", ""))
     parser.add_argument("--base-url", default=env_str("OPENAI_BASE_URL", ""))
     parser.add_argument("--model", default=env_str("PTT_MODEL", "qwen/qwen3-32b"))
-    parser.add_argument("--summarize-model", default=env_str("PTT_SUMMERIZE_MODEL", ""))
+    parser.add_argument("--summarize-model", default=env_str("PTT_SUMMARIZE_MODEL", ""))
     parser.add_argument("--ask", action="store_true")
     parser.add_argument("--record", action="store_true")
     parser.add_argument("--photo-path", help="Path to a photo file to attach.")
