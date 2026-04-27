@@ -512,7 +512,9 @@ class OpenAICompatibleAgent:
             )
             if not memory:
                 return "Error: structured remember_add missing memory"
-            return await self._execute_remember_tool(
+            
+            # 直接调用后端写入
+            await self._execute_remember_tool(
                 tool_name,
                 {
                     "memory": memory,
@@ -520,6 +522,9 @@ class OpenAICompatibleAgent:
                 },
                 photo_path=photo_path,
             )
+            
+            # 关键：直接返回友好的确认消息，不带 ID，不带时间，不带总结
+            return f"✅ 已记录：{memory}"
         if tool_name == "remember_find":
             query = str(args.get("query", "")).strip()
             start_date = args.get("start_date")
