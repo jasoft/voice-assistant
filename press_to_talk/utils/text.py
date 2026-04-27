@@ -5,6 +5,10 @@ import time
 from datetime import datetime, timezone
 
 def current_time_text() -> str:
+    import os
+    env_time = os.environ.get("PTT_CURRENT_TIME")
+    if env_time:
+        return env_time
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
 def chat_context_prefix() -> str:
