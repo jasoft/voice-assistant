@@ -284,9 +284,9 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
                 score=float(m.get("score") or 0.0)
             ))
 
-        # Extract top 3 absolute photo URLs
+        # Extract top 3 absolute photo URLs (ONLY from top 3 memories)
         images = []
-        for m in memories:
+        for m in memories[:3]:
             if m.photo_url:
                 images.append(m.photo_url)
             if len(images) >= 3:
