@@ -12,7 +12,7 @@ public struct VAHistoryItem: Decodable {
     public let created_at: String
 }
 
-public final class VAClient {
+public final class VAClient: Sendable {
     private let config: VAConfig
     
     public init(config: VAConfig) {

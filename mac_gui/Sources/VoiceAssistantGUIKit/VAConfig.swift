@@ -1,6 +1,6 @@
 import Foundation
 
-public struct VAConfig {
+public struct VAConfig: Sendable {
     public let serverURL: URL
     public let apiKey: String
     

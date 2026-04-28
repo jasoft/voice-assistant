@@ -67,7 +67,7 @@ public final class AppModel: ObservableObject {
         
         if type == "transcript", let text = payload["text"] as? String, !text.isEmpty {
             // Intercept transcript and switch to API
-            if let client = vaClient {
+            if vaClient != nil {
                 bridge.stop()
                 performRemoteQuery(text: text)
             }
@@ -134,7 +134,7 @@ public final class AppModel: ObservableObject {
         screenMode = .live
         bridge.stop()
         
-        if let client = vaClient {
+        if vaClient != nil {
             session.apply(jsonLine: "{\"type\": \"transcript\", \"text\": \"\(prompt.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n"))\"}")
             performRemoteQuery(text: prompt)
         } else {
@@ -254,7 +254,7 @@ public final class AppModel: ObservableObject {
         historyError = nil
         Task { @MainActor in
             do {
-                if let client = vaClient {
+                if vaClient != nil {
                     // Note: Current API might not support delete. 
                     // If not, we just log it or show an error.
                     // For now, let's assume it doesn't and just remove locally or show warning.
