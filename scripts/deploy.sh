@@ -22,7 +22,7 @@ fi
 
 # 2. Remote Deploy
 echo "🌐 Step 2: Triggering remote deployment on 'docker' host..."
-ssh docker "cd ~/voice-assistant && git pull && docker compose up -d --build"
+ssh docker "cd ~/voice-assistant && git reset --hard && git pull && docker compose up -d --build"
 
 # 3. Verification
 echo "🔍 Step 3: Verifying service status..."
