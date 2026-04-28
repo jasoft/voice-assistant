@@ -139,6 +139,40 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
             db.init(str(self.db_path))
             db.connect(reuse_if_open=True)
             db.create_tables([APIToken, SessionHistory, RememberEntry])
+            
+        # Ensure FTS5 and Embedding tables exist
+        self._ensure_tables()
+
+    def _ensure_tables(self) -> None:
+        """创建 FTS5 虚拟表和向量存储表"""
+        # 尝试连接并加载分词器插件
+        try:
+            self._connect()
+        except:
+            self.use_simple_query = True
+            
+        tokenizer = "simple" if not self.use_simple_query else "unicode61"
+        
+        # 1. FTS5 Virtual Table
+        db.execute_sql(f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS {self.fts_table_name} USING fts5(
+                memory, original_text, user_id UNINDEXED, item_id UNINDEXED,
+                tokenize = '{tokenizer}'
+            );
+        """)
+        
+        # 2. Embedding Table
+        db.execute_sql(f"""
+            CREATE TABLE IF NOT EXISTS {self.embedding_table_name} (
+                item_id TEXT PRIMARY KEY,
+                user_id TEXT,
+                source_text TEXT,
+                embedding_model TEXT,
+                embedding_json TEXT,
+                updated_at TEXT
+            );
+        """)
+        db.execute_sql(f"CREATE INDEX IF NOT EXISTS idx_embeddings_user_model ON {self.embedding_table_name} (user_id, embedding_model);")
 
     @classmethod
     def from_config(cls, config: StorageConfig, **kwargs) -> SQLiteFTS5RememberStore:
