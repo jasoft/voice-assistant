@@ -127,3 +127,50 @@ def test_query_with_different_execution_modes(api_sandbox):
         })
         assert response.status_code == 200
 
+def test_api_images_filtering_logic(api_sandbox):
+    """
+    测试 API 返回 JSON 时对图片的过滤逻辑：
+    1. 仅限前 3 个 memory。
+    2. score 必须大于 0。
+    """
+    client = api_sandbox["client"]
+    mock_exec = api_sandbox["mock_exec"]
+    
+    # 模拟返回 5 个 memory
+    # m1: 有图, score > 0 (应保留)
+    # m2: 无图, score > 0
+    # m3: 有图, score = 0 (应过滤)
+    # m4: 有图, score > 0 (应过滤，因为排在第 4)
+    # m5: 有图, score > 0 (应过滤，因为排在第 5)
+    mock_exec.return_value = ExecutionResult(
+        reply="See images",
+        memories=[
+            {"id": "1", "memory": "m1", "photo_path": "p1.jpg", "score": 0.9},
+            {"id": "2", "memory": "m2", "photo_path": None, "score": 0.8},
+            {"id": "3", "memory": "m3", "photo_path": "p3.jpg", "score": 0.0},
+            {"id": "4", "memory": "m4", "photo_path": "p4.jpg", "score": 0.7},
+            {"id": "5", "memory": "m5", "photo_path": "p5.jpg", "score": 0.6},
+        ]
+    )
+    
+    response = client.post("/v1/query", json={"query": "test images filtering"})
+    assert response.status_code == 200
+    data = response.json()
+    
+    images = data.get("images", [])
+    # 预期结果：只有 m1 的图片满足条件 (在前三且 score > 0)
+    assert len(images) == 1
+    assert "p1.jpg" in images[0]
+    
+    # 进一步验证：如果 m3 的 score 变成 0.1，它应该出现
+    mock_exec.return_value.memories[2]["score"] = 0.1
+    response = client.post("/v1/query", json={"query": "test images filtering again"})
+    data = response.json()
+    images = data.get("images", [])
+    # 预期结果：m1 和 m3 满足条件
+    assert len(images) == 2
+    assert any("p1.jpg" in img for img in images)
+    assert any("p3.jpg" in img for img in images)
+    assert not any("p4.jpg" in img for img in images) # 虽然 score 高，但排在第 4
+
+
