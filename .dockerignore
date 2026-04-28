@@ -1,0 +1,31 @@
+# Standard ignores
+.venv
+.venv-new
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.db
+data/
+logs/
+.pytest_cache
+.ruff_cache
+.vscode
+.git
+.DS_Store
+
+# Mac GUI client files
+mac_gui/
+.build/
+Package.resolved
+
+# Irrelevant items for server
+assets/chimes/
+testdata/
+*.patch
+*.skill
+.claude/
+.codex/
+.gemini/
+.superpowers/
+tmp/

@@ -17,6 +17,7 @@ public final class PTTProcessBridge {
     private var generation = 0
     private var stoppedGenerations = Set<Int>()
     private var controlDirectory: URL?
+    public var onEvent: ((String) -> Void)?
 
     public init(viewModel: SessionViewModel) {
         self.viewModel = viewModel
@@ -179,6 +180,7 @@ public final class PTTProcessBridge {
             }
             let line = String(decoding: lineData, as: UTF8.self)
             receivedEvent = true
+            onEvent?(line)
             viewModel.apply(jsonLine: line)
         }
     }

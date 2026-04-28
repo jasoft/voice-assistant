@@ -249,7 +249,7 @@ def load_storage_config(
         ).strip(),
         reranker_model=env_str(
             "PTT_RERANKER_MODEL",
-            str(reranker_cfg.get("model", "jina-reranker-v2-base-multilingual")),
+            str(reranker_cfg.get("model")),
         ).strip(),
     )
     safe_config = {

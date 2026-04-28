@@ -37,14 +37,16 @@ RUN git clone https://github.com/wangfenjin/simple.git /tmp/simple && \
 # 安装 uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# 复制项目文件
-COPY . .
+# 复制项目核心文件
+COPY pyproject.toml uv.lock ./
+COPY press_to_talk/ ./press_to_talk/
+COPY workflow_config.json intent_extractor_config.json ./
+COPY start.sh patch_sqlite_web.py ./
 
 # 创建 data 目录（用于挂载和持久化数据）
 RUN mkdir -p /app/data
 
-# 复制启动脚本并添加执行权限
-COPY start.sh /app/start.sh
+# 赋予执行权限
 RUN chmod +x /app/start.sh
 
 # 再次确保 libsimple.so 存在 (防止本地 COPY 覆盖掉了刚刚生成的目录)
