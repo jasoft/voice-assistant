@@ -3,26 +3,16 @@ from __future__ import annotations
 import json
 import os
 import re
-import sqlite3
 from pathlib import Path
 from typing import Any
 
-from press_to_talk.utils.logging import log, log_llm_prompt, log_multiline
 from press_to_talk.utils.env import expand_env_placeholders
+from press_to_talk.utils.logging import log, log_llm_prompt, log_multiline
 
 from .cli_wrapper import CLIHistoryStore, CLIRememberStore
 from .memory_backends import (
-    SIMPLE_EXTENSION_PATH,
-    _default_match_query,
-    _extract_mem0_results,
-    _keywords_from_match_query,
-    _localize_timestamp_fields,
-    _normalize_match_text,
     _quote_match_token,
-    _reduce_filter_keywords,
     _sanitize_rewritten_keywords,
-    create_mem0_client,
-    migrate_mem0_memories_to_sqlite,
 )
 from .models import (
     APIToken,
@@ -32,15 +22,12 @@ from .models import (
     KeywordRewriter,
     MemoryTranslator,
     RememberEntry,
-    RememberItemRecord,
     SessionHistory,
-    SessionHistoryRecord,
     StorageConfig,
     User,
     db,
 )
-from .providers import Mem0RememberStore, SQLiteFTS5RememberStore
-from .sqlite_history import NullHistoryStore, PeeweeHistoryStore
+from .sqlite_history import PeeweeHistoryStore
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_APP_DB_PATH = APP_ROOT / "data" / "voice_assistant_store.sqlite3"
@@ -119,13 +106,17 @@ def load_storage_config(
 ) -> StorageConfig:
     global _storage_config_logged
     workflow_cfg = load_workflow_config()
-    storage_cfg = workflow_cfg.get("storage", {}) if isinstance(workflow_cfg, dict) else {}
+    storage_cfg = (
+        workflow_cfg.get("storage", {}) if isinstance(workflow_cfg, dict) else {}
+    )
     storage_cfg = storage_cfg if isinstance(storage_cfg, dict) else {}
     sqlite_cfg = storage_cfg.get("sqlite_fts5", {})
     sqlite_cfg = sqlite_cfg if isinstance(sqlite_cfg, dict) else {}
     mem0_cfg = workflow_cfg.get("mem0", {}) if isinstance(workflow_cfg, dict) else {}
     mem0_cfg = mem0_cfg if isinstance(mem0_cfg, dict) else {}
-    rewrite_cfg = sqlite_cfg.get("query_rewrite", sqlite_cfg.get("groq_query_rewrite", {}))
+    rewrite_cfg = sqlite_cfg.get(
+        "query_rewrite", sqlite_cfg.get("groq_query_rewrite", {})
+    )
     rewrite_cfg = rewrite_cfg if isinstance(rewrite_cfg, dict) else {}
     embedding_cfg = sqlite_cfg.get("embedding_search", {})
     embedding_cfg = embedding_cfg if isinstance(embedding_cfg, dict) else {}
@@ -137,7 +128,9 @@ def load_storage_config(
     configured_backend = str(storage_cfg.get("provider", "mem0")).strip() or "mem0"
     default_model = env_str("PTT_MODEL", "qwen/qwen3-32b")
 
-    h_path = env_str("PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)).strip() or str(DEFAULT_HISTORY_DB_PATH)
+    h_path = env_str(
+        "PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)
+    ).strip() or str(DEFAULT_HISTORY_DB_PATH)
     r_path = env_str(
         "PTT_REMEMBER_DB_PATH",
         str(sqlite_cfg.get("db_path", str(DEFAULT_REMEMBER_DB_PATH))),
@@ -147,18 +140,22 @@ def load_storage_config(
     h_path_obj = Path(h_path)
     if not h_path_obj.is_absolute():
         h_path_obj = (APP_ROOT / h_path_obj).resolve()
-    
+
     r_path_obj = Path(r_path)
     if not r_path_obj.is_absolute():
         r_path_obj = (APP_ROOT / r_path_obj).resolve()
 
     # Resolve user identities from their respective config blocks
-    local_config_user_id = str(storage_cfg.get("user_id", sqlite_cfg.get("user_id", "default"))).strip()
+    local_config_user_id = str(
+        storage_cfg.get("user_id", sqlite_cfg.get("user_id", "default"))
+    ).strip()
     mem0_config_user_id = str(mem0_cfg.get("user_id", "default")).strip()
 
     # The effective base ID: either override, or environment, or config, or default
     # Priority: Override > Env PTT_USER_ID > Config > default
-    base_user_id = user_id_override or str(env_str("PTT_USER_ID", local_config_user_id)).strip()
+    base_user_id = (
+        user_id_override or str(env_str("PTT_USER_ID", local_config_user_id)).strip()
+    )
 
     config = StorageConfig(
         backend=str(env_str("PTT_REMEMBER_BACKEND", configured_backend)).strip()
@@ -169,21 +166,36 @@ def load_storage_config(
         or env_str("PTT_USER_API_KEY", "").strip()
         or None,
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
-        mem0_user_id=user_id_override or str(env_str("PTT_USER_ID", str(env_str("MEM0_USER_ID", mem0_config_user_id)))).strip(),
+        mem0_user_id=user_id_override
+        or str(
+            env_str("PTT_USER_ID", str(env_str("MEM0_USER_ID", mem0_config_user_id)))
+        ).strip(),
         mem0_app_id=app_id,
-        mem0_min_score=env_float("MEM0_MIN_SCORE", float(mem0_cfg.get("min_score", 0.8))),
-        mem0_max_items=max(1, env_int("MEM0_MAX_ITEMS", int(mem0_cfg.get("max_items", global_max_results)))),
+        mem0_min_score=env_float(
+            "MEM0_MIN_SCORE", float(mem0_cfg.get("min_score", 0.8))
+        ),
+        mem0_max_items=max(
+            1,
+            env_int(
+                "MEM0_MAX_ITEMS", int(mem0_cfg.get("max_items", global_max_results))
+            ),
+        ),
         history_db_path=str(h_path_obj),
         remember_db_path=str(r_path_obj),
         remember_max_results=max(
             1,
-            env_int("PTT_REMEMBER_MAX_RESULTS", int(sqlite_cfg.get("max_results", global_max_results))),
+            env_int(
+                "PTT_REMEMBER_MAX_RESULTS",
+                int(sqlite_cfg.get("max_results", global_max_results)),
+            ),
         ),
         keyword_search_enabled=env_bool("PTT_ENABLE_KEYWORD_SEARCH", True),
         semantic_search_enabled=env_bool("PTT_ENABLE_SEMANTIC_SEARCH", True),
         query_rewrite_enabled=env_bool(
             "PTT_QUERY_REWRITE_ENABLED",
-            env_bool("PTT_GROQ_REWRITE_ENABLED", bool(rewrite_cfg.get("enabled", False))),
+            env_bool(
+                "PTT_GROQ_REWRITE_ENABLED", bool(rewrite_cfg.get("enabled", False))
+            ),
         ),
         llm_api_key=env_str("OPENAI_API_KEY", "").strip(),
         llm_base_url=env_str("OPENAI_BASE_URL", "").strip(),
@@ -211,7 +223,9 @@ def load_storage_config(
         ).strip(),
         embedding_max_results=max(
             1,
-            env_int("PTT_EMBEDDING_MAX_RESULTS", int(embedding_cfg.get("max_results", 5))),
+            env_int(
+                "PTT_EMBEDDING_MAX_RESULTS", int(embedding_cfg.get("max_results", 5))
+            ),
         ),
         embedding_min_score=env_float(
             "PTT_EMBEDDING_MIN_SCORE",
@@ -243,7 +257,10 @@ def load_storage_config(
         for key, value in config.__dict__.items()
     }
     if not _storage_config_logged:
-        log(f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}", level="info")
+        log(
+            f"Storage configuration loaded: {json.dumps(safe_config, ensure_ascii=False, indent=2)}",
+            level="debug",
+        )
         _storage_config_logged = True
 
     return config
@@ -294,13 +311,18 @@ class LLMKeywordRewriter:
             return ""
         workflow = _require_mapping(load_workflow_config(), "workflow")
         prompts = _require_mapping(workflow.get("prompts"), "prompts")
-        rewrite_cfg = _require_mapping(prompts.get("query_rewrite"), "prompts.query_rewrite")
+        rewrite_cfg = _require_mapping(
+            prompts.get("query_rewrite"), "prompts.query_rewrite"
+        )
         system_prompt = str(rewrite_cfg.get("system_prompt", "")).strip()
         if not system_prompt:
             raise RuntimeError(
                 "workflow config missing required section: prompts.query_rewrite.system_prompt"
             )
-        log(f"DEBUG LLMKeywordRewriter: using base_url={self.base_url} model={self.model}", level="debug")
+        log(
+            f"DEBUG LLMKeywordRewriter: using base_url={self.base_url} model={self.model}",
+            level="debug",
+        )
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": cleaned_query},
@@ -320,14 +342,22 @@ class LLMKeywordRewriter:
                 json_start = text_result.find("{")
                 json_end = text_result.rfind("}") + 1
                 payload = json.loads(text_result[json_start:json_end])
-                keywords = payload.get("keywords", []) if isinstance(payload, dict) else []
-                cleaned_keywords = [str(item).strip() for item in keywords if str(item).strip()]
+                keywords = (
+                    payload.get("keywords", []) if isinstance(payload, dict) else []
+                )
+                cleaned_keywords = [
+                    str(item).strip() for item in keywords if str(item).strip()
+                ]
             except Exception:
                 pass
         if not cleaned_keywords:
             raw_tokens = re.split(r"[\n,，\s]+", text_result)
             cleaned_keywords = [token.strip() for token in raw_tokens if token.strip()]
-        log("keyword rewrite parsed: " + json.dumps(cleaned_keywords, ensure_ascii=False), level="debug")
+        log(
+            "keyword rewrite parsed: "
+            + json.dumps(cleaned_keywords, ensure_ascii=False),
+            level="debug",
+        )
         cleaned_keywords = _sanitize_rewritten_keywords(cleaned_keywords, cleaned_query)
         if not cleaned_keywords:
             return _quote_match_token(cleaned_query)
@@ -349,13 +379,17 @@ class GroqKeywordRewriter(LLMKeywordRewriter):
 
         workflow = _require_mapping(load_workflow_config(), "workflow")
         prompts = _require_mapping(workflow.get("prompts"), "prompts")
-        
+
         # 1. Normalize
-        normalize_cfg = _require_mapping(prompts.get("query_normalize"), "prompts.query_normalize")
+        normalize_cfg = _require_mapping(
+            prompts.get("query_normalize"), "prompts.query_normalize"
+        )
         normalize_prompt = str(normalize_cfg.get("system_prompt", "")).strip()
         if not normalize_prompt:
-             raise RuntimeError("workflow config missing: prompts.query_normalize.system_prompt")
-             
+            raise RuntimeError(
+                "workflow config missing: prompts.query_normalize.system_prompt"
+            )
+
         normalize_messages = [
             {"role": "system", "content": normalize_prompt},
             {"role": "user", "content": cleaned_query},
@@ -366,25 +400,35 @@ class GroqKeywordRewriter(LLMKeywordRewriter):
             temperature=0,
             messages=normalize_messages,
         )
-        normalize_content = str(normalize_response.choices[0].message.content or "").strip()
+        normalize_content = str(
+            normalize_response.choices[0].message.content or ""
+        ).strip()
         log_multiline("query normalize raw", normalize_content)
         normalized_query = cleaned_query
         try:
             # Strip think tags if any
-            text_result = re.sub(r"(?is)<think>.*?</think>", "", normalize_content).strip()
+            text_result = re.sub(
+                r"(?is)<think>.*?</think>", "", normalize_content
+            ).strip()
             if "{" in text_result and "}" in text_result:
                 json_start = text_result.find("{")
                 json_end = text_result.rfind("}") + 1
                 payload = json.loads(text_result[json_start:json_end])
-                normalized_query = str(payload.get("query") or cleaned_query).strip() or cleaned_query
+                normalized_query = (
+                    str(payload.get("query") or cleaned_query).strip() or cleaned_query
+                )
         except Exception:
             pass
 
         # 2. Rewrite
-        rewrite_cfg = _require_mapping(prompts.get("query_rewrite"), "prompts.query_rewrite")
+        rewrite_cfg = _require_mapping(
+            prompts.get("query_rewrite"), "prompts.query_rewrite"
+        )
         keyword_prompt = str(rewrite_cfg.get("system_prompt", "")).strip()
         if not keyword_prompt:
-             raise RuntimeError("workflow config missing: prompts.query_rewrite.system_prompt")
+            raise RuntimeError(
+                "workflow config missing: prompts.query_rewrite.system_prompt"
+            )
 
         rewrite_messages = [
             {"role": "system", "content": keyword_prompt},
@@ -400,16 +444,25 @@ class GroqKeywordRewriter(LLMKeywordRewriter):
         log_multiline("keyword rewrite raw", rewrite_content)
         keywords: list[str] = []
         try:
-            text_result = re.sub(r"(?is)<think>.*?</think>", "", rewrite_content).strip()
+            text_result = re.sub(
+                r"(?is)<think>.*?</think>", "", rewrite_content
+            ).strip()
             if "{" in text_result and "}" in text_result:
                 json_start = text_result.find("{")
                 json_end = text_result.rfind("}") + 1
                 payload = json.loads(text_result[json_start:json_end])
-                raw_keywords = payload.get("keywords", []) if isinstance(payload, dict) else []
-                keywords = [str(item).strip() for item in raw_keywords if str(item).strip()]
+                raw_keywords = (
+                    payload.get("keywords", []) if isinstance(payload, dict) else []
+                )
+                keywords = [
+                    str(item).strip() for item in raw_keywords if str(item).strip()
+                ]
         except Exception:
             pass
-        log("keyword rewrite parsed: " + json.dumps(keywords, ensure_ascii=False), level="debug")
+        log(
+            "keyword rewrite parsed: " + json.dumps(keywords, ensure_ascii=False),
+            level="debug",
+        )
         cleaned_keywords = _sanitize_rewritten_keywords(keywords, normalized_query)
         if not cleaned_keywords:
             return _quote_match_token(normalized_query)
@@ -464,7 +517,9 @@ class LLMMemoryTranslator:
         )
         content = str(response.choices[0].message.content or "").strip()
         log_multiline("memory translate raw", content)
-        translated_text = re.sub(r"(?is)<think>.*?</think>", "", content).strip() or cleaned_text
+        translated_text = (
+            re.sub(r"(?is)<think>.*?</think>", "", content).strip() or cleaned_text
+        )
         log(f"memory translate parsed: {translated_text}")
         return translated_text
 
@@ -488,7 +543,9 @@ class OpenAIEmbeddingClient:
         return self._client
 
     def embed_many(self, texts: list[str]) -> list[list[float]]:
-        cleaned_texts = [str(text or "").strip() for text in texts if str(text or "").strip()]
+        cleaned_texts = [
+            str(text or "").strip() for text in texts if str(text or "").strip()
+        ]
         if not cleaned_texts:
             return []
         response = self._client_instance().embeddings.create(
@@ -501,17 +558,17 @@ class OpenAIEmbeddingClient:
 class StorageService:
     def __init__(self, config: StorageConfig, use_cli: bool = True) -> None:
         normalized = StorageConfig(**config.__dict__)
-        
+
         # Final fail-safe: if identity is 'default', try to pull from global environment
         # to handle cases where nested components reload config incorrectly.
         if normalized.user_id == "default":
             env_id = os.environ.get("PTT_USER_ID", "").strip()
             if env_id and env_id != "default":
                 normalized.user_id = env_id
-        
+
         if normalized.mem0_user_id == "default":
-             env_id = os.environ.get("PTT_USER_ID", "").strip()
-             if env_id and env_id != "default":
+            env_id = os.environ.get("PTT_USER_ID", "").strip()
+            if env_id and env_id != "default":
                 normalized.mem0_user_id = env_id
         h_path = str(normalized.history_db_path or "").strip()
         r_path = str(normalized.remember_db_path or "").strip()
@@ -524,20 +581,23 @@ class StorageService:
         elif not h_path and not r_path:
             normalized.history_db_path = str(DEFAULT_HISTORY_DB_PATH)
             normalized.remember_db_path = str(DEFAULT_REMEMBER_DB_PATH)
-        
+
         # All Peewee models share the same global 'db' instance, so paths MUST match
         h_path_abs = Path(normalized.history_db_path).expanduser().resolve()
         r_path_abs = Path(normalized.remember_db_path).expanduser().resolve()
-        
+
         if h_path_abs != r_path_abs:
-            log(f"Warning: history_db_path and remember_db_path are different. Using {r_path_abs} for all storage.", level="warning")
+            log(
+                f"Warning: history_db_path and remember_db_path are different. Using {r_path_abs} for all storage.",
+                level="warning",
+            )
             normalized.history_db_path = str(r_path_abs)
             normalized.remember_db_path = str(r_path_abs)
         else:
             # Update paths to resolved absolute strings
             normalized.history_db_path = str(h_path_abs)
             normalized.remember_db_path = str(r_path_abs)
-            
+
         self.config = normalized
 
         # Initialize Peewee database
@@ -568,11 +628,13 @@ class StorageService:
         try:
             with db.connection_context():
                 # Get unique user_ids from APIToken
-                token_user_ids = {str(t.user_id) for t in APIToken.select(APIToken.user_id)}
+                token_user_ids = {
+                    str(t.user_id) for t in APIToken.select(APIToken.user_id)
+                }
                 # Also include current config user_id
                 if self.config.user_id:
                     token_user_ids.add(str(self.config.user_id))
-                
+
                 for uid in token_user_ids:
                     if not uid or uid == "None":
                         continue
@@ -588,7 +650,7 @@ class StorageService:
 
     def _build_remember_provider(self) -> BaseRememberStore:
         from .providers import get_remember_provider_class
-        
+
         provider_cls = get_remember_provider_class(self.config.backend)
         return provider_cls.from_config(
             self.config,
@@ -624,7 +686,10 @@ class StorageService:
     def embedding_client(self) -> EmbeddingClient | None:
         if not self.config.embedding_search_enabled:
             return None
-        if not self.config.embedding_model.strip() or not self.config.embedding_base_url.strip():
+        if (
+            not self.config.embedding_model.strip()
+            or not self.config.embedding_base_url.strip()
+        ):
             return None
         return OpenAIEmbeddingClient(
             api_key=self.config.embedding_api_key,
@@ -635,7 +700,7 @@ class StorageService:
     def build_export_target_store(self, provider_name: str) -> BaseRememberStore:
         """Build a remember store specifically for export, using user_id from config and no app_id."""
         from .providers import get_remember_provider_class
-        
+
         provider_cls = get_remember_provider_class(provider_name)
         return provider_cls.from_config(
             self.config,
@@ -654,21 +719,30 @@ class StorageService:
 
     def get_user_nickname(self) -> str:
         """Fetch user nickname from database, fallback to user_id."""
-        log(f"DEBUG get_user_nickname: config.user_id={repr(self.config.user_id)}", level="debug")
+        log(
+            f"DEBUG get_user_nickname: config.user_id={repr(self.config.user_id)}",
+            level="debug",
+        )
         try:
             with db.connection_context():
                 user = User.get_or_none(User.user_id == self.config.user_id)
                 if user:
-                    log(f"DEBUG get_user_nickname: found user={user.user_id} nickname={repr(user.nickname)}", level="debug")
+                    log(
+                        f"DEBUG get_user_nickname: found user={user.user_id} nickname={repr(user.nickname)}",
+                        level="debug",
+                    )
                     if user.nickname:
                         nick = str(user.nickname).strip()
                         if nick and nick != "None" and nick != "default":
                             return nick
                 else:
-                    log(f"DEBUG get_user_nickname: user not found for id {self.config.user_id}", level="debug")
+                    log(
+                        f"DEBUG get_user_nickname: user not found for id {self.config.user_id}",
+                        level="debug",
+                    )
         except Exception as e:
             log(f"Failed to fetch user nickname: {e}", level="error")
-        
+
         # Final fallbacks
         base_id = str(self.config.user_id or "default")
         res = "大王" if base_id == "default" else base_id
