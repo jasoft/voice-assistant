@@ -345,7 +345,7 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         
         return item_id
 
-    def rebuild_fts(self) -> int:
+    def rebuild_fts(self, all_users: bool = False) -> int:
         """从主表重新生成 FTS 索引（彻底重建）"""
         self._connect()
         # 1. 彻底销毁旧表，确保没有任何残留
@@ -354,13 +354,20 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         # 2. 重新创建表结构
         self._ensure_tables()
         
-        # 3. 从主表 (RememberEntry) 重新注入，仅针对当前 user_id
-        sql = (
-            f"INSERT INTO {self.fts_table_name} (memory, original_text, user_id, item_id) "
-            f"SELECT memory, original_text, user_id, id FROM {self.table_name} "
-            f"WHERE user_id = ?"
-        )
-        cursor = db.execute_sql(sql, (self.user_id,))
+        # 3. 从主表 (RememberEntry) 重新注入
+        if all_users:
+            sql = (
+                f"INSERT INTO {self.fts_table_name} (memory, original_text, user_id, item_id) "
+                f"SELECT memory, original_text, user_id, id FROM {self.table_name}"
+            )
+            cursor = db.execute_sql(sql)
+        else:
+            sql = (
+                f"INSERT INTO {self.fts_table_name} (memory, original_text, user_id, item_id) "
+                f"SELECT memory, original_text, user_id, id FROM {self.table_name} "
+                f"WHERE user_id = ?"
+            )
+            cursor = db.execute_sql(sql, (self.user_id,))
         return cursor.rowcount
 
     def delete(self, *, memory_id: str) -> None:

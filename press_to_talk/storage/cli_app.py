@@ -204,8 +204,9 @@ def main(argv: list[str] | None = None) -> int:
     if not effective_user_id:
         effective_user_id = explicit_user_id
 
-    # 4. 强制校验
-    if not effective_user_id:
+    # 4. 强制校验 (除了 rebuild-fts 外都需要身份)
+    is_rebuild_cmd = (args.category == "memory" and args.command == "rebuild-fts")
+    if not effective_user_id and not is_rebuild_cmd:
         parser.error("the following arguments are required: --api-key")
 
     from press_to_talk.utils.logging import set_global_log_level
@@ -221,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = 0
         with contextlib.redirect_stderr(stderr_buffer):
             config = load_storage_config(
-                user_id_override=effective_user_id,
+                user_id_override=effective_user_id or "admin",
                 api_key_override=api_key or None,
             )
 
@@ -303,8 +304,10 @@ def main(argv: list[str] | None = None) -> int:
                 count = export_memories_to_provider(source_store=service.remember_store(), target_store=target_store)
                 print(json.dumps({"status": "ok", "exported_count": count}, ensure_ascii=False))
             elif args.category == "memory" and args.command == "rebuild-fts":
-                count = service.remember_store().rebuild_fts()
-                print(json.dumps({"status": "ok", "rebuilt_count": count}, ensure_ascii=False))
+                # 如果没有 effective_user_id，视为 Admin 进行全量重建
+                do_all = (effective_user_id is None)
+                count = service.remember_store().rebuild_fts(all_users=do_all)
+                print(json.dumps({"status": "ok", "rebuilt_count": count, "mode": "all" if do_all else "single-user"}, ensure_ascii=False))
             elif args.category == "history" and args.command == "list":
                 records = service.history_store().list_recent(limit=args.limit, query=args.query)
                 print(json.dumps([asdict(r) for r in records], ensure_ascii=False))
