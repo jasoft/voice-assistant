@@ -23,6 +23,7 @@ public final class AppModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var historySearchTask: Task<Void, Never>?
     private let vaClient: VAClient?
+    private var ttsProcess: Process?
 
     public init(forwardedArgs: [String], workingDirectory: URL) {
         let session = SessionViewModel()
@@ -92,6 +93,8 @@ public final class AppModel: ObservableObject {
     }
 
     private func speakLocally(text: String) {
+        stopSpeaking() // Kill existing playback
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["qwen-tts",  text ]
@@ -100,6 +103,7 @@ public final class AppModel: ObservableObject {
         // Pass through existing environment which might have PATH for qwen-tts
         process.environment = ProcessInfo.processInfo.environment
 
+        self.ttsProcess = process
         try? process.run()
     }
 
@@ -154,6 +158,11 @@ public final class AppModel: ObservableObject {
     public func stopSpeaking() {
         keepWindowOpen()
         bridge.stopSpeechPlayback()
+        
+        if let ttsProcess, ttsProcess.isRunning {
+            ttsProcess.terminate()
+        }
+        ttsProcess = nil
     }
 
     public func keepWindowOpen() {
