@@ -167,21 +167,20 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    # Help bypass
-    if "-h" in input_args or "--help" in input_args:
-        parser.print_help()
-        return 0
-
+    # 1. 预处理全局参数 (不带 help)
+    # 这样可以处理像 ptt-storage --api-key xxx memory search -h 这样的命令
     global_parser = argparse.ArgumentParser(add_help=False)
     global_parser.add_argument("--api-key", "--token", dest="api_key")
     global_parser.add_argument("--user-id")
     global_parser.add_argument("-v", "--debug", action="store_true")
     global_args, remaining_argv = global_parser.parse_known_args(input_args)
-    if not remaining_argv:
+
+    # 如果 remaining_argv 为空且不是请求帮助，打印主帮助
+    if not remaining_argv and "-h" not in input_args and "--help" not in input_args:
         parser.print_help()
         return 0
 
-    # 1. 解析参数 (使用 remaining_argv 避免干扰)
+    # 2. 解析剩余参数 (包括子命令和子命令的 -h)
     args = parser.parse_args(remaining_argv)
 
     # 2. 身份识别逻辑 (Token优先)
