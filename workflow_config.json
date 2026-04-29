@@ -58,6 +58,9 @@
         "chat": {
             "system_prompt": "你是一个兼容保留分支。若误入此分支，也应优先引导回本地数据库查询，不主动做开放域聊天。"
         },
+        "distill_memory": {
+            "system_prompt": "你是一个记忆提炼专家。请忽略用户语音听写中的口语废话、重复、纠错痕迹（如“那个”、“呃”、“帮我记下”、“记一下”），仅提取其中的核心事实信息。提炼成一条自然、准确、简短的中文陈述句，适合作为长期记忆保存。禁止解释，不要前缀，直接输出提炼后的句子。"
+        },
         "intent_extractor": {
             "system_prompt": "你是一个中文意图识别与结构化抽取器。请根据用户输入，判断意图，并把要记录、要查找、要联网搜索的内容拆解成 JSON。\n\n意图列表：\n${INTENT_DESCRIPTIONS}\n\n规则：\n${INTENT_EXTRACTION_RULES}\n\nJSON schema:\n${INTENT_JSON_SCHEMA}",
             "schema": {
@@ -82,21 +85,17 @@
                 "notes": "简短中文说明"
             },
             "instructions": [
-                "record表示要记录或更新信息，tool必须填remember_add。",
-                "find表示要查询数据库里可能已经存在的信息。tool必须填remember_find。严禁输出remember_list、history_find或其它任何名称。",
+                "record 表示要记录或更新信息，tool 必须填 remember_add。",
+                "args.memory：必须是一句完整的、适合长期检索的中文陈述句。**核心要求**：必须丢弃听写中的废话（如“帮我记下”、“呃那个”）、重复、口语语气词，仅保留核心事实。如果用户说“护照在书房抽屉里，噢不对是白色柜子”，你应输出“护照在书房白色柜子抽屉里”。",
+                "find 表示要查询数据库里可能已经存在的信息。tool 必须填 remember_find。严禁输出 remember_list、history_find 或其它任何名称。",
                 "今天是 ${PTT_CURRENT_TIME}。如果用户询问特定时间段（今天、昨天、最近三天、上周、上个月等）的记录，请在 find.args 中填入具体的 start_date 和 end_date（格式 YYYY-MM-DD）。",
-                "如果用户问'今天记了什么'，start_date 和 end_date 均为今天；如果问'最近一周'，start_date 为 7 天前，end_date 为今天。",
-                "对于相对时间表达式（如'上个月'、'上月'、'去年'、'前三个月'、'近半年'等），请以今天 ${PTT_CURRENT_TIME} 为基准，计算出具体的 start_date 和 end_date。例如今天2026-04-26，问'上个月'则 start_date='2026-03-01'，end_date='2026-03-31'。",
-                "这是一个通用的个人生活数据库，不限于物品。人物、宠物、事件、地点、日期、偏好、状态、经历、提醒、安排、关系、健康、消费、账号、内容都可以属于记忆查询范围。",
-                "凡是用户在个人场景中问 What、When、Which、Who、Where、Why、How many、How much 这类问题，本质上都是在问数据库里是否记过相关事实，通常判成 find。",
-                "像'关于小狗的信息'、'上海天气'、'某个概念是什么意思'、'帮我查新闻'这类问法，在本系统里也统一先判成 find，去数据库里查。",
-                "像'把我之前记的东西列出来'、'把所有记录都列出来'、'有哪些我记过的内容'这类请求，统一判成 find，使用 remember_find 查询。",
+                "对于相对时间表达式，请以今天 ${PTT_CURRENT_TIME} 为基准，计算出具体的日期范围。",
                 "find.args.query 必须直接保留用户原始问句，不要提炼关键词，不要改写，不要删减修饰词。",
                 "输出必须是单个 JSON 对象，不能加 markdown，不能加解释，不能加额外文本。"
             ],
             "examples": [
                 {
-                    "user": "帮我记一下，护照在书房白柜子第一个抽屉里",
+                    "user": "帮我记一下那个护照在书房白柜子第一个抽屉里呃就是那个",
                     "assistant": {
                         "intent": "record",
                         "tool": "remember_add",
@@ -104,60 +103,34 @@
                             "memory": "护照在书房白柜子第一个抽屉里",
                             "query": ""
                         },
-                        "confidence": 0.98,
-                        "notes": "用户在新增记录内容"
+                        "confidence": 0.99,
+                        "notes": "提炼核心位置，去除口语废话"
                     }
                 },
                 {
-                    "user": "记一下我妈生日是6月3号",
+                    "user": "记一下我妈生日是6月3号噢不对是6月4号记一下",
                     "assistant": {
                         "intent": "record",
                         "tool": "remember_add",
                         "args": {
-                            "memory": "妈妈生日是6月3号",
+                            "memory": "妈妈生日是6月4号",
                             "query": ""
-                        },
-                        "confidence": 0.98,
-                        "notes": "用户在记录日期信息"
-                    }
-                },
-                {
-                    "user": "帮我记住这把充电宝是黑色的",
-                    "assistant": {
-                        "intent": "record",
-                        "tool": "remember_add",
-                        "args": {
-                            "memory": "充电宝是黑色的",
-                            "query": ""
-                        },
-                        "confidence": 0.98,
-                        "notes": "用户在记录特征信息"
-                    }
-                },
-                {
-                    "user": "帮我记一下护照在书房抽屉里，备注是蓝色封皮",
-                    "assistant": {
-                        "intent": "record",
-                        "tool": "remember_add",
-                        "args": {
-                            "memory": "护照在书房抽屉里，蓝色封皮",
-                            "query": ""
-                        },
-                        "confidence": 0.98,
-                        "notes": "用户在记录位置，附带细节必须并入 memory"
-                    }
-                },
-                {
-                    "user": "帮我找下护照在哪",
-                    "assistant": {
-                        "intent": "find",
-                        "tool": "remember_find",
-                        "args": {
-                            "memory": "",
-                            "query": "帮我找下护照在哪"
                         },
                         "confidence": 0.99,
-                        "notes": "用户要查询护照相关记录，query 保留原始问句"
+                        "notes": "处理纠错，仅保留最终事实"
+                    }
+                },
+                {
+                    "user": "帮我记住这把充电宝是黑色的那个容量是两万毫安",
+                    "assistant": {
+                        "intent": "record",
+                        "tool": "remember_add",
+                        "args": {
+                            "memory": "充电宝是黑色的，容量两万毫安",
+                            "query": ""
+                        },
+                        "confidence": 0.99,
+                        "notes": "合并特征，去冗余"
                     }
                 },
                 {
@@ -170,89 +143,7 @@
                             "query": "我的护照在哪里"
                         },
                         "confidence": 0.99,
-                        "notes": "用户要查询护照相关记录，query 保留原始问句"
-                    }
-                },
-                {
-                    "user": "今天上海天气怎么样",
-                    "assistant": {
-                        "intent": "find",
-                        "tool": "remember_find",
-                        "args": {
-                            "memory": "",
-                            "query": "今天上海天气怎么样"
-                        },
-                        "confidence": 0.8,
-                        "notes": "在本系统中统一按数据库查询处理"
-                    }
-                },
-                {
-                    "user": "查找关于小狗的信息。",
-                    "assistant": {
-                        "intent": "find",
-                        "tool": "remember_find",
-                        "args": {
-                            "memory": "",
-                            "query": "查找关于小狗的信息。"
-                        },
-                        "confidence": 0.85,
-                        "notes": "用户在查询与小狗相关的信息"
-                    }
-                },
-                {
-                    "user": "早上好",
-                    "assistant": {
-                        "intent": "find",
-                        "tool": "remember_find",
-                        "args": {
-                            "memory": "",
-                            "query": "早上好"
-                        },
-                        "confidence": 0.99,
-                        "notes": "没有记录动作时默认按数据库查询处理"
-                    }
-                },
-                {
-                    "user": "我今天记了什么？",
-                    "assistant": {
-                        "intent": "find",
-                        "tool": "remember_find",
-                        "args": {
-                            "memory": "",
-                            "query": "我今天记了什么？",
-                            "start_date": "2026-04-20",
-                            "end_date": "2026-04-20"
-                        },
-                        "confidence": 0.99,
-                        "notes": "用户查询当日记忆"
-                    }
-                },
-                {
-                    "user": "最近一周的记录有哪些？",
-                    "assistant": {
-                        "intent": "find",
-                        "tool": "remember_find",
-                        "args": {
-                            "memory": "",
-                            "query": "最近一周的记录有哪些？",
-                            "start_date": "2026-04-13",
-                            "end_date": "2026-04-20"
-                        },
-                        "confidence": 0.99,
-                        "notes": "用户查询最近一周记忆"
-                    }
-                },
-                {
-                    "user": "查询壮壮的记录",
-                    "assistant": {
-                        "intent": "find",
-                        "tool": "remember_find",
-                        "args": {
-                            "memory": "",
-                            "query": "查询壮壮的记录"
-                        },
-                        "confidence": 0.99,
-                        "notes": "用户在查询记忆数据库内容"
+                        "notes": "查询意图"
                     }
                 }
             ]
