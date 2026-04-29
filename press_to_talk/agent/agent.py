@@ -192,14 +192,12 @@ class OpenAICompatibleAgent:
 
     async def _distill_memory(self, user_input: str) -> str:
         """专门将杂乱的语音输入提炼成一条适合存入数据库的精简记忆。"""
-        system_prompt = (
-            "你是一个记忆提炼专家。大王刚才发了一张照片并说了一段话。\n"
-            "请忽略语音听写中的口语废话、重复、纠错痕迹，仅提取其中的核心事实信息。\n"
-            "提炼成一条自然、准确、简短的中文陈述句，适合作为长期记忆保存。\n"
-            "禁止解释，不要前缀（如“提炼结果：”），直接输出提炼后的句子。"
-        )
+        prompts = self.workflow.get("prompts", {})
+        distill_cfg = prompts.get("distill_memory", {})
+        system_prompt = distill_cfg.get("system_prompt", "你是一个记忆提炼专家。")
+        
         try:
-            log(f"Distilling messy input for forced record: {user_input[:50]}...", level="info")
+            log(f"Distilling messy input: {user_input[:50]}...", level="info")
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -318,13 +316,13 @@ class OpenAICompatibleAgent:
                 "type": "function",
                 "function": {
                     "name": "remember_add",
-                    "description": "Save the user's original words plus one polished memory sentence that preserves every detail.",
+                    "description": "Save a polished, concise memory entry. Distill messy speech into a clean fact-based statement.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "memory": {
                                 "type": "string",
-                                "description": "One polished Chinese memory sentence based on the user's words. It may reorder phrasing or fix obvious transcription errors, but it must not lose or add any detail.",
+                                "description": "One polished Chinese memory sentence. Remove all conversational filler (e.g. 'help me remember', 'um', 'uh'), correct transcription errors, and resolve self-corrections. Keep ONLY the core fact.",
                             },
                             "original_text": {
                                 "type": "string",
