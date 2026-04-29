@@ -110,30 +110,49 @@ app.add_middleware(LoggingMiddleware)
 from enum import Enum
 
 class ExecutionMode(str, Enum):
+    """
+    系统执行模式，决定了处理查询的底层架构。
+    """
     MEMORY_CHAT = "memory-chat"
     DATABASE = "database"
     HERMES = "hermes"
     INTENT = "intent"
 
 class PhotoAttachment(BaseModel):
-    type: str = Field(..., description="图片类型: 'url' 或 'base64'")
-    url: Optional[str] = Field(None, description="当 type 为 'url' 时必填")
-    data: Optional[str] = Field(None, description="当 type 为 'base64' 时必填 (Base64 数据)")
-    mime: Optional[str] = Field(None, description="可选，图片的 MIME 类型")
+    """
+    图片附件信息。当提供此对象时，系统会强制进入 'record' 模式，将图片与查询内容关联并存入长期记忆。
+    """
+    type: str = Field(..., description="图片来源类型。'url': 从指定 URL 下载；'base64': 直接处理 Base64 编码的数据。")
+    url: Optional[str] = Field(None, description="当 type 为 'url' 时必须提供有效的 HTTP(S) 链接。若为空且 type 为 'url'，该图片将被忽略。")
+    data: Optional[str] = Field(None, description="当 type 为 'base64' 时必须提供。支持带前缀的 Data URI (如 'data:image/png;base64,...') 或纯 Base64 字符串。")
+    mime: Optional[str] = Field(None, description="可选。图片的 MIME 类型（如 'image/png'）。若未提供，系统将根据内容猜测或默认为 '.jpg'。")
 
 class QueryRequest(BaseModel):
-    query: str = Field(..., description="用户输入的自然语言查询语句。例如：'最近三天的记录'、'护照在哪？'。")
+    """
+    自然语言查询请求对象。
+    """
+    query: str = Field(
+        ..., 
+        min_length=1,
+        description=(
+            "用户输入的原始文本。不能为空。对于纯图片记录需求，建议 Agent 自动填充描述性文本如 '记录这张照片'。\n"
+            "该字段会经过意图识别，支持模糊日期（如 '昨天'）、实体检索等逻辑。"
+        )
+    )
     mode: Optional[ExecutionMode] = Field(
         default=ExecutionMode.MEMORY_CHAT, 
         description=(
-            "执行模式。决定了系统如何处理该查询：\n"
-            "- `memory-chat` (默认): 全能模式。先检索相关记忆，再结合上下文进行对话。\n"
-            "- `database`: 纯工具模式。只执行确定的数据库增删改查（如记录或精确搜索），不进行发散聊天。\n"
-            "- `hermes`: 强制调用外部 Hermes 聊天引擎。\n"
-            "- `intent`: `database` 模式的别名。"
+            "执行策略选择：\n"
+            "- `memory-chat` (推荐): 开启 RAG 模式。先检索相关记忆，再结合上下文生成回复，适合问答和聊天。\n"
+            "- `database` / `intent`: 纯工具模式。只执行确定的 DB 操作，不进行发散，响应更快、更确定。\n"
+            "- `hermes`: 强制透传给远程 Hermes 引擎处理。\n"
+            "若设为 null，则默认使用 `memory-chat`。"
         )
     )
-    photo: Optional[PhotoAttachment] = Field(None, description="图片附件节点")
+    photo: Optional[PhotoAttachment] = Field(
+        None, 
+        description="可选的图片附件。若提供，系统会将其持久化并与当前会话关联。空值将被安全忽略。"
+    )
 
     class Config:
         json_schema_extra = {
@@ -149,28 +168,57 @@ class QueryRequest(BaseModel):
         }
 
 class HistoryItem(BaseModel):
-    session_id: str
-    transcript: str
-    reply: str
-    created_at: str
+    """
+    单条历史记录项。
+    """
+    session_id: str = Field(..., description="唯一会话 ID")
+    transcript: str = Field(..., description="用户的原始请求文本")
+    reply: str = Field(..., description="助手给出的回复文本")
+    created_at: str = Field(..., description="记录创建时间 (ISO 8601 格式)")
 
 class MemoryItem(BaseModel):
-    id: str
-    memory: str
-    created_at: str
-    photo_path: Optional[str] = None
-    photo_url: Optional[str] = None # 新增
-    score: float = Field(0.0, description="搜索匹配分数 (0.0 - 1.0)") # 新增
+    """
+    长期记忆条目详细信息。
+    """
+    id: str = Field(..., description="记忆条目唯一 ID")
+    memory: str = Field(..., description="记忆的具体文本内容")
+    created_at: str = Field(..., description="记忆存入的时间")
+    photo_path: Optional[str] = Field(None, description="图片在服务器上的相对路径")
+    photo_url: Optional[str] = Field(None, description="图片的完整绝对访问 URL。可直接用于前端展示。")
+    score: float = Field(
+        0.0, 
+        description="相关性评分 (0.0 - 1.0)。分值越高代表与查询请求越匹配。仅在搜索请求中有效。"
+    )
 
 class QueryResponse(BaseModel):
-    reply: str
-    memories: List[MemoryItem] = Field(default_factory=list, description="所选记忆的完整数据")
-    images: List[str] = Field(default_factory=list, description="相关图片的 URL 列表，最多 3 个")
-    query: Optional[str] = Field(None, description="本次查询所实际使用的语句")
-    debug_info: Optional[Dict[str, Any]] = Field(None, description="本次查询的调试信息")
+    """
+    查询执行结果响应对象。
+    """
+    reply: str = Field(..., description="助手生成的最终文本回复。")
+    memories: List[MemoryItem] = Field(
+        default_factory=list, 
+        description="执行过程中检索到的相关记忆列表。按相关性降序排列。"
+    )
+    images: List[str] = Field(
+        default_factory=list, 
+        description="精选的相关图片 URL 列表。规则：取前 3 条得分 > 0 且包含图片的记忆。"
+    )
+    query: Optional[str] = Field(None, description="本次查询实际执行时的标准化文本（可能与输入不同）。")
+    debug_info: Optional[Dict[str, Any]] = Field(None, description="包含推理路径、意图分析等调试信息，供开发者或 Agent 自我排查。")
 
 
-@app.post("/v1/query", response_model=QueryResponse, summary="执行自然语言查询", description="接收用户的自然语言输入，并根据选定的模式进行意图识别、数据库操作或对话生成。")
+@app.post(
+    "/v1/query", 
+    response_model=QueryResponse, 
+    summary="[核心] 执行自然语言查询", 
+    description=(
+        "接收自然语言输入，自动完成意图识别、实体检索、记忆调取及响应生成。\n\n"
+        "### Agent 调用建议：\n"
+        "1. **场景判断**：若用户提到‘刚才、之前、哪里、谁’等涉及过去信息的词汇，请务必保持 `memory-chat` 模式。\n"
+        "2. **图片处理**：当用户上传图片时，系统会自动开启存储逻辑，无需额外声明‘请记录’。\n"
+        "3. **异常处理**：若返回 `reply` 中包含错误提示，可查看 `debug_info` 获取详细执行链。"
+    )
+)
 async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_user_id)):
     if base_config is None:
         raise HTTPException(status_code=500, detail="Server configuration error")
