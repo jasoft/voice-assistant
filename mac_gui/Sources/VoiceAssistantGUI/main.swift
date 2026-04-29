@@ -112,6 +112,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.stopRecording()
     }
 
+    func applicationDidResignActive(_ notification: Notification) {
+        // Exit when focus is lost
+        NSApp.terminate(nil)
+    }
+
     private func positionBottomRight(window: NSWindow) {
         guard let screen = NSScreen.main else {
             return
