@@ -134,6 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
     m_export = memory_sub.add_parser("export", help="Export memories", formatter_class=AgentHelpFormatter)
     m_export.add_argument("--to-provider", required=True, choices=["mem0", "sqlite_fts5"])
 
+    m_rebuild = memory_sub.add_parser("rebuild-fts", help="Rebuild FTS index from main storage", formatter_class=AgentHelpFormatter)
+
     return parser
 
 
@@ -300,6 +302,9 @@ def main(argv: list[str] | None = None) -> int:
                 target_store = target_cls.from_config(config)
                 count = export_memories_to_provider(source_store=service.remember_store(), target_store=target_store)
                 print(json.dumps({"status": "ok", "exported_count": count}, ensure_ascii=False))
+            elif args.category == "memory" and args.command == "rebuild-fts":
+                count = service.remember_store().rebuild_fts()
+                print(json.dumps({"status": "ok", "rebuilt_count": count}, ensure_ascii=False))
             elif args.category == "history" and args.command == "list":
                 records = service.history_store().list_recent(limit=args.limit, query=args.query)
                 print(json.dumps([asdict(r) for r in records], ensure_ascii=False))

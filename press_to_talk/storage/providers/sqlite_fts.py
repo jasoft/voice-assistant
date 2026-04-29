@@ -345,6 +345,22 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         
         return item_id
 
+    def rebuild_fts(self) -> int:
+        """从主表重新生成 FTS 索引"""
+        self._connect()
+        # 1. 清空 FTS 表
+        db.execute_sql(f"DELETE FROM {self.fts_table_name}")
+        
+        # 2. 从主表 (RememberEntry) 重新注入，仅针对当前 user_id
+        # 我们使用 INSERT INTO ... SELECT 语法以获得最高效率
+        sql = (
+            f"INSERT INTO {self.fts_table_name} (memory, original_text, user_id, item_id) "
+            f"SELECT memory, original_text, user_id, id FROM {self.table_name} "
+            f"WHERE user_id = ?"
+        )
+        cursor = db.execute_sql(sql, (self.user_id,))
+        return cursor.rowcount
+
     def delete(self, *, memory_id: str) -> None:
         self._connect()
         for t in [self.table_name, self.fts_table_name, self.embedding_table_name]:
