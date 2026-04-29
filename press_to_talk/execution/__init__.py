@@ -37,11 +37,30 @@ class ExecutionResult:
     query: Optional[str] = None
     debug_info: Optional[dict] = None
 
-async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | None = None) -> ExecutionResult:
+async def execute_transcript_async(
+    cfg: Any, 
+    transcript: str, 
+    photo_path: str | None = None,
+    session_id: str = "",
+    started_at: str = "",
+    peak_level: float = 0.0,
+    mean_level: float = 0.0,
+    session_mode: str = "cli"
+) -> ExecutionResult:
     mode = resolve_execution_mode(cfg)
     
     # Initialize Blackboard
-    bb = Blackboard(transcript=transcript, cfg=cfg, mode=mode, photo_path=photo_path)
+    bb = Blackboard(
+        transcript=transcript, 
+        cfg=cfg, 
+        mode=mode, 
+        photo_path=photo_path,
+        session_id=session_id,
+        started_at=started_at,
+        peak_level=peak_level,
+        mean_level=mean_level,
+        session_mode=session_mode
+    )
     
     # Build and tick the behavior tree
     tree = build_master_tree()
@@ -55,8 +74,27 @@ async def execute_transcript_async(cfg: Any, transcript: str, photo_path: str | 
 
     # Default fallback if tree didn't produce a reply
     return ExecutionResult(reply="I'm sorry, I couldn't process that request.", debug_info=bb.debug_info)
-def execute_transcript(cfg: Any, transcript: str, photo_path: str | None = None) -> ExecutionResult:
-    return asyncio.run(execute_transcript_async(cfg, transcript, photo_path=photo_path))
+
+def execute_transcript(
+    cfg: Any, 
+    transcript: str, 
+    photo_path: str | None = None,
+    session_id: str = "",
+    started_at: str = "",
+    peak_level: float = 0.0,
+    mean_level: float = 0.0,
+    session_mode: str = "cli"
+) -> ExecutionResult:
+    return asyncio.run(execute_transcript_async(
+        cfg, 
+        transcript, 
+        photo_path=photo_path,
+        session_id=session_id,
+        started_at=started_at,
+        peak_level=peak_level,
+        mean_level=mean_level,
+        session_mode=session_mode
+    ))
 
 
 def classify_intent(cfg: Any, transcript: str) -> str:

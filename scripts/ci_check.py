@@ -45,6 +45,54 @@ def main():
         log("Core unit tests failed!")
         sys.exit(1)
 
+    # 3.1 运行 API 端点覆盖率测试 (P0-1)
+    log("Running API endpoints coverage tests...")
+    if not run_command("uv run pytest tests/test_api_endpoints_coverage.py -v", env=ci_env):
+        log("API endpoints coverage tests failed!")
+        sys.exit(1)
+
+    # 3.2 运行认证/授权失败测试 (P0-2)
+    log("Running authentication failure tests...")
+    if not run_command("uv run pytest tests/test_auth_failures.py -v", env=ci_env):
+        log("Authentication failure tests failed!")
+        sys.exit(1)
+
+    # 3.3 运行错误处理测试 (P0-3)
+    log("Running error handling tests...")
+    if not run_command("uv run pytest tests/test_error_handling.py -v", env=ci_env):
+        log("Error handling tests failed!")
+        sys.exit(1)
+
+    # 3.4 运行配置验证测试 (P0-5)
+    log("Running config validation tests...")
+    if not run_command("uv run pytest tests/test_config_validation.py -v", env=ci_env):
+        log("Config validation tests failed!")
+        sys.exit(1)
+
+    # 3.5 运行 FTS 重建验证测试 (P0-6)
+    log("Running FTS rebuild verification tests...")
+    if not run_command("uv run pytest tests/test_fts_rebuild_verification.py -v", env=ci_env):
+        log("FTS rebuild verification tests failed!")
+        sys.exit(1)
+
+    # 3.6 运行数据库连接测试 (P0-7)
+    log("Running database connection tests...")
+    if not run_command("uv run pytest tests/test_database_connection.py -v", env=ci_env):
+        log("Database connection tests failed!")
+        sys.exit(1)
+
+    # 4. Docker 构建验证 (P0-4)
+    log("Verifying Docker build...")
+    if run_command("docker --version", env=ci_env):
+        # 只有在有 Docker 环境时才运行
+        if not run_command("docker build -t voice-assistant-ci-test .", env=ci_env):
+            log("Docker build failed!")
+            sys.exit(1)
+        # 清理测试镜像
+        run_command("docker rmi voice-assistant-ci-test", env=ci_env)
+    else:
+        log("Docker not available, skipping Docker build verification")
+
     # 4. 验证数据库自动初始化与 FTS5 支持
     log("Verifying storage initialization...")
     # 尝试通过 CLI 写入一条记录，强制触发表创建。使用 --user-id 绕过 Token 校验

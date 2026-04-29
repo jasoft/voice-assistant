@@ -3,6 +3,9 @@ import json
 import re
 from .base import Node, Status, Blackboard
 from ...utils.photo import get_photo_url
+from ...utils.logging import log
+from ...storage.models import SessionHistoryRecord
+from ...models.history import format_history_timestamp
 
 class Condition(Node):
     pass
@@ -188,3 +191,38 @@ class ExecuteRecordAction(Action):
         except Exception as e:
             bb.error = str(e)
             return Status.FAILURE
+
+class PersistHistoryAction(Action):
+    async def tick(self, bb: Blackboard) -> Status:
+        from ...models.history import HistoryWriter
+        
+        # 补齐结束时间
+        if not bb.ended_at:
+            bb.ended_at = format_history_timestamp()
+            
+        # 只有在有回复或者有报错的情况下才记录（防止空跑记录）
+        if not bb.reply and not bb.error and not bb.transcript:
+            return Status.SUCCESS
+            
+        try:
+            history_writer = HistoryWriter.from_config(bb.cfg)
+            history_writer.persist(
+                SessionHistoryRecord(
+                    session_id=bb.session_id,
+                    started_at=bb.started_at,
+                    ended_at=bb.ended_at,
+                    transcript=bb.transcript,
+                    reply=bb.reply or (f"Error: {bb.error}" if bb.error else ""),
+                    peak_level=bb.peak_level,
+                    mean_level=bb.mean_level,
+                    auto_closed=False, # 默认值，如果需要可从 bb 扩展
+                    reopened_by_click=False,
+                    mode=bb.session_mode,
+                )
+            )
+            log(f"BT: history record persisted for session {bb.session_id}", level="info")
+        except Exception as e:
+            log(f"BT: failed to persist history: {e}", level="error")
+            # 记录失败不应该导致整个行为树失败，所以返回 SUCCESS
+            
+        return Status.SUCCESS

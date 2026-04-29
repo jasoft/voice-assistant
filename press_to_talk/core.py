@@ -127,7 +127,6 @@ def main(argv: list[str] | None = None) -> int:
     else:
         set_global_log_level("INFO")
     events = GuiEventWriter(enabled=cfg.gui_events)
-    history_writer = HistoryWriter.from_config(cfg)
 
     session_started_at = format_history_timestamp()
     session_ended_at = session_started_at
@@ -215,7 +214,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         events.emit("status", phase="thinking")
-        result = execute_transcript(cfg, transcript, photo_path=cfg.photo_path)
+        result = execute_transcript(
+            cfg, 
+            transcript, 
+            photo_path=cfg.photo_path,
+            session_id=session_id,
+            started_at=session_started_at,
+            peak_level=session_peak_level,
+            mean_level=session_mean_level,
+            session_mode=session_mode
+        )
         reply = result.reply
 
         if not reply:
@@ -253,26 +261,6 @@ def main(argv: list[str] | None = None) -> int:
         events.emit("error", message=str(exc))
         return 1
     finally:
-        session_ended_at = format_history_timestamp()
-        if should_record_history and history_writer.enabled:
-            try:
-                history_writer.persist(
-                    SessionHistory(
-                        session_id=session_id,
-                        started_at=session_started_at,
-                        ended_at=session_ended_at,
-                        transcript=session_transcript,
-                        reply=session_reply,
-                        peak_level=session_peak_level,
-                        mean_level=session_mean_level,
-                        auto_closed=session_auto_closed,
-                        reopened_by_click=session_reopened_by_click,
-                        mode=session_mode,
-                    )
-                )
-                log("history record persisted")
-            except Exception as exc:  # noqa: BLE001
-                log(f"history persist failed: {exc}", level="error")
         close_session_log()
 
 

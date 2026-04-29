@@ -12,6 +12,12 @@ class Status(Enum):
 class Blackboard:
     transcript: str
     cfg: Any
+    session_id: str = field(default_factory=lambda: "")
+    started_at: str = ""
+    ended_at: str = ""
+    peak_level: float = 0.0
+    mean_level: float = 0.0
+    session_mode: str = "cli"
     mode: str = "database"
     photo_path: Optional[str] = None
     intent: dict = field(default_factory=dict)

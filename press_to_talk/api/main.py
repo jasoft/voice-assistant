@@ -45,14 +45,13 @@ async def lifespan(app: FastAPI):
     storage_cfg = load_storage_config()
     ensure_storage_database(storage_cfg)
     
-    # Load base config once
-    try:
-        # Web API 使用进程环境和 .env 文件
-        base_config = parse_args(["--user-id", "api-server", "--no-tts"], load_env=True)
-    except SystemExit:
-        # If parse_args failed, we might be missing critical env vars
-        # In a real API we might want to log this or handle more gracefully
-        base_config = None
+    # Load base config once (don't overwrite if already set by tests)
+    if base_config is None:
+        try:
+            # Web API 使用进程环境和 .env 文件
+            base_config = parse_args(["--user-id", "api-server", "--no-tts"], load_env=True)
+        except SystemExit:
+            base_config = None
         
     yield
     # Cleanup on shutdown
@@ -300,7 +299,18 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
             cfg.force_record = True
             log(f"Photo attached and saved: {photo_path}, forcing record mode", level="info")
 
-        result = await execute_transcript_async(cfg, req.query, photo_path=photo_path)
+        # Generate session metadata for history persistence
+        session_id = uuid.uuid4().hex
+        started_at = datetime.now().astimezone().isoformat(timespec="seconds")
+
+        result = await execute_transcript_async(
+            cfg, 
+            req.query, 
+            photo_path=photo_path,
+            session_id=session_id,
+            started_at=started_at,
+            session_mode="api"
+        )
 
         reply_text = result.reply
         memories = []
@@ -355,6 +365,7 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
 
 @app.post("/v1/history", response_model=List[HistoryItem], summary="获取会话历史记录", description="按时间倒序返回当前用户的最近 20 条会话历史记录（包含请求文本和助手回复）。")
 async def get_history(user_id: str = Depends(get_user_id)):
+    ensure_storage_database()
     try:
         histories = (SessionHistory
                     .select()
@@ -375,6 +386,7 @@ async def get_history(user_id: str = Depends(get_user_id)):
 
 @app.post("/v1/memories", response_model=List[MemoryItem], summary="获取长期记忆条目", description="按时间倒序返回当前用户的最近 50 条长期记忆记录。")
 async def get_memories(user_id: str = Depends(get_user_id)):
+    ensure_storage_database()
     try:
         memories = (RememberEntry
                    .select()

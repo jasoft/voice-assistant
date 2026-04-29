@@ -4,7 +4,7 @@ from .nodes import (
     ExecuteSearchAction, HasMemoryHits, LLMSummarizeAction,
     LLMChatFallbackAction, ExtractIntentAction,
     IsHermesMode, ExecuteHermesAction, SetDefaultIntentAction,
-    IsEmptyTranscript, SetEmptyTranscriptReplyAction
+    IsEmptyTranscript, SetEmptyTranscriptReplyAction, PersistHistoryAction
 )
 
 def build_master_tree():
@@ -62,9 +62,16 @@ def build_master_tree():
         main_logic
     ])
     
-    root = Selector([
+    # 核心对话逻辑（分支选择）
+    core_logic = Selector([
         empty_speech_flow,
         main_process
+    ])
+
+    # 最终完整流程：对话逻辑 -> 历史持久化
+    root = Sequence([
+        core_logic,
+        PersistHistoryAction()
     ])
     
     return root
