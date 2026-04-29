@@ -36,6 +36,7 @@ class ExecutionResult:
     memories: List[dict] = field(default_factory=list)
     query: Optional[str] = None
     debug_info: Optional[dict] = None
+    error: Optional[str] = None
 
 async def execute_transcript_async(
     cfg: Any, 
@@ -70,10 +71,10 @@ async def execute_transcript_async(
         return ExecutionResult(reply=bb.reply, memories=bb.memories, query=bb.query, debug_info=bb.debug_info)
 
     if bb.error:
-        return ExecutionResult(reply=f"Error: {bb.error}", debug_info=bb.debug_info)
+        return ExecutionResult(reply=f"Error: {bb.error}", debug_info=bb.debug_info, error=bb.error)
 
     # Default fallback if tree didn't produce a reply
-    return ExecutionResult(reply="I'm sorry, I couldn't process that request.", debug_info=bb.debug_info)
+    return ExecutionResult(reply="I'm sorry, I couldn't process that request.", debug_info=bb.debug_info, error="No reply generated")
 
 def execute_transcript(
     cfg: Any, 

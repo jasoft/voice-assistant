@@ -103,8 +103,23 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 app = FastAPI(title="Press-to-Talk API", lifespan=lifespan)
+os.makedirs("data/photos", exist_ok=True)
 app.mount("/assets", StaticFiles(directory="data/photos"), name="assets")
 app.add_middleware(LoggingMiddleware)
+
+@app.get("/healthy", tags=["System"])
+async def healthy():
+    """Liveness probe: returns 200 OK if the server is running."""
+    return {"status": "ok"}
+
+@app.get("/ready", tags=["System"])
+async def ready():
+    """Readiness probe: returns 200 OK if the database and configurations are ready."""
+    if base_config is None:
+        raise HTTPException(status_code=503, detail="Configuration not loaded")
+    if db.is_closed():
+        raise HTTPException(status_code=503, detail="Database is not connected")
+    return {"status": "ready"}
 
 from enum import Enum
 
@@ -311,6 +326,10 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
             started_at=started_at,
             session_mode="api"
         )
+
+        if result.error:
+            log(f"Execution Error: {result.error}", level="error")
+            raise HTTPException(status_code=500, detail=result.error)
 
         reply_text = result.reply
         memories = []

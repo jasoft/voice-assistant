@@ -17,6 +17,20 @@ import shutil
 from pathlib import Path
 
 
+def load_dotenv_manually():
+    """Manually load .env file if it exists."""
+    env_path = Path(".env")
+    if env_path.exists():
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    if key not in os.environ:
+                        os.environ[key] = value.strip("'\"")
+
 def log(msg: str):
     print(f"\n\033[1;34m[CI-CHECK]\033[0m {msg}")
 
@@ -25,19 +39,25 @@ def warn(msg: str):
     print(f"\033[1;33m[CI-WARN]\033[0m  {msg}")
 
 
-def run_command(cmd: str, env=None) -> bool:
-    process = subprocess.run(cmd, shell=True, env=env, capture_output=True, text=True)
+def run_command(cmd: str, env=None, stream=False) -> bool:
+    if stream:
+        process = subprocess.run(cmd, shell=True, env=env)
+    else:
+        process = subprocess.run(
+            cmd, shell=True, env=env, capture_output=True, text=True
+        )
     if process.returncode != 0:
         print(f"\033[1;31mFAILED:\033[0m {cmd}")
-        if process.stdout:
+        if not stream and process.stdout:
             print(process.stdout[-3000:])  # 截断过长输出
-        if process.stderr:
+        if not stream and process.stderr:
             print(process.stderr[-3000:])
         return False
     return True
 
 
 def main():
+    load_dotenv_manually()
     workspace = Path.cwd()
     test_data_dir = workspace / "tmp_ci_data"
     failed_checks: list[str] = []
@@ -52,9 +72,9 @@ def main():
 
     ci_env = os.environ.copy()
     ci_env["PTT_REMEMBER_DB_PATH"] = str(test_data_dir / "ci_store.sqlite3")
-    ci_env["PTT_HISTORY_DB_PATH"]  = str(test_data_dir / "ci_store.sqlite3")
-    ci_env["PTT_WORKSPACE_ROOT"]   = str(test_data_dir)
-    ci_env["PTT_USER_ID"]          = "ci_admin"
+    ci_env["PTT_HISTORY_DB_PATH"] = str(test_data_dir / "ci_store.sqlite3")
+    ci_env["PTT_WORKSPACE_ROOT"] = str(test_data_dir)
+    ci_env["PTT_USER_ID"] = "ci_admin"
 
     # ─────────────────────────────────────────────
     # Step 2: 依赖检查
@@ -155,20 +175,9 @@ def main():
     # ─────────────────────────────────────────────
     log("Step 5: 多用户数据隔离验证...")
     if not run_command(
-        "uv run pytest tests/test_multi_user_robustness.py -v",
-        env=ci_env,
+        "uv run pytest tests/test_multi_user_robustness.py -v", env=ci_env, stream=True
     ):
         failed_checks.append("P0-2 | 多用户数据隔离")
-
-    # ─────────────────────────────────────────────
-    # Step 5.5: API 全链路冒烟测试 (Vibe Check)
-    # ─────────────────────────────────────────────
-    log("Step 5.5: API 全链路真实 HTTP 冒烟测试...")
-    if not run_command(
-        "uv run pytest tests/test_api_production_vibe.py -v",
-        env=ci_env,
-    ):
-        failed_checks.append("P0-5.5 | API 真实冒烟测试")
 
     # ─────────────────────────────────────────────
     # Step 6: Docker 构建验证 (P0-4，可选)
@@ -188,7 +197,90 @@ def main():
         if not run_command("docker build -t voice-assistant-ci-test .", env=docker_env):
             failed_checks.append("P0-4 | Docker 构建")
         else:
-            run_command("docker rmi voice-assistant-ci-test", env=docker_env)
+            import random
+            import time
+            import json
+            import urllib.request
+
+            test_port = random.randint(11000, 12000)
+            log(f"启动 Docker 容器进行实时 API 测试 (映射到端口 {test_port})...")
+
+            # 启动容器
+            try:
+                import subprocess
+
+                env_args = ""
+                for key in ["LLM_API_KEY", "OPENAI_API_KEY", "SILICONFLOW_API_KEY", "OPENAI_BASE_URL"]:
+                    if os.environ.get(key):
+                        env_args += f" -e {key}='{os.environ.get(key)}'"
+
+                container_id = subprocess.check_output(
+                    f"docker run -d {env_args} -p {test_port}:10031 voice-assistant-ci-test",
+                    shell=True,
+                    env=docker_env,
+                    text=True,
+                ).strip()
+
+                log("容器已启动，等待内部服务启动 (最大等待 30 秒)...")
+
+                url = f"http://docker.home:{test_port}/v1/query"
+                payload = json.dumps(
+                    {"query": "你好，这是来自 Docker 的测试", "mode": "memory-chat"}
+                ).encode("utf-8")
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer docker_test_user",
+                }
+
+                # Polling loop for /ready
+                max_retries = 15
+                ready = False
+                ready_url = f"http://docker.home:{test_port}/ready"
+                for i in range(max_retries):
+                    time.sleep(2)
+                    try:
+                        req_ready = urllib.request.Request(ready_url, method="GET")
+                        with urllib.request.urlopen(req_ready, timeout=5) as response:
+                            if response.status == 200:
+                                ready = True
+                                break
+                    except urllib.error.URLError:
+                        continue
+
+                if not ready:
+                    print(
+                        f"\033[1;31m请求失败: 容器内部服务未能在 30 秒内就绪 (/ready 未通过)。\033[0m"
+                    )
+                    logs = subprocess.check_output(
+                        f"docker logs {container_id}",
+                        shell=True,
+                        env=docker_env,
+                        text=True,
+                    )
+                    print(
+                        f"\n\033[1;33m--- 容器日志 ---\n{logs}\n----------------\033[0m"
+                    )
+                    failed_checks.append("P0-4 | Docker 运行与 API 测试")
+                else:
+                    log(f"容器就绪，正在发送测试请求 -> {url}")
+                    req = urllib.request.Request(
+                        url, data=payload, headers=headers, method="POST"
+                    )
+                    try:
+                        with urllib.request.urlopen(req, timeout=30) as response:
+                            result = response.read().decode("utf-8")
+                            print(
+                                f"\n\033[1;36m[Docker API 成功] 返回结果 [HTTP {response.status}]:\n{json.dumps(json.loads(result), indent=2, ensure_ascii=False)}\033[0m\n"
+                            )
+                    except urllib.error.URLError as e:
+                        print(f"\033[1;31m测试请求失败: {e}\033[0m")
+                        failed_checks.append("P0-4 | Docker 运行与 API 测试")
+
+            finally:
+                log("清理 Docker 测试容器与镜像...")
+                if "container_id" in locals():
+                    run_command(f"docker rm -f {container_id}", env=docker_env)
+                run_command("docker rmi voice-assistant-ci-test", env=docker_env)
 
     # ─────────────────────────────────────────────
     # 最终结果汇报
@@ -196,7 +288,9 @@ def main():
     shutil.rmtree(test_data_dir, ignore_errors=True)
 
     if failed_checks:
-        print(f"\n\033[1;31m[CI-CHECK] FAILED: {len(failed_checks)} 项检查未通过：\033[0m")
+        print(
+            f"\n\033[1;31m[CI-CHECK] FAILED: {len(failed_checks)} 项检查未通过：\033[0m"
+        )
         for item in failed_checks:
             print(f"  ✗ {item}")
         sys.exit(1)

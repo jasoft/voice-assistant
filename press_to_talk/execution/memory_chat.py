@@ -148,7 +148,7 @@ class MemoryChatExecutionRunner:
                 "role": "user",
                 "content": (
                     f"意图分析：{intent['intent']}\n"
-                    f"意图说明：{intent['notes'] or '（无）'}\n\n"
+                    f"意图说明：{intent.get('notes', '') or '（无）'}\n\n"
                     f"相关记忆：\n{memory_context}\n\n"
                     f"用户问题：{transcript}"
                 ),
