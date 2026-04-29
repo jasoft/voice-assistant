@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import time
+import shutil
 import contextlib
 import subprocess
 from pathlib import Path
@@ -77,31 +78,26 @@ def generate_tts_wav(text: str, output_path: Path) -> Path:
     qwen_tts = ensure_bin("qwen-tts")
     log(f"generating tts wav for text: {clean_text[:20]}...")
     
-    # qwen-tts 默认生成到 output.wav，或者可以通过参数指定
-    # 假设 qwen-tts 支持 --output 参数，如果不支持则需要重命名
+    # 按照大王要求，直接调用 qwen-tts "文字"
+    # 如果 qwen-tts 默认生成 output.wav，我们将其移动到指定位置
+    # 注意：如果 qwen-tts 强制播放且不生成文件，这里可能需要调整逻辑，
+    # 但由于主要场景是 speak_text，这里先尽可能兼容。
     proc = subprocess.run(
-        [qwen_tts, clean_text, "--speaker", "serena", "--output", str(output_path), "--no-play"],
+        [qwen_tts, clean_text],
         capture_output=True,
         text=True,
     )
     
-    if proc.returncode != 0:
-        # 如果不支持 --output，尝试默认行为并移动文件
-        proc = subprocess.run(
-            [qwen_tts, clean_text, "--speaker", "serena", "--no-play"],
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode == 0:
-            default_output = Path("output.wav")
-            if default_output.exists():
-                shutil.move(str(default_output), str(output_path))
-                return output_path
-        
-        msg = (proc.stderr or proc.stdout or f"tts generation failed with code {proc.returncode}").strip()
-        raise RuntimeError(msg)
-        
-    return output_path
+    if proc.returncode == 0:
+        default_output = Path("output.wav")
+        if default_output.exists():
+            shutil.move(str(default_output), str(output_path))
+            return output_path
+        elif output_path.exists():
+            return output_path
+            
+    msg = (proc.stderr or proc.stdout or f"tts generation failed with code {proc.returncode}").strip()
+    raise RuntimeError(msg)
 
 def speak_text(text: str) -> bool:
     clean_text = sanitize_for_tts(text)
@@ -109,10 +105,12 @@ def speak_text(text: str) -> bool:
         raise RuntimeError("tts text became empty after sanitize")
 
     qwen_tts = ensure_bin("qwen-tts")
-    log("speaking reply with qwen-tts --play --speaker serena --stream")
+    log(f"speaking reply with: qwen-tts \"{clean_text[:20]}...\"")
     consume_tts_stop_request()
+    
+    # 按照大王要求，改成 qwen-tts "要读的文字"
     proc = subprocess.Popen(
-        [qwen_tts, "--play", clean_text, "--speaker", "serena", "--stream"],
+        [qwen_tts, clean_text],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
