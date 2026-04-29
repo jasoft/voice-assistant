@@ -46,7 +46,7 @@ def api_server():
     # 3. 启动服务器
     print(f"Starting ptt-api on port {API_PORT}...")
     proc = subprocess.Popen(
-        ["ptt-api", "--port", str(API_PORT)],
+        ["uv", "run", "ptt-api", "--port", str(API_PORT)],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -120,6 +120,7 @@ def call_api(query, mode="memory-chat"):
     {"query": "上周关于工作的记录", "desc": "关键词+日期范围 (工作)"},
     {"query": "2026年5月可能会有什么计划？", "desc": "未来展望（取决于记忆）"},
 ])
+@pytest.mark.timeout(120)
 def test_vibe_scenarios(scenario):
     query = scenario["query"]
     print(f"\nTesting Scenario: {scenario['desc']} - Query: {query}")

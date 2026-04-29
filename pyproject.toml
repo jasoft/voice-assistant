@@ -42,6 +42,7 @@ include = ["press_to_talk*"]
 dev = [
     "pytest>=9.0.3",
     "poethepoet>=0.25.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 [tool.poe.tasks]
@@ -53,3 +54,7 @@ storage = "ptt-storage"
 token = "ptt-token"
 api = "ptt-api"
 test = "pytest"
+
+[tool.pytest.ini_options]
+# 任何单个测试超过 30 秒自动失败，防止卡死
+timeout = 30

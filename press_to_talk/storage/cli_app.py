@@ -194,8 +194,12 @@ def main(argv: list[str] | None = None) -> int:
         or ""
     ).strip()
     explicit_user_id = global_args.user_id
+
+    # rebuild-fts 是免认证的管理命令，跳过所有 token 校验
+    is_rebuild_cmd = (args.category == "memory" and args.command == "rebuild-fts")
+
     api_key = cli_api_key or ("" if explicit_user_id else env_api_key)
-    if api_key:
+    if api_key and not is_rebuild_cmd:
         effective_user_id = resolve_user_id_from_api_key(api_key)
         if not effective_user_id:
             parser.error(f"invalid --api-key: {api_key}")
@@ -205,7 +209,6 @@ def main(argv: list[str] | None = None) -> int:
         effective_user_id = explicit_user_id
 
     # 4. 强制校验 (除了 rebuild-fts 外都需要身份)
-    is_rebuild_cmd = (args.category == "memory" and args.command == "rebuild-fts")
     if not effective_user_id and not is_rebuild_cmd:
         parser.error("the following arguments are required: --api-key")
 

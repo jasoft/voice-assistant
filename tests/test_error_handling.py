@@ -60,13 +60,13 @@ def mock_execution():
 class TestInvalidInput:
     """测试无效输入"""
 
-    def test_empty_query_string(self, client):
+    def test_empty_query_string(self, client, mock_execution):
         """测试空字符串查询"""
         response = client.post("/v1/query", json={"query": ""})
-        # 空字符串可能通过验证（min_length=1），但执行会失败
+        # 空字符串会被 Pydantic min_length=1 拒绝
         assert response.status_code in [200, 422, 500]
 
-    def test_query_too_long(self, client):
+    def test_query_too_long(self, client, mock_execution):
         """测试超长查询"""
         long_query = "测" * 10000
         response = client.post("/v1/query", json={"query": long_query})
@@ -98,7 +98,7 @@ class TestInvalidInput:
 class TestMalformedRequests:
     """测试格式错误的请求"""
 
-    def test_missing_content_type(self, client):
+    def test_missing_content_type(self, client, mock_execution):
         """测试缺少 Content-Type"""
         response = client.post(
             "/v1/query",
@@ -145,17 +145,11 @@ class TestExecutionErrors:
             assert response.status_code in [200, 500]
 
     def test_timeout_error(self, client):
-        """测试超时错误"""
-        import asyncio
-        async def slow_execution(*args, **kwargs):
-            await asyncio.sleep(100)  # 模拟超时
-            return ExecutionResult(reply="迟到的回复")
-
+        """测试超时错误（用 TimeoutError 模拟，避免真实等待）"""
         with patch("press_to_talk.api.main.execute_transcript_async",
-                   side_effect=slow_execution):
-            # 注意：TestClient 默认不设置超时，所以这个测试可能不会真正触发超时
+                   side_effect=TimeoutError("模拟超时")):
             response = client.post("/v1/query", json={"query": "测试"})
-            # 只要不崩溃就行
+            # 应该返回 500
             assert response.status_code in [200, 408, 500]
 
 

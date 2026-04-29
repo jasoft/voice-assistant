@@ -4,6 +4,7 @@ import sys
 import json
 import os
 import tempfile
+import pytest
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -114,8 +115,9 @@ class MultiUserRobustnessTests(unittest.TestCase):
         self.assertIn("required", result.stderr.lower())
         self.assertIn("--api-key", result.stderr.lower())
 
+    @pytest.mark.timeout(120)
     def test_02_multi_user_isolation_and_synonyms(self):
-        """测试：多用户数据隔离及语义查询（自然语言理解）"""
+        """测试：多用户数据隔离及语义查询（真实 LLM，120s timeout）"""
         # 1. 大王存入护照信息
         self.run_ptt(["--api-key", self.tokens["soj"], "--text-input", "记一下，我的护照在书房蓝色文件夹里", "--record"])
         
@@ -132,8 +134,9 @@ class MultiUserRobustnessTests(unittest.TestCase):
         # 只要回复里不包含具体的电表数值，就说明隔离成功
         self.assertNotIn("1234.5", result.stderr + result.stdout)
 
+    @pytest.mark.timeout(120)
     def test_03_time_range_robustness(self):
-        """测试：时间范围提取与过滤"""
+        """测试：时间范围提取与过滤（真实 LLM，120s timeout）"""
         # 存入一条当天的记录
         today_str = datetime.now().strftime("%Y-%m-%d")
         self.run_ptt(["--api-key", self.tokens["soj"], "--text-input", f"今天（{today_str}）我买了一斤苹果", "--record"])
