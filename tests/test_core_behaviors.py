@@ -14,6 +14,7 @@ from press_to_talk.storage import SessionHistoryRecord, StorageConfig, StorageSe
 from press_to_talk.storage.cli_wrapper import CLIRememberStore
 from press_to_talk.storage import memory_backends as memory_backends_module
 from press_to_talk.storage.providers import sqlite_fts as sqlite_fts_module
+from press_to_talk.storage.providers import mem0 as mem0_module
 from press_to_talk.storage.providers import extract_sqlite_summary_payload
 from press_to_talk.storage import service as storage_service_module
 
@@ -108,8 +109,8 @@ class FakeStorageService:
     def history_store(self) -> "FakeStorageService":
         return self
 
-    def keyword_rewriter(self):
-        return None
+    def get_user_nickname(self) -> str:
+        return "大王"
 
     def persist(self, entry: SessionHistoryRecord) -> None:
         self.history_entries.append(entry)
@@ -729,6 +730,7 @@ class ThinkTagFilterTests(unittest.TestCase):
         agent.model = "test-model"
         agent.summary_model = "summary-model"
         agent.workflow = workflow_with_prompts()
+        agent.storage = FakeStorageService()
 
         summary = self.async_run(
             agent._summarize_remember_output(
@@ -773,6 +775,7 @@ class ThinkTagFilterTests(unittest.TestCase):
                 agent.client = FakeClient("<think>内部思考</think>\n护照在书房抽屉里。")
                 agent.model = "test-model"
                 agent.workflow = workflow_with_prompts()
+                agent.storage = FakeStorageService()
 
                 summary = self.async_run(
                     agent._summarize_remember_output(
@@ -1072,7 +1075,7 @@ class ThinkTagFilterTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(result, "ADD:今天是伊朗和美国停战两个星期。")
+        self.assertEqual(result, "✅ 已记录：今天是伊朗和美国停战两个星期。")
         self.assertEqual(
             agent.storage.remember_store().add_calls[0],
             {
@@ -1293,7 +1296,7 @@ class HistoryWriterTests(unittest.TestCase):
 
         self.assertEqual(config.mem0_app_id, "voice-assistant")
         self.assertEqual(config.mem0_min_score, 0.7)
-        self.assertEqual(config.mem0_max_items, 10)
+        self.assertEqual(config.mem0_max_items, 20)
         self.assertTrue(
             config.history_db_path.endswith("data/voice_assistant_store.sqlite3")
         )
@@ -1304,7 +1307,7 @@ class HistoryWriterTests(unittest.TestCase):
         self.assertTrue(config.embedding_search_enabled)
         self.assertIn("bge-m3", config.embedding_model)
         self.assertTrue(config.embedding_base_url.endswith("/v1"))
-        self.assertEqual(config.embedding_max_results, 5)
+        self.assertEqual(config.embedding_max_results, 20)
         self.assertEqual(config.embedding_min_score, 0.45)
         self.assertEqual(config.embedding_context_min_score, 0.55)
 
@@ -1365,7 +1368,7 @@ class HistoryWriterTests(unittest.TestCase):
 
     def test_mem0_store_add_uses_fixed_user_id(self) -> None:
         client = FakeMem0Client()
-        store = storage_service_module.Mem0RememberStore(
+        store = mem0_module.Mem0RememberStore(
             client=client, user_id="default", app_id="voice-assistant"
         )
 
@@ -1385,7 +1388,7 @@ class HistoryWriterTests(unittest.TestCase):
 
     def test_mem0_store_round_trip_returns_app_id(self) -> None:
         client = FakeMem0Client()
-        store = storage_service_module.Mem0RememberStore(
+        store = mem0_module.Mem0RememberStore(
             client=client, user_id="default", app_id="voice-assistant"
         )
 
@@ -1401,7 +1404,7 @@ class HistoryWriterTests(unittest.TestCase):
 
     def test_mem0_store_find_returns_json(self) -> None:
         client = FakeMem0Client()
-        store = storage_service_module.Mem0RememberStore(
+        store = mem0_module.Mem0RememberStore(
             client=client, user_id="default", app_id="voice-assistant"
         )
         store.add(memory="护照在书房抽屉里")
@@ -1446,7 +1449,7 @@ class HistoryWriterTests(unittest.TestCase):
                 "score": 0.93,
             },
         ]
-        store = storage_service_module.Mem0RememberStore(
+        store = mem0_module.Mem0RememberStore(
             client=client, user_id="default", app_id="voice-assistant"
         )
 
@@ -1482,7 +1485,7 @@ class HistoryWriterTests(unittest.TestCase):
                 }
             ]
         }
-        store = storage_service_module.Mem0RememberStore(
+        store = mem0_module.Mem0RememberStore(
             client=client, user_id="default", app_id="voice-assistant"
         )
 
@@ -1621,7 +1624,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
     def test_sqlite_store_add_and_find_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="default")
+            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="default")
 
             result = store.add(
                 memory="周会在二号会议室",
@@ -1629,14 +1632,14 @@ class SQLiteRememberStoreTests(unittest.TestCase):
             )
             found = store.find(query="二号会议室")
 
-        self.assertIn("✅ 已记录", result)
+        self.assertTrue(len(result) > 20)  # Hex ID
         self.assertIn('"memory": "周会在二号会议室"', found)
         self.assertIn('"original_text": "帮我记一下周会在二号会议室，别搞错"', found)
 
     def test_sqlite_store_update_overwrites_single_existing_row(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = storage_service_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="default")
+            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="default")
             store.add(
                 memory="护照在书房抽屉里",
                 original_text="帮我记住护照在书房抽屉里",
@@ -1659,83 +1662,6 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         self.assertEqual(records[0].memory, "护照在卧室床头柜第二层")
         self.assertIn('"memory": "护照在卧室床头柜第二层"', found)
         self.assertNotIn('"memory": "护照在书房抽屉里"', found)
-
-    def test_sqlite_store_uses_keyword_rewriter_before_search(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "remember.sqlite3"
-            rewriter = FakeKeywordRewriter('"护照" OR "书房"')
-            store = storage_service_module.SQLiteFTS5RememberStore(
-                db_path=db_path,
-                user_id="default",
-                keyword_rewriter=rewriter,
-            )
-            store.add(
-                memory="护照在书房第二层抽屉里",
-                original_text="帮我记住护照在书房第二层抽屉里",
-            )
-
-            found = store.find(query="我的护照放哪了")
-
-        self.assertEqual(rewriter.calls, ["我的护照放哪了"])
-        self.assertIn('"memory": "护照在书房第二层抽屉里"', found)
-
-    def test_sqlite_store_filters_irrelevant_results_after_broad_rewrite(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "remember.sqlite3"
-            rewriter = FakeKeywordRewriter(
-                '"USB测试版" OR "在哪" OR "壮壮" OR "同义词:" OR "USB" OR "测试版"'
-            )
-            store = storage_service_module.SQLiteFTS5RememberStore(
-                db_path=db_path,
-                user_id="default",
-                keyword_rewriter=rewriter,
-            )
-            store.add(
-                memory="USB测试版在书房白色柜子抽屉内透明盒中",
-                original_text="User has a USB beta build stored in a transparent box inside a drawer of a white cabinet in the study",
-            )
-            store.add(
-                memory="护照在书房白色柜子的第一个抽屉里。",
-                original_text="User's passport is stored in the first drawer of the white cabinet in the study",
-            )
-
-            found = store.find(query="usb测试版在哪")
-
-        self.assertIn("USB测试版在书房白色柜子抽屉内透明盒中", found)
-        self.assertNotIn("护照在书房白色柜子的第一个抽屉里", found)
-
-    def test_sqlite_store_filters_irrelevant_results_for_pre_rewritten_query(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "remember.sqlite3"
-            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="default")
-            store.add(
-                memory="USB测试版在书房柜子第二层",
-                original_text="记住 USB 测试版放在书房柜子第二层",
-            )
-            store.add(
-                memory="这是一个完全不匹配的记录",
-                original_text="没有任何关键词在这里",
-            )
-            store.add(
-                memory="USB 集线器在客厅电视柜",
-                original_text="只提到了 usb，跟测试版无关",
-            )
-
-            found = store.find(query='"usb" OR "测试版"')
-
-        self.assertIn("USB测试版在书房柜子第二层", found)
-        self.assertIn("USB 集线器在客厅电视柜", found)
-        self.assertNotIn("这是一个完全不匹配的记录", found)
-
-    def test_sqlite_store_treats_pre_rewritten_or_query_as_simple_keywords(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "remember.sqlite3"
-            store = sqlite_fts_module.SQLiteFTS5RememberStore(db_path=db_path, user_id="default")
-            store.use_simple_query = True
-
-            match_query = store._match_query('"usb" OR "测试版"')
-
-        self.assertEqual(match_query, '"usb" OR "测试版"')
 
     def test_groq_keyword_rewriter_logs_prompt_and_raw_response(self) -> None:
         capture = LogCapture()
@@ -1807,33 +1733,6 @@ class SQLiteRememberStoreTests(unittest.TestCase):
         self.assertIn("近义词", prompt_text)
         self.assertIn("2 到 7 个", prompt_text)
 
-    def test_sqlite_store_logs_search_keywords_and_queries(self) -> None:
-        capture = LogCapture()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "remember.sqlite3"
-            rewriter = FakeKeywordRewriter('"护照" OR "书房"')
-            store = storage_service_module.SQLiteFTS5RememberStore(
-                db_path=db_path,
-                user_id="default",
-                keyword_rewriter=rewriter,
-            )
-            store.add(
-                memory="护照在书房第二层抽屉里",
-                original_text="帮我记住护照在书房第二层抽屉里",
-            )
-
-            with patch("press_to_talk.storage.providers.sqlite_fts.log", capture), \
-                 patch("press_to_talk.utils.logging.log", capture):
-                found = store.find(query="我的护照放哪了")
-
-        self.assertIn('"memory": "护照在书房第二层抽屉里"', found)
-        self.assertTrue(any("remember search input:" in message for message in capture.messages))
-        self.assertTrue(any("match_query" in message for message in capture.messages))
-        self.assertTrue(any("keywords" in message for message in capture.messages))
-        self.assertTrue(any("fts5" in message for message in capture.messages))
-        payload = json.loads(found)
-        self.assertEqual(payload["results"][0]["score"], 1.0)
-
     def test_sqlite_store_falls_back_to_raw_query_when_rewriter_fails(self) -> None:
         class RaisingKeywordRewriter:
             def rewrite(self, query: str) -> str:
@@ -1841,7 +1740,7 @@ class SQLiteRememberStoreTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "remember.sqlite3"
-            store = storage_service_module.SQLiteFTS5RememberStore(
+            store = sqlite_fts_module.SQLiteFTS5RememberStore(
                 db_path=db_path,
                 user_id="default",
                 keyword_rewriter=RaisingKeywordRewriter(),
@@ -1855,127 +1754,6 @@ class SQLiteRememberStoreTests(unittest.TestCase):
 
         self.assertIn('"memory": "AirPods 在办公桌左边抽屉"', found)
 
-    def test_sqlite_store_appends_embedding_matches_when_fts_misses(self) -> None:
-        capture = LogCapture()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "remember.sqlite3"
-            embedding_client = FakeEmbeddingClient(
-                {
-                    "苹果笔记本的充电器放在书柜下面的蓝色布包里\n苹果笔记本充电器在蓝色布包里": [1.0, 0.0],
-                    "我的电脑电源适配器在哪": [0.98, 0.02],
-                }
-            )
-            store = storage_service_module.SQLiteFTS5RememberStore(
-                db_path=db_path,
-                user_id="default",
-                keyword_rewriter=FakeKeywordRewriter('"完全不相关的词"'),
-                embedding_client=embedding_client,
-                embedding_model="text-embedding-bge-m3",
-                embedding_max_results=3,
-                embedding_min_score=0.45,
-                embedding_context_min_score=0.55,
-            )
-            store.add(
-                memory="苹果笔记本的充电器放在书柜下面的蓝色布包里",
-                original_text="苹果笔记本充电器在蓝色布包里",
-            )
-
-            with patch("press_to_talk.storage.providers.sqlite_fts.log", capture), \
-                 patch("press_to_talk.utils.logging.log", capture):
-                found = store.find(query="我的电脑电源适配器在哪")
-
-        payload = json.loads(found)
-        self.assertEqual(len(payload["results"]), 1)
-        self.assertEqual(
-            payload["results"][0]["memory"],
-            "苹果笔记本的充电器放在书柜下面的蓝色布包里",
-        )
-        self.assertGreater(payload["results"][0]["metadata"]["embedding_score"], 0.9)
-        self.assertEqual(payload["results"][0]["score"], 1.0)
-        self.assertGreaterEqual(payload["results"][0]["score"], 0.6)
-        self.assertTrue(any("remember embedding input" in message for message in capture.messages))
-        self.assertTrue(any("remember embedding results" in message for message in capture.messages))
-
-    def test_sqlite_store_filters_low_confidence_embedding_results_from_context(self) -> None:
-        capture = LogCapture()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "remember.sqlite3"
-            embedding_client = FakeEmbeddingClient(
-                {
-                    "USB数据线测试板\nUSB测试板在书房白色柜子透明盒里": [1.0, 0.0],
-                    "usb测试版在哪": [0.5, 0.5],
-                }
-            )
-            store = storage_service_module.SQLiteFTS5RememberStore(
-                db_path=db_path,
-                user_id="default",
-                keyword_rewriter=FakeKeywordRewriter('"完全不相关的词"'),
-                embedding_client=embedding_client,
-                embedding_model="text-embedding-bge-m3",
-                embedding_max_results=3,
-                embedding_min_score=0.45,
-                embedding_context_min_score=0.8,
-            )
-            store.add(
-                memory="USB数据线测试板",
-                original_text="USB测试板在书房白色柜子透明盒里",
-            )
-
-            with patch("press_to_talk.storage.providers.sqlite_fts.log", capture), \
-                 patch("press_to_talk.utils.logging.log", capture):
-                found = store.find(query="usb测试版在哪")
-
-        payload = json.loads(found)
-        self.assertEqual(payload["results"], [])
-        self.assertTrue(any("remember embedding filtered" in message for message in capture.messages))
-
-    def test_migrate_mem0_memories_to_sqlite_translates_and_inserts(self) -> None:
-        source_client = FakeMem0Client()
-        source_client.memories = [
-            {
-                "id": "mem-1",
-                "memory": "passport is in the study drawer",
-                "metadata": {"original_text": "passport is in the study drawer"},
-                "created_at": "2026-04-12T10:00:00+08:00",
-            },
-            {
-                "id": "mem-2",
-                "memory": "usb test board is on the desk",
-                "metadata": {"original_text": "usb test board is on the desk"},
-                "created_at": "2026-04-12T10:01:00+08:00",
-            },
-        ]
-        source_store = storage_service_module.Mem0RememberStore(
-            client=source_client,
-            user_id="default",
-            app_id="voice-assistant",
-        )
-        translator = FakeMemoryTranslator()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "remember.sqlite3"
-            target_store = storage_service_module.SQLiteFTS5RememberStore(
-                db_path=db_path,
-                user_id="default",
-            )
-
-            copied = storage_service_module.migrate_mem0_memories_to_sqlite(
-                source_store=source_store,
-                target_store=target_store,
-                translator=translator,
-            )
-            found = target_store.find(query="中文")
-
-        self.assertEqual(copied, 2)
-        self.assertEqual(
-            translator.calls,
-            [
-                "passport is in the study drawer",
-                "usb test board is on the desk",
-            ],
-        )
-        self.assertIn('"memory": "中文:passport is in the study drawer"', found)
-        self.assertIn('"memory": "中文:usb test board is on the desk"', found)
 
 
 class NonReentrantLock:

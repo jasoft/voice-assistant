@@ -2,11 +2,11 @@
   "hooks": {
     "Stop": [
       {
-        "matcher": "",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/stop-notify.sh"
+            "command": "/Users/weiwang/Projects/voice-assistant/.claude/hooks/stop-notify.sh"
           }
         ]
       }

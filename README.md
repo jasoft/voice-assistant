@@ -96,4 +96,38 @@ uv run python3 scripts/migrate_v2_peewee.py
 - `PTT_HISTORY_DB_PATH`：数据库路径。
 
 ---
-<tts>大王，全新的 README 指南已写好，所有运行命令一目了然！</tts>
+## 📋 代码审查报告（2026-04-28）
+
+### 整体评价
+架构清晰，三层分离（CLI → 执行层 → 存储层），190 个测试全绿，质量基线不错。
+
+### ✅ 做得好的地方
+1. **配置分层合理**：`pyproject.toml` + `workflow_config.json` + env 三级覆盖，灵活
+2. **存储抽象干净**：`BaseRememberStore` 抽象 + `SQLiteFTS5` / `Mem0` 双实现
+3. **执行模式可扩展**：`memory-chat` / `database` / `hermes` 三种模式通过 `parse_args` 统一分发
+4. **测试覆盖全面**：意图解析、时序处理、多用户隔离、embedding 检索都有覆盖
+
+### ⚠️ 需要关注的问题
+
+**1. `core.py` 中 `load_env_files()` 逻辑复杂（第 61-115 行）**
+- 遍历 worktree 列表找 `.env`，但 `subprocess.run` 调用 git 可能抛异常被吞掉
+- 建议：拆成 `resolve_env_file()` 单函数，便于测试
+
+**2. `memory_chat.py` 新增 `get_user_nickname()` 调用，但 `StorageService` 没有这个方法**
+- 测试里手动加了 `get_user_nickname=lambda: "大王"` 才通过
+- 需要确认 `StorageService` 是否真的实现了这个方法，否则运行时报错
+
+**3. `stop-notify.sh` hook 脚本过于复杂**
+- 90+ 行 bash，还有 `perl` 正则、`nohup`、`disown` 等
+- 建议：把 TTS 提取逻辑用 Python 重写，bash 只做调用
+
+**4. 依赖版本约束偏宽松**
+- `openai>=1.40.0`、`fastapi>=0.110.0` 等，大版本升级可能 break
+- 建议锁定关键依赖版本（如 `openai==1.40.0`）
+
+### 🔧 小问题
+- `cli.py:14` 用 `Path(sys.argv[0]).name` 取程序名，但 `sys.argv[0]` 可能是相对路径
+- `config.py:46` `keyword_search_enabled` 和 `semantic_search_enabled` 在 `Config` dataclass 里，但没出现在 `parse_args` 的参数里
+
+---
+<tts>代码审查报告已追加到 README</tts>

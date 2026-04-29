@@ -65,6 +65,9 @@ def _sanitize_rewritten_keywords(keywords: list[str], raw_query: str) -> list[st
     for keyword in keywords:
         candidate = str(keyword or "").strip().strip("\"'`")
         if not candidate or candidate.lower() in invalid_terms: continue
+        if len(candidate) > MAX_REWRITE_KEYWORD_LENGTH: continue
+        if any(sym in candidate for sym in ("->", "同义词:", ":", "：", "->")): continue
+        
         norm = _normalize_match_text(candidate)
         if not norm or norm in seen: continue
         seen.add(norm)
@@ -245,6 +248,9 @@ class SQLiteFTS5RememberStore(BaseRememberStore):
         candidates: dict[str, dict[str, Any]] = {}
 
         # 核心过滤器：日期范围
+        if start_date and end_date and start_date > end_date:
+            start_date, end_date = end_date, start_date
+
         date_where = ""
         date_params = []
         if start_date:
@@ -363,10 +369,3 @@ def extract_sqlite_summary_payload(p: str | dict | list) -> dict:
     try: d = json.loads(p) if isinstance(p, str) else p
     except: return {"items": []}
     return {"items": d.get("results", [])}
-
-def _quote_match_token(t: str) -> str: return f'"{t}"'
-def _default_match_query(q: str) -> str | None:
-    tokens = _tokenize_for_match(q)
-    return " OR ".join(_quote_match_token(t) for t in tokens) if tokens else None
-def _keywords_from_match_query(m: str, q: str) -> list[str]:
-    return [t.strip('"') for t in m.split(" OR ")] if m else []

@@ -107,9 +107,47 @@ def log(msg: str, *, level: str = "info", stack_depth: int = 1) -> None:
     sys.stderr.flush()
 
 def log_multiline(title: str, content: str, *, level: str = "debug") -> None:
-    normalized = content if content else "<empty>"
+    normalized = (content or "").strip()
+    if not normalized:
+        normalized = "<empty>"
+    
     t = title if title.endswith(":") else f"{title}:"
     log(t, level=level, stack_depth=2)
+
+    # Smart JSON detection and jq formatting
+    is_json = False
+    if (normalized.startswith("{") and normalized.endswith("}")) or \
+       (normalized.startswith("[") and normalized.endswith("]")):
+        import json
+        import subprocess
+        try:
+            # Validate JSON first
+            json.loads(normalized)
+            is_json = True
+            
+            # Try jq for formatting and color (if it's a TTY)
+            # Use -C for color, . for identity filter
+            try:
+                # Limit size to avoid process hang on massive logs
+                if len(normalized) < 1024 * 512:
+                    res = subprocess.run(
+                        ["jq", "-C", "."],
+                        input=normalized.encode("utf-8"),
+                        capture_output=True,
+                        timeout=2.0
+                    )
+                    if res.returncode == 0:
+                        colored_json = res.stdout.decode("utf-8", errors="replace")
+                        for line in colored_json.splitlines():
+                            # Note: we use print directly for jq output to preserve ANSI codes
+                            # but still maintain the log prefix via sys.stderr.write
+                            sys.stderr.write(f"  {line}\n")
+                        return
+            except:
+                pass # Fallback to standard logging if jq fails
+        except:
+            pass
+
     for line in normalized.splitlines():
         log(f"  {line}", level=level, stack_depth=2)
 

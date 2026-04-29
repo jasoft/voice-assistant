@@ -100,7 +100,7 @@ class ExecutionModeConfigTests(unittest.TestCase):
                     "PTT_STT_URL": "http://localhost:8000/stt",
                     "PTT_STT_TOKEN": "test-token",
                     "PTT_MODEL": "intent-model",
-                    "PTT_SUMMERIZE_MODEL": "summary-model",
+                    "PTT_SUMMARIZE_MODEL": "summary-model",
                 },
                 clear=True,
             ),
@@ -238,7 +238,10 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
                 ]
             },
         )
-        fake_storage = SimpleNamespace(remember_store=lambda: fake_store)
+        fake_storage = SimpleNamespace(
+            remember_store=lambda: fake_store,
+            get_user_nickname=lambda: "大王",
+        )
 
         with patch(
             "press_to_talk.execution.memory_chat.StorageService",
@@ -341,7 +344,10 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             find=lambda *, query: '{"items":[]}',
             extract_summary_items=lambda raw: {"items": []},
         )
-        fake_storage = SimpleNamespace(remember_store=lambda: fake_store)
+        fake_storage = SimpleNamespace(
+            remember_store=lambda: fake_store,
+            get_user_nickname=lambda: "大王",
+        )
 
         with (
             create_mock as openai_mock,

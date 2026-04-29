@@ -33,19 +33,22 @@ class CLIStoreBase:
                 log_cmd[key_idx + 1] = "***"
         # Use shlex.join for a more readable command log that handles quoting correctly
         log("storage cli exec: " + shlex.join(log_cmd), level="debug")
-        
-        # Force color output for the sub-process even when piped
+
+        # Let child's stderr pass through to parent's stderr directly.
+        # This avoids log nesting where child logs are captured then re-output.
+        # Only capture stdout for JSON parsing.
         env = {**os.environ, "FORCE_COLOR": "1"}
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", env=env)
-        
-        if result.stderr.strip():
-            # Directly output stderr to maintain original formatting and avoid
-            # log-level filtering in the wrapper.
-            sys.stderr.write(result.stderr)
-            sys.stderr.flush()
-            
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=None,  # Inherit parent's stderr
+            text=True,
+            encoding="utf-8",
+            env=env,
+        )
+
         if result.returncode != 0:
-            error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error"
+            error_msg = result.stdout.strip() or "Storage CLI error, check logs above"
             raise RuntimeError(f"Storage CLI error: {error_msg}")
         return result
 

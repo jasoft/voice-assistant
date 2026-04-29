@@ -1,0 +1,16 @@
+=== 2026-04-28 15:33:38 ===
+[DEBUG] No temp file content, trying transcript...
+=== 2026-04-28 15:37:35 ===
+[DEBUG] No temp file content, trying transcript...
+=== 2026-04-28 15:38:11 ===
+[DEBUG] No temp file content, trying transcript...
+[DEBUG] Raw input length: 43
+[DEBUG] transcript_path: /tmp/nonexistent.json
+[DEBUG] Final tts_text: 
+[DEBUG] Done
+=== 2026-04-28 15:52:47 ===
+[DEBUG] No temp file content, trying transcript...
+[DEBUG] stdin is tty, skipping read
+[DEBUG] transcript_path: 
+[DEBUG] Final tts_text: 
+[DEBUG] Done
