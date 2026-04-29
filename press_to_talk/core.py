@@ -63,8 +63,7 @@ def load_env_files() -> None:
     loaded_keys: set[str] = set()
     for env_file in _candidate_env_files():
         loaded_any = (
-            env_module._load_env_file(env_file, loaded_keys=loaded_keys)
-            or loaded_any
+            env_module._load_env_file(env_file, loaded_keys=loaded_keys) or loaded_any
         )
     if loaded_any:
         return
@@ -170,17 +169,23 @@ def main(argv: list[str] | None = None) -> int:
             log_timing("end chime dispatched")
 
             if audio is None:
-                log("录音结束，未检测到有效语音; proceeding to execution layer for empty handling")
+                log(
+                    "录音结束，未检测到有效语音; proceeding to execution layer for empty handling"
+                )
                 transcript = ""
             else:
                 write_wav(cfg.audio_file, audio, cfg.sample_rate, cfg.channels)
                 log(f"audio saved: {cfg.audio_file}")
-                session_peak_level, session_mean_level = recorder.get_audio_level_stats()
+                session_peak_level, session_mean_level = (
+                    recorder.get_audio_level_stats()
+                )
 
                 events.emit("status", phase="transcribing")
                 transcript = run_stt(cfg.stt_url, cfg.stt_token, cfg.audio_file)
                 if not transcript:
-                    log("no speech detected from stt; proceeding to execution layer for empty handling")
+                    log(
+                        "no speech detected from stt; proceeding to execution layer for empty handling"
+                    )
                     transcript = ""
 
         log(f"transcript: {transcript}")
@@ -194,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         if cfg.no_tts:
             log("tts disabled for this run")
         else:
-            log("tts command: qwen-tts --play --speaker serena --stream")
+            log("tts command: qwen-tts")
 
         if cfg.classify_only:
             events.emit("status", phase="thinking")

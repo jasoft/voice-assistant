@@ -31,7 +31,7 @@ public final class AppModel: ObservableObject {
         self.workingDirectory = workingDirectory
         let bridge = PTTProcessBridge(viewModel: session)
         self.bridge = bridge
-        
+
         let config = VAConfig.load(workingDirectory: workingDirectory)
         if let config = config {
             self.vaClient = VAClient(config: config)
@@ -50,7 +50,7 @@ public final class AppModel: ObservableObject {
                 self?.scheduleHistoryReload()
             }
             .store(in: &cancellables)
-            
+
         bridge.onEvent = { [weak self] line in
             Task { @MainActor in
                 self?.handleBridgeEvent(line: line)
@@ -64,7 +64,7 @@ public final class AppModel: ObservableObject {
               let type = payload["type"] as? String else {
             return
         }
-        
+
         if type == "transcript", let text = payload["text"] as? String, !text.isEmpty {
             // Intercept transcript and switch to API
             if vaClient != nil {
@@ -73,7 +73,7 @@ public final class AppModel: ObservableObject {
             }
         }
     }
-    
+
     private func performRemoteQuery(text: String) {
         session.apply(jsonLine: "{\"type\": \"status\", \"phase\": \"thinking\"}")
         Task { @MainActor in
@@ -82,7 +82,7 @@ public final class AppModel: ObservableObject {
                 let response = try await client.query(text: text)
                 session.apply(jsonLine: "{\"type\": \"reply\", \"text\": \"\(response.reply.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n"))\"}")
                 session.apply(jsonLine: "{\"type\": \"status\", \"phase\": \"done\", \"auto_close_seconds\": 5}")
-                
+
                 // Optional: Play TTS locally
                 speakLocally(text: response.reply)
             } catch {
@@ -90,16 +90,16 @@ public final class AppModel: ObservableObject {
             }
         }
     }
-    
+
     private func speakLocally(text: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["qwen-tts", "--play", text, "--speaker", "serena", "--stream"]
+        process.arguments = ["qwen-tts",  text ]
         process.currentDirectoryURL = workingDirectory
-        
+
         // Pass through existing environment which might have PATH for qwen-tts
         process.environment = ProcessInfo.processInfo.environment
-        
+
         try? process.run()
     }
 
@@ -133,7 +133,7 @@ public final class AppModel: ObservableObject {
         session.resetForNewSession()
         screenMode = .live
         bridge.stop()
-        
+
         if vaClient != nil {
             session.apply(jsonLine: "{\"type\": \"transcript\", \"text\": \"\(prompt.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n"))\"}")
             performRemoteQuery(text: prompt)
@@ -255,7 +255,7 @@ public final class AppModel: ObservableObject {
         Task { @MainActor in
             do {
                 if vaClient != nil {
-                    // Note: Current API might not support delete. 
+                    // Note: Current API might not support delete.
                     // If not, we just log it or show an error.
                     // For now, let's assume it doesn't and just remove locally or show warning.
                     // Actually, let's keep it calling local bridge if no API support.

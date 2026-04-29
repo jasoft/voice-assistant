@@ -34,7 +34,7 @@
 
 - 录音开始音和结束音使用系统 `afplay`
 - TTS 使用外部命令：
-  `qwen-tts --play <text> --speaker serena --stream`
+  `qwen-tts <text>`
 - Chat 分支会加载 `brave-search` 和 `fetch` MCP 工具
 - Remember 分支使用存储层 CLI：
   `ptt-storage memory search` / `ptt-storage memory add`
