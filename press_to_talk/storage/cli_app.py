@@ -304,10 +304,9 @@ def main(argv: list[str] | None = None) -> int:
                 count = export_memories_to_provider(source_store=service.remember_store(), target_store=target_store)
                 print(json.dumps({"status": "ok", "exported_count": count}, ensure_ascii=False))
             elif args.category == "memory" and args.command == "rebuild-fts":
-                # 如果没有 effective_user_id，视为 Admin 进行全量重建
-                do_all = (effective_user_id is None)
-                count = service.remember_store().rebuild_fts(all_users=do_all)
-                print(json.dumps({"status": "ok", "rebuilt_count": count, "mode": "all" if do_all else "single-user"}, ensure_ascii=False))
+                # rebuild_fts() 始终执行全局重建，不区分用户
+                count = service.remember_store().rebuild_fts()
+                print(json.dumps({"status": "ok", "rebuilt_count": count, "mode": "all"}, ensure_ascii=False))
             elif args.category == "history" and args.command == "list":
                 records = service.history_store().list_recent(limit=args.limit, query=args.query)
                 print(json.dumps([asdict(r) for r in records], ensure_ascii=False))
