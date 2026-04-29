@@ -70,24 +70,34 @@ def consume_tts_stop_request() -> bool:
         signal_path.unlink()
     return True
 
+def _run_tts_process(text: str, is_async: bool = False) -> subprocess.Popen | subprocess.CompletedProcess:
+    """统一的 TTS 执行入口"""
+    qwen_tts = ensure_bin("qwen-tts")
+    cmd = [qwen_tts, text]
+
+    if is_async:
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    else:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+        )
+
 def generate_tts_wav(text: str, output_path: Path) -> Path:
     clean_text = sanitize_for_tts(text)
     if not clean_text:
         raise RuntimeError("tts text became empty after sanitize")
 
-    qwen_tts = ensure_bin("qwen-tts")
     log(f"generating tts wav for text: {clean_text[:20]}...")
-    
-    # 按照大王要求，直接调用 qwen-tts "文字"
-    # 如果 qwen-tts 默认生成 output.wav，我们将其移动到指定位置
-    # 注意：如果 qwen-tts 强制播放且不生成文件，这里可能需要调整逻辑，
-    # 但由于主要场景是 speak_text，这里先尽可能兼容。
-    proc = subprocess.run(
-        [qwen_tts, clean_text],
-        capture_output=True,
-        text=True,
-    )
-    
+
+    proc = _run_tts_process(clean_text, is_async=False)
+
     if proc.returncode == 0:
         default_output = Path("output.wav")
         if default_output.exists():
@@ -95,7 +105,7 @@ def generate_tts_wav(text: str, output_path: Path) -> Path:
             return output_path
         elif output_path.exists():
             return output_path
-            
+
     msg = (proc.stderr or proc.stdout or f"tts generation failed with code {proc.returncode}").strip()
     raise RuntimeError(msg)
 
@@ -104,17 +114,37 @@ def speak_text(text: str) -> bool:
     if not clean_text:
         raise RuntimeError("tts text became empty after sanitize")
 
-    qwen_tts = ensure_bin("qwen-tts")
     log(f"speaking reply with: qwen-tts \"{clean_text[:20]}...\"")
     consume_tts_stop_request()
-    
-    # 按照大王要求，改成 qwen-tts "要读的文字"
-    proc = subprocess.Popen(
-        [qwen_tts, clean_text],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+
+    proc = _run_tts_process(clean_text, is_async=True)
+    assert isinstance(proc, subprocess.Popen)
+
+    try:
+        while True:
+            # Check if parent process (the GUI or launcher) has died. 
+            if consume_tts_stop_request() or os.getppid() == 1:
+                log("received GUI stop request or parent process exited for qwen-tts")
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                return False
+            code = proc.poll()
+            if code is not None:
+                stdout, stderr = proc.communicate()
+                if code != 0:
+                    msg = (stderr or stdout or f"command failed with code {code}").strip()
+                    raise RuntimeError(msg)
+                return True
+            time.sleep(0.1)
+    finally:
+        with contextlib.suppress(Exception):
+            if proc.poll() is None:
+                proc.kill()
+
     try:
         while True:
             # Check if parent process (the GUI or launcher) has died. 
