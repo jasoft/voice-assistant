@@ -1,4 +1,10 @@
+---
+name: remember
+description: 直接访问会话历史和长期记忆的存储 Skill。
+---
+
 # Voice Assistant Storage Skill
+
 
 This skill provides direct, pure access to session history and long-term memory via the Standalone Storage CLI. It is a strictly functional layer for data persistence and retrieval.
 
