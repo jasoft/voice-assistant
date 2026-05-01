@@ -4,9 +4,11 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
+import httpx
 
 from .execution import execute_transcript_async
 from .core import run_stt, load_env_files, parse_args
@@ -26,6 +28,9 @@ set_global_log_level("DEBUG")
 log(f"Web API Server starting. Log file: {log_path}")
 
 app = FastAPI(title="Voice Assistant Web API")
+
+PB_URL = env_path("PTT_PB_URL", "http://127.0.0.1:18090")
+pb_client = httpx.AsyncClient(base_url=PB_URL)
 
 # 允许跨域
 app.add_middleware(
@@ -142,6 +147,34 @@ async def process_audio(audio: UploadFile = File(...)):
         # if temp_dir.exists():
         #     shutil.rmtree(temp_dir)
         pass
+
+@app.api_route("/pb/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def proxy_pocketbase(path: str, request: Request):
+    url = httpx.URL(path=f"/{path}", query=request.url.query.encode("utf-8"))
+    
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    
+    req = pb_client.build_request(
+        request.method,
+        url,
+        headers=headers,
+        content=request.stream(),
+    )
+    
+    res = await pb_client.send(req, stream=True)
+    
+    # Filter out hop-by-hop headers from PocketBase response
+    res_headers = dict(res.headers)
+    res_headers.pop("transfer-encoding", None)
+    res_headers.pop("content-encoding", None)
+    
+    return StreamingResponse(
+        res.aiter_raw(),
+        status_code=res.status_code,
+        headers=res_headers,
+        background=BackgroundTask(res.aclose)
+    )
 
 # 挂载静态文件放在最后，避免拦截 API 路由
 frontend_path = Path("web_gui")

@@ -15,19 +15,14 @@ from .memory_backends import (
     _sanitize_rewritten_keywords,
 )
 from .models import (
-    APIToken,
     BaseHistoryStore,
     BaseRememberStore,
     EmbeddingClient,
     KeywordRewriter,
     MemoryTranslator,
-    RememberEntry,
-    SessionHistory,
     StorageConfig,
-    User,
-    db,
 )
-from .sqlite_history import PeeweeHistoryStore
+from .pocketbase_store import PocketBaseHistoryStore, PocketBaseRememberStore
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_APP_DB_PATH = APP_ROOT / "data" / "voice_assistant_store.sqlite3"
@@ -267,24 +262,12 @@ def load_storage_config(
 
 
 def ensure_storage_database(config: StorageConfig | None = None) -> None:
-    cfg = config or load_storage_config()
-    db_path = str(cfg.remember_db_path or cfg.history_db_path or DEFAULT_APP_DB_PATH)
-    db_path_obj = Path(db_path).expanduser().resolve()
-    db_path_obj.parent.mkdir(parents=True, exist_ok=True)
-    db.init(str(db_path_obj))
-    db.connect(reuse_if_open=True)
-    db.create_tables([User, APIToken, SessionHistory, RememberEntry])
-
+    pass  # Handled by PocketBase
 
 def resolve_user_id_from_api_key(api_key: str) -> str | None:
+    # Deprecated with PocketBase proxy if not using api_tokens collection
     token = str(api_key or "").strip()
-    if not token:
-        return None
-    ensure_storage_database()
-    token_record = APIToken.get_or_none(APIToken.token == token)
-    if token_record is None:
-        return None
-    return str(token_record.user_id)
+    return token if token else "default"
 
 
 class LLMKeywordRewriter:
@@ -600,48 +583,12 @@ class StorageService:
 
         self.config = normalized
 
-        # Initialize Peewee database
-        db_path = Path(self.config.remember_db_path).expanduser()
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        db.init(str(db_path))
-        db.connect(reuse_if_open=True)
-        db.create_tables([User, APIToken, SessionHistory, RememberEntry])
-        self._initialize_users()
-
         self._remember_provider: BaseRememberStore | None = None
-        self._remember_store: BaseRememberStore | None = None
-        if use_cli:
-            self._history_store = CLIHistoryStore(
-                user_id=self.config.user_id,
-                api_key=self.config.user_token,
-            )
-            self._remember_store = CLIRememberStore(
-                user_id=self.config.user_id,
-                api_key=self.config.user_token,
-                summary_extractor=self._get_or_build_remember_provider,
-            )
-            return
-        self._history_store = PeeweeHistoryStore(self.config.user_id)
+        self._remember_store = PocketBaseRememberStore(self.config)
+        self._history_store = PocketBaseHistoryStore(self.config)
 
     def _initialize_users(self) -> None:
-        """Ensure all user_ids in api_tokens exist in users table."""
-        try:
-            with db.connection_context():
-                # Get unique user_ids from APIToken
-                token_user_ids = {
-                    str(t.user_id) for t in APIToken.select(APIToken.user_id)
-                }
-                # Also include current config user_id
-                if self.config.user_id:
-                    token_user_ids.add(str(self.config.user_id))
-
-                for uid in token_user_ids:
-                    if not uid or uid == "None":
-                        continue
-                    # Create if not exists, set default nickname as user_id
-                    User.get_or_create(user_id=uid, defaults={"nickname": uid})
-        except Exception as e:
-            log(f"Failed to initialize users: {e}", level="error")
+        pass
 
     def _get_or_build_remember_provider(self) -> BaseRememberStore:
         if self._remember_provider is None:
@@ -718,32 +665,6 @@ class StorageService:
         return self._history_store
 
     def get_user_nickname(self) -> str:
-        """Fetch user nickname from database, fallback to user_id."""
-        log(
-            f"DEBUG get_user_nickname: config.user_id={repr(self.config.user_id)}",
-            level="debug",
-        )
-        try:
-            with db.connection_context():
-                user = User.get_or_none(User.user_id == self.config.user_id)
-                if user:
-                    log(
-                        f"DEBUG get_user_nickname: found user={user.user_id} nickname={repr(user.nickname)}",
-                        level="debug",
-                    )
-                    if user.nickname:
-                        nick = str(user.nickname).strip()
-                        if nick and nick != "None" and nick != "default":
-                            return nick
-                else:
-                    log(
-                        f"DEBUG get_user_nickname: user not found for id {self.config.user_id}",
-                        level="debug",
-                    )
-        except Exception as e:
-            log(f"Failed to fetch user nickname: {e}", level="error")
-
-        # Final fallbacks
         base_id = str(self.config.user_id or "default")
         res = "大王" if base_id == "default" else base_id
         log(f"DEBUG get_user_nickname: returning fallback {repr(res)}", level="debug")
