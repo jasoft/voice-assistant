@@ -1,153 +1,66 @@
-# 语音助手系统架构分析 (System Architecture)
+# 语音助手系统架构 (System Architecture)
 
-> **创建日期：** 2026-04-19
-> **状态：** 已根据 2026-04-18 行为树重构计划完成梳理
+> **最后更新：** 2026-05-02
+> **当前版本：** v2.0 (PocketBase 架构优化)
 
-## 1. 核心链路概述
+## 1. 核心链路
+本项目是一个基于“按键触发 (Press-to-Talk)”模式的智能语音助手。核心流程如下：
+**音频采集 -> 语音转文字 (STT) -> 意图识别 -> 行为树执行 -> PocketBase 存储检索 -> 结果反馈 (TTS/GUI)**
 
-本项目是一个基于“按键触发 (Press-to-Talk)”模式的智能语音助手。其核心流程遵循：**音频采集 -> 语音转文字 (STT) -> 意图识别 -> 行为树执行 -> 存储检索 (CLI 隔离) -> 结果反馈 (TTS/GUI)**。
+## 2. 架构拓扑 (Docker 环境)
+系统通过 Docker Compose 编排，直接暴露两个核心端口：
 
-## 2. 详细流程图 (Mermaid)
+- **10031 (API Server)**: 处理自然语言查询、历史记录与记忆管理。
+- **18090 (PocketBase)**: 核心存储引擎，提供 Admin UI 与直接数据访问。
 
 ```mermaid
-graph TD
-    %% 输入层
-    User((大王)) -- 按键松开 --> PTT[ptt_voice.py / GUI]
-    PTT --> AudioRecord[录音采集: recorder.py]
-    AudioRecord --> STT[语音转文字: stt.py]
-    STT --> Transcript[文本 Transcript]
-
-    %% 执行层 (行为树)
-    Transcript --> BT_Engine[执行引擎: execution/bt]
+graph LR
+    User((大王)) -->|Voice/Text| API[API Server: 10031]
+    User -->|Admin| PB_UI[PocketBase Admin: 18090]
     
-    subgraph BehaviorTree [Master Execution Tree]
-        direction TB
-        Root{Root Selector} --> IntentSeq[Sequence: 意图分析]
-        IntentSeq --> ExtractIntent[Action: 提取意图]
-        
-        Root --> Dispatcher{Selector: 模式分发}
-        
-        %% 分支 1: 记录模式
-        Dispatcher --> RecordSeq[Sequence: 记录模式分支]
-        RecordSeq --> IsRecord[Condition: 意图为 Record?]
-        RecordSeq --> SaveMem[Action: 保存记忆]
-        
-        %% 分支 2: 检索总结模式
-        Dispatcher --> SearchSeq[Sequence: 检索总结分支]
-        SearchSeq --> SearchDB[Action: 执行检索]
-        SearchDB --> HasHits[Condition: 有命中?]
-        SearchSeq --> Summarize[Action: LLM 总结回复]
-        
-        %% 分支 3: 聊天兜底
-        Dispatcher --> ChatSeq[Sequence: 聊天兜底]
-        ChatSeq --> IsChat[Condition: 允许聊天?]
-        ChatSeq --> FallbackLLM[Action: 通用 LLM 回复]
+    subgraph Container [Docker: voice-assistant-1]
+        API -->|Execution| BT[Behavior Tree Engine]
+        BT -->|RAG/CRUD| PB_Service[PocketBase Service]
+        PB_Service -->|Local Port| PB_Process[PocketBase Process: 18090]
     end
-
-    %% 将执行引擎连接到行为树的根节点
-    BT_Engine --> Root
     
-    %% 存储层 (进程隔离)
-    SaveMem --> StorageService
-    SearchDB --> StorageService
-    StorageService[StorageService Facade] --> CLIWrapper[CLI Wrapper]
-    CLIWrapper -- subprocess --> StorageCLI[storage_cli.py]
-    
-    subgraph StorageLayer [存储层边界]
-        StorageCLI --> ProviderSwitch{Provider 切换}
-        ProviderSwitch --> Mem0[Mem0 Cloud Provider]
-        ProviderSwitch --> SQLite[SQLite FTS5 Provider]
-        StorageCLI --> HistoryDB[(历史记录 SQLite)]
+    subgraph Storage [Persistence]
+        PB_Process -->|Mount| Vol[./data/pb_data]
+        API -->|Mount| Assets[./data/photos]
     end
-
-    %% 输出层
-    Summarize --> FinalReply
-    SaveMem --> FinalReply
-    FallbackLLM --> FinalReply
-    FinalReply[最终回复文本] --> TTS[语音合成: tts.py]
-    TTS --> Speaker((扬声器播报))
-    FinalReply --> GUI_Display[GUI 界面显示]
 ```
 
 ## 3. 关键设计特性
 
-### 3.1 行为树 (Behavior Tree) 执行引擎
-- **位置**: `press_to_talk/execution/bt/`
-- **优势**: 取代了传统的 `if-else` 嵌套逻辑。通过 `Blackboard` (黑板) 模式共享上下文。
-- **节点类型**:
-    - `Selector`: 只要有一个子节点成功就返回成功（用于分支切换）。
-    - `Sequence`: 所有子节点必须全部成功（用于线性任务流）。
-    - `Action/Condition`: 具体的逻辑单元（如 LLM 调用、数据库查询判断）。
+### 3.1 行为树 (Behavior Tree)
+- **核心位置**: `press_to_talk/execution/bt/`
+- **逻辑分发**: 使用行为树取代复杂的 `if-else`。通过 `Blackboard` (黑板) 共享上下文。
+- **模式**: 支持 `memory-chat` (RAG模式) 和 `database` (指令模式)。
 
-### 3.2 存储层边界隔离 (Storage Decoupling)
-- **实现方式**: 主程序不直接访问数据库，而是通过 `subprocess` 调用 `storage_cli.py`。
-- **优势**: 
-    - **纯净度**: 存储层不包含 LLM 逻辑，只负责数据增删改查。
-    - **稳定性**: 数据库操作异常不会直接导致主程序崩溃。
-    - **多后端支持**: 可以在 `Mem0` (云端) 和 `SQLite FTS5` (本地) 之间无缝切换。
+### 3.2 PocketBase 存储层
+- **统一后端**: 取代了旧的 SQLite/Mem0 混合架构，实现配置、历史、记忆的统一存储。
+- **多用户隔离**: 通过 API 层的 `user_id` 注入实现逻辑隔离。
+- **数据持久化**: 映射宿主机 `./data/pb_data`，确保容器销毁后数据不丢失。
 
-### 3.3 多 Provider 记忆架构
-- **核心类**: `BaseRememberStore`
-- **支持**: 
-    - `Mem0RememberStore`: 云端记忆，利用 Mem0 平台的向量检索能力。
-    - `SQLiteFTS5RememberStore`: 本地记忆，结合 FTS5 全文检索与向量嵌入 (Embedding)。
+### 3.3 多模态记忆
+- **图片关联**: 支持上传照片并与记忆关联。
+- **资源访问**: 通过 `/assets` 路由直接访问 `data/photos` 目录下的原始文件。
 
 ## 4. 目录职责划分
 
-- `/press_to_talk/execution`: 执行层，包含行为树节点与组装器。
-- `/press_to_talk/storage`: 存储层，包含 Provider 实现与 CLI Wrapper。
-- `/press_to_talk/audio`: 音频处理（录音、STT、TTS、提示音）。
-- `/press_to_talk/agent`: 意图识别与 LLM 交互逻辑。
-- `/mac_gui`: Swift 实现的 macOS 客户端界面。
-- `/docs`: 设计规范与实施计划。
+- `/press_to_talk`: 核心逻辑包。
+    - `/api`: FastAPI 服务入口及鉴权。
+    - `/execution`: 行为树节点与执行引擎。
+    - `/storage`: PocketBase 存储适配器。
+    - `/audio`: 录音、STT 与 TTS 逻辑。
+- `/scripts`: 启动脚本（PocketBase 下载与运行、部署脚本等）。
+- `/web_gui`: 基于 HTML/JS 的前端交互界面。
+- `/mac_gui`: Swift 实现的 macOS 原生浮窗客户端。
+- `/data`: 宿主机持久化目录（数据库文件、照片附件）。
 
-## 5. HTTP API 与多用户支持
-
-系统提供基于 FastAPI 的 RESTful API (`/v1/query`, `/v1/history`, `/v1/memories`)，用于支持移动端或 Web 端接入。
-
-### 5.1 多用户隔离
-- **鉴权机制**: 通过 `Authorization: Bearer <API_KEY>` 进行身份校验。
-- **数据隔离**: API 层通过 `get_user_id` 依赖从 Token 解析出 `user_id`，并将其透传至执行层与存储层。所有的数据库查询（历史、记忆）均带有 `user_id` 过滤条件。
-
-### 5.2 日志记录与脱敏
-- **Middleware**: 所有的 API 请求均经过 `LoggingMiddleware`。
-- **脱敏审计**: 
-    - 自动隐藏 `Authorization` Header（仅保留首尾字符）。
-    - 截断过长的请求体 (Body)，防止日志膨胀。
-    - 记录 Client IP、URL、Method 等元数据。
-
-### 5.3 结构化照片附件
-API 支持在 `/v1/query` 请求中携带结构化的 `photo` 节点：
-```json
-{
-  "query": "这张发票报销了吗？",
-  "photo": {
-    "type": "base64",
-    "data": "...",
-    "mime": "image/png"
-  }
-}
-```
-系统会自动处理 Base64 解码或 URL 下载，并将文件存入 `data/photos/` 目录，生成的本地路径会注入黑板 (Blackboard) 供行为树节点使用。API 响应中会返回 `photo_url` 供前端展示。
-### 5.4 静态资源访问与 URL 映射
-为了让客户端能直接展示存储在服务器上的图片，系统通过 FastAPI 挂载了静态资源：
-- **挂载点**: `/assets` -> 映射到本地目录 `data/photos/`
-- **URL 转换**: 系统内存储的 `photo_path` (如 `photos/abc.jpg`) 会被自动转换为 Web 可访问的 `photo_url` (如 `/assets/abc.jpg`)。
-- **涉及模型**: `QueryResponse` 和 `MemoryItem` 模型均包含 `photo_url` 字段。
-
-## 6. LLM 总结与照片反馈闭环
-
-系统实现了一套完整的闭环逻辑，解决了大模型在总结多条记忆时容易丢失图片关联信息的问题。
-
-### 6.1 核心逻辑流
-1. **Prompt 注入 (ID Injection)**: 在调用 LLM 进行总结前，`OpenAICompatibleAgent` 会在每一条喂给模型的记忆文本前标注其唯一的记录 ID（如 `[ID: 123] ...`）。
-2. **模型选择 (LLM Selection)**: 在 `workflow_config.json` 的 Prompt 约束中，要求模型在回复末尾必须包含引用的 ID 标记，格式为 `[SELECTED_IDS: id1, id2]`。
-3. **行为树解析 (BT Parsing)**: `LLMSummarizeAction` 节点在获取模型回复后，会正则提取 `[SELECTED_IDS]` 标记，并根据这些 ID 从原始检索结果中反查对应的 `photo_path`。
-4. **URL 转换与透传**: 提取到的 `photo_path` 通过 `get_photo_url` 转换为 Web URL，并存入黑板的 `bb.reply_photos` 字段，最终由 API 返回给前端。
-
-### 6.2 优势
-- **精准关联**: 确保用户看到的图片确实是模型回复中提到的那部分记忆。
-- **多图支持**: `QueryResponse` 包含 `photo_urls` 列表，支持一次回复展示多张相关图片。
-- **UI 友好**: 前端无需处理复杂的反查逻辑，直接渲染 API 返回的 URL 列表即可。
-
-## 7. 目录职责划分
+## 5. API 规范
+详见 [API v1 文档](./api/v1.md)。
+主要接口：
+- `POST /v1/query`: 执行自然语言查询。
+- `POST /v1/history`: 获取会话历史。
+- `POST /v1/memories`: 获取长期记忆。
