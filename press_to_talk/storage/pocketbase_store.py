@@ -149,53 +149,55 @@ class PocketBaseRememberStore(BaseRememberStore):
             except Exception as e:
                 log(f"Keyword rewrite failed: {e}", level="warn")
 
-        # Fetch keyword candidates
+        # 2. Keyword Search
         try:
-            term_filters = []
-            for term in set(search_terms):
-                safe_term = _escape_pb_string(term)
-                term_filters.append(f"(memory ~ '{safe_term}' || original_text ~ '{safe_term}')")
-            
-            pb_filter = f"{filter_base} && ({' || '.join(term_filters)})"
-            res = self.client.get(
-                "/collections/remember_entries/records",
-                params={"filter": pb_filter, "perPage": 50}
-            )
-            if res.status_code == 200:
-                items = res.json().get("items", [])
-                for r in items:
-                    candidates[r["id"]] = {
-                        "id": r["id"],
-                        "memory": r["memory"],
-                        "created_at": r["created"],
-                        "embedding": r.get("embedding"),
-                        "score": 0.05 # Base score for keyword hits
-                    }
-                log(f"Keyword search found {len(items)} items", level="info")
+            if search_terms:
+                term_filters = []
+                for term in set(search_terms):
+                    safe_term = _escape_pb_string(term)
+                    term_filters.append(f"(memory ~ '{safe_term}' || original_text ~ '{safe_term}')")
+                
+                pb_filter = f"{filter_base} && ({' || '.join(term_filters)})"
+                res = self.client.get(
+                    "/collections/remember_entries/records",
+                    params={"filter": pb_filter, "perPage": 50}
+                )
+                if res.status_code == 200:
+                    kw_items = res.json().get("items", [])
+                    for r in kw_items:
+                        candidates[r["id"]] = {
+                            "id": r["id"],
+                            "memory": r["memory"],
+                            "created_at": r["created"],
+                            "embedding": r.get("embedding"),
+                            "score": 0.1 # Keyword base score
+                        }
+                    log(f"Keyword search found {len(kw_items)} items", level="info")
         except Exception as e:
             log(f"Keyword search error: {e}", level="error")
 
-        # 3. Semantic Search (Local Comparison)
+        # 3. Semantic Sampling (Fetch more for local vector comparison)
         if self._embedding_enabled():
             try:
-                # 如果候选集太少，补充一些最近的记录进行向量匹配
-                if len(candidates) < 10:
-                    res = self.client.get(
-                        "/collections/remember_entries/records",
-                        params={"filter": filter_base, "perPage": 50, "sort": "-created"}
-                    )
-                    if res.status_code == 200:
-                        for r in res.json().get("items", []):
-                            if r["id"] not in candidates:
-                                candidates[r["id"]] = {
-                                    "id": r["id"],
-                                    "memory": r["memory"],
-                                    "created_at": r["created"],
-                                    "embedding": r.get("embedding"),
-                                    "score": 0.0
-                                }
-
-                # 只对 Query 计算一次 Embedding
+                # 无论关键词是否命中，都额外拉取最近的 100 条记录作为语义比对池
+                # 这在大数据量且无原生向量索引时是目前兼顾性能与召回的最佳方案
+                res = self.client.get(
+                    "/collections/remember_entries/records",
+                    params={"filter": filter_base, "perPage": 100, "sort": "-created"}
+                )
+                if res.status_code == 200:
+                    sample_items = res.json().get("items", [])
+                    for r in sample_items:
+                        if r["id"] not in candidates:
+                            candidates[r["id"]] = {
+                                "id": r["id"],
+                                "memory": r["memory"],
+                                "created_at": r["created"],
+                                "embedding": r.get("embedding"),
+                                "score": 0.0
+                            }
+                
+                # 计算 Query Embedding
                 q_embs = self.config.embedding_client.embed_many([query])
                 if q_embs:
                     q_emb = q_embs[0]
@@ -203,11 +205,10 @@ class PocketBaseRememberStore(BaseRememberStore):
                         vec = it.get("embedding")
                         if vec and isinstance(vec, list) and len(vec) > 0:
                             score = cosine_similarity(q_emb, vec)
-                            it["embedding_score"] = score
-                            # 简单的加权合并 (可以根据需要调整)
+                            # 混合评分：取关键词权重和向量分数的最大值或加权
                             it["score"] = max(it["score"], score)
             except Exception as e:
-                log(f"Semantic comparison failed: {e}", level="warn")
+                log(f"Semantic search failed: {e}", level="warn")
 
         # 4. Reranking (Jina)
         items = list(candidates.values())
