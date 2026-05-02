@@ -14,6 +14,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     curl \
     git \
+    unzip \
     libasound2 \
     portaudio19-dev \
     gcc \
