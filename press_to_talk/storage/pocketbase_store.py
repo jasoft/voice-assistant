@@ -226,6 +226,7 @@ class PocketBaseRememberStore(BaseRememberStore):
                         if rid in candidates:
                             candidates[rid]["vector_score"] = round(score, 4)
                             candidates[rid]["vector_rank"] = rank
+                            candidates[rid]["search_method"] = "hybrid" # 标记为混合命中
                         else:
                             candidates[rid] = {
                                 "id": rid,
