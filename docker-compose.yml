@@ -2,11 +2,8 @@ services:
   voice-assistant:
     container_name: voice-assistant-1
     build: .
+    env_file: .env
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
-      - JINA_API_KEY=${JINA_API_KEY}
-      - PTT_RERANKER_MODEL=${PTT_RERANKER_MODEL}
       - TZ=Asia/Shanghai
     ports:
       - "10031:10031"
