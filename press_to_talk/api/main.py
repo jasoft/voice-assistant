@@ -101,6 +101,27 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         request._receive = receive
         
         response = await call_next(request)
+        
+        # Log Response
+        if request.url.path.startswith("/v1"):
+            response_body = b""
+            async for chunk in response.body_iterator:
+                response_body += chunk
+            
+            # Re-wrap response iterator
+            async def response_iterator():
+                yield response_body
+            response.body_iterator = response_iterator()
+
+            try:
+                res_str = response_body.decode("utf-8", errors="replace")
+                if len(res_str) > 1000:
+                    res_str = res_str[:1000] + "... [truncated]"
+            except Exception:
+                res_str = "[binary data]"
+
+            log_multiline(f"API Response Sent (Status: {response.status_code})", res_str, level="info")
+
         return response
 
 app = FastAPI(title="Press-to-Talk API", lifespan=lifespan)

@@ -156,12 +156,28 @@ def init_session_log(log_dir: Path, session_id: str | None = None) -> Path:
     close_session_log()
     log_dir = log_dir.expanduser()
     log_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    suffix = re.sub(r"[^a-zA-Z0-9_-]+", "", session_id or uuid.uuid4().hex[:8])
-    log_path = log_dir / f"{stamp}-{suffix}.log"
+    
+    # Map session_id to fixed filenames to avoid clutter
+    if session_id == "api-server":
+        filename = "api.log"
+    elif session_id == "web-server":
+        filename = "web.log"
+    else:
+        filename = "local.log"
+        
+    log_path = log_dir / filename
     with _LOG_WRITE_LOCK:
         _SESSION_LOG_FILE = log_path.open("a", encoding="utf-8")
         _SESSION_LOG_PATH = log_path
+        
+        # Add a clear separator for new sessions
+        sep = "=" * 80
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _SESSION_LOG_FILE.write(f"\n{sep}\n")
+        _SESSION_LOG_FILE.write(f"NEW SESSION: {session_id or 'unknown'} | STARTED AT: {ts}\n")
+        _SESSION_LOG_FILE.write(f"{sep}\n\n")
+        _SESSION_LOG_FILE.flush()
+        
     return log_path
 
 def close_session_log() -> None:

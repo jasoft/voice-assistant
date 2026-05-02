@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     load_env_files()
     session_id = uuid.uuid4().hex
     log_path = init_session_log(
-        env_path("PTT_LOG_DIR", DEFAULT_LOG_DIR), session_id=session_id
+        env_path("PTT_LOG_DIR", DEFAULT_LOG_DIR), session_id="local"
     )
     log_timing("process imported, entering main()")
     cfg = parse_args(argv)

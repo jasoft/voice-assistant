@@ -3,7 +3,7 @@ import json
 import re
 from .base import Node, Status, Blackboard
 from ...utils.photo import get_photo_url
-from ...utils.logging import log
+from ...utils.logging import log, log_multiline
 from ...storage.models import SessionHistoryRecord
 from ...models.history import format_history_timestamp
 
@@ -82,6 +82,7 @@ class ExtractIntentAction(Action):
                 # 正常走通用意图识别 (包含分类和提炼)
                 bb.intent = await agent._extract_intent_payload(bb.transcript)
             
+            log_multiline("Extracted Intent", json.dumps(bb.intent, indent=2, ensure_ascii=False))
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
@@ -128,6 +129,9 @@ class ExecuteSearchAction(Action):
                 bb.memories_raw = raw
                 extracted = remember_store.extract_summary_items(raw)
                 bb.memories = extracted.get("items", [])
+                log(f"Search found {len(bb.memories)} relevant memories", level="info")
+                if bb.memories:
+                    log_multiline("Retrieved Memories", json.dumps(bb.memories, indent=2, ensure_ascii=False))
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
@@ -184,6 +188,7 @@ class ExecuteRecordAction(Action):
         try:
             tool_name = "remember_add"
             args = bb.intent.get("args", {})
+            log_multiline("Record Arguments", json.dumps(args, indent=2, ensure_ascii=False))
             bb.reply = await agent._execute_structured_tool(
                 tool_name, args, user_input=bb.transcript, photo_path=bb.photo_path
             )
