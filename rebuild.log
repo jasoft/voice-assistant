@@ -1,0 +1,2 @@
+13:46:41  INFO   pocketbase_store.py:95 ✨ Rebuilding embeddings for user: soj
+{"status": "ok", "rebuilt_count": 62}

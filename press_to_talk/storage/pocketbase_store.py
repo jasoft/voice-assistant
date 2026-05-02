@@ -76,7 +76,7 @@ class PocketBaseRememberStore(BaseRememberStore):
             # PATCH 回 PocketBase
             res = self.client.patch(
                 f"/collections/remember_entries/records/{item_id}",
-                json={"embedding": vectors[0]}
+                json={"embedding_json": json.dumps(vectors[0])}
             )
             res.raise_for_status()
             log(f"Async embedding updated for memory {item_id}", level="debug")
@@ -134,94 +134,132 @@ class PocketBaseRememberStore(BaseRememberStore):
         if end_date:
             filter_base += f" && created <= '{end_date} 23:59:59'"
 
-        candidates = {} # id -> candidate dict
+        candidates: dict[str, dict] = {}  # id -> candidate dict
 
-        # 2. Keyword Search (Keyword Rewriter)
+        # 2. Keyword Search (with Keyword Rewriter)
         search_terms = [query]
         if hasattr(self.config, "keyword_rewriter") and self.config.keyword_rewriter:
             try:
                 rewritten = self.config.keyword_rewriter.rewrite(query)
-                import re
-                terms = re.findall(r'"([^"]+)"', rewritten)
+                import re as _re
+                terms = _re.findall(r'"([^"]+)"', rewritten)
                 if terms:
                     search_terms.extend(terms)
                 log(f"Keyword rewriter output: {rewritten}", level="debug")
             except Exception as e:
                 log(f"Keyword rewrite failed: {e}", level="warn")
 
-        # 2. Keyword Search
         try:
-            if search_terms:
-                term_filters = []
-                for term in set(search_terms):
-                    safe_term = _escape_pb_string(term)
-                    term_filters.append(f"(memory ~ '{safe_term}' || original_text ~ '{safe_term}')")
-                
-                pb_filter = f"{filter_base} && ({' || '.join(term_filters)})"
-                res = self.client.get(
-                    "/collections/remember_entries/records",
-                    params={"filter": pb_filter, "perPage": 50}
-                )
-                if res.status_code == 200:
-                    kw_items = res.json().get("items", [])
-                    for r in kw_items:
-                        candidates[r["id"]] = {
-                            "id": r["id"],
-                            "memory": r["memory"],
-                            "created_at": r["created"],
-                            "embedding": r.get("embedding"),
-                            "score": 0.1, # Keyword base score
-                            "search_method": "keyword"
-                        }
-                    log(f"Keyword search found {len(kw_items)} items", level="info")
+            term_filters = []
+            for term in set(search_terms):
+                safe_term = _escape_pb_string(term)
+                term_filters.append(f"(memory ~ '{safe_term}' || original_text ~ '{safe_term}')")
+            pb_filter = f"{filter_base} && ({' || '.join(term_filters)})"
+            res = self.client.get(
+                "/collections/remember_entries/records",
+                params={"filter": pb_filter, "perPage": 50}
+            )
+            if res.status_code == 200:
+                kw_items = res.json().get("items", [])
+                for rank, r in enumerate(kw_items, 1):
+                    candidates[r["id"]] = {
+                        "id": r["id"],
+                        "memory": r["memory"],
+                        "created_at": r["created"],
+                        "fts_rank": rank,
+                        "search_method": "keyword",
+                        "score": 0.0,
+                    }
+                log(f"Keyword search found {len(kw_items)} items", level="info")
         except Exception as e:
             log(f"Keyword search error: {e}", level="error")
 
-        # 3. Semantic Sampling (Fetch more for local vector comparison)
+        # 3. Full-Database Vector Scan (对齐旧版 SQLite 逻辑)
+        # 分页拉取全库 embedding，本地全量计算 cosine_similarity，过滤 min_score 后取 Top N
         if self._embedding_enabled():
             try:
-                # 无论关键词是否命中，都额外拉取最近的 100 条记录作为语义比对池
-                res = self.client.get(
-                    "/collections/remember_entries/records",
-                    params={"filter": filter_base, "perPage": 100, "sort": "-created"}
-                )
-                if res.status_code == 200:
-                    sample_items = res.json().get("items", [])
-                    for r in sample_items:
-                        if r["id"] not in candidates:
-                            candidates[r["id"]] = {
-                                "id": r["id"],
-                                "memory": r["memory"],
-                                "created_at": r["created"],
-                                "embedding": r.get("embedding"),
-                                "score": 0.0,
-                                "search_method": "semantic_sample"
-                            }
-                
-                # 计算 Query Embedding
                 q_embs = self.config.embedding_client.embed_many([query])
                 if q_embs:
                     q_emb = q_embs[0]
-                    for it in candidates.values():
-                        vec = it.get("embedding")
-                        if vec and isinstance(vec, list) and len(vec) > 0:
-                            v_score = cosine_similarity(q_emb, vec)
-                            it["vector_score"] = round(v_score, 4)
-                            # 混合评分：取关键词权重和向量分数的最大值
-                            it["score"] = max(it.get("score", 0), v_score)
-            except Exception as e:
-                log(f"Semantic search failed: {e}", level="warn")
+                    semantic_hits: list[tuple[float, str, dict]] = []
 
-        # 4. Reranking (Jina)
-        items = list(candidates.values())
-        if not items:
+                    page = 1
+                    total_scanned = 0
+                    while True:
+                        res = self.client.get(
+                            "/collections/remember_entries/records",
+                            params={
+                                "filter": filter_base,
+                                "fields": "id,memory,created,embedding_json",
+                                "perPage": 200,
+                                "page": page,
+                            }
+                        )
+                        if res.status_code != 200:
+                            break
+                        data = res.json()
+                        page_items = data.get("items", [])
+                        total_scanned += len(page_items)
+
+                        for r in page_items:
+                            raw_emb = r.get("embedding_json")
+                            vec = json.loads(raw_emb) if isinstance(raw_emb, str) and raw_emb else raw_emb
+                            if vec and isinstance(vec, list) and len(vec) > 0:
+                                score = cosine_similarity(q_emb, vec)
+                                if score >= self.config.embedding_min_score:
+                                    semantic_hits.append((score, r["id"], r))
+
+                        if page >= data.get("totalPages", 1):
+                            break
+                        page += 1
+
+                    semantic_hits.sort(key=lambda x: x[0], reverse=True)
+                    sem_top = semantic_hits[:self.config.embedding_max_results]
+                    log(
+                        f"Vector scan: scanned {total_scanned} records, "
+                        f"{len(semantic_hits)} above min_score={self.config.embedding_min_score}, "
+                        f"using top {len(sem_top)}",
+                        level="info"
+                    )
+
+                    for rank, (score, rid, r) in enumerate(sem_top, 1):
+                        if rid in candidates:
+                            candidates[rid]["vector_score"] = round(score, 4)
+                            candidates[rid]["vector_rank"] = rank
+                        else:
+                            candidates[rid] = {
+                                "id": rid,
+                                "memory": r["memory"],
+                                "created_at": r["created"],
+                                "vector_score": round(score, 4),
+                                "vector_rank": rank,
+                                "search_method": "vector",
+                                "score": 0.0,
+                            }
+            except Exception as e:
+                log(f"Vector scan failed: {e}", level="warn")
+
+        if not candidates:
             return json.dumps({"results": []}, ensure_ascii=False)
+
+        # 4. RRF Scoring (Reciprocal Rank Fusion)
+        k = 60
+        for it in candidates.values():
+            rrf = 0.0
+            if "fts_rank" in it:
+                rrf += 1.0 / (k + it["fts_rank"])
+            if "vector_rank" in it:
+                rrf += 1.0 / (k + it["vector_rank"])
+            it["score"] = round(rrf, 6)
+
+        # 5. Pre-sort & Rerank
+        items = sorted(candidates.values(), key=lambda x: x["score"], reverse=True)[:50]
 
         if hasattr(self.config, "reranker_enabled") and self.config.reranker_enabled:
             try:
-                log(f"Reranking {len(items)} items with Jina", level="info")
+                log(f"Reranking top {len(items)} candidates with Jina", level="info")
                 rerank_scores = rerank_with_jina(
-                    query, 
+                    query,
                     [it["memory"] for it in items],
                     api_key=self.config.reranker_api_key,
                     base_url=self.config.reranker_base_url,
@@ -229,17 +267,13 @@ class PocketBaseRememberStore(BaseRememberStore):
                 )
                 for i, it in enumerate(items):
                     it["rerank_score"] = round(rerank_scores[i], 4)
-                    it["score"] = it["rerank_score"] # 使用 Rerank 作为最终分
+                    it["score"] = it["rerank_score"]
             except Exception as e:
                 log(f"Reranking failed: {e}", level="warn")
 
-        final_results.sort(key=lambda x: x["score"], reverse=True)
-        
-        # 只要 Top N
+        items.sort(key=lambda x: x["score"], reverse=True)
         limit = getattr(self.config, "embedding_max_results", 10)
-        final_results = final_results[:limit]
-
-        return json.dumps({"results": final_results}, ensure_ascii=False)
+        return json.dumps({"results": items[:limit]}, ensure_ascii=False)
 
     def delete(self, *, memory_id: str) -> None:
         res = self.client.delete(f"/collections/remember_entries/records/{memory_id}")
