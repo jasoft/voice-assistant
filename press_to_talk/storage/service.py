@@ -28,6 +28,35 @@ APP_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 
 
+def _sanitize_rewritten_keywords(keywords: list[str], original_query: str) -> list[str]:
+    """Remove noise and irrelevant tokens from LLM-generated keywords."""
+    sanitized = []
+    noise = {"的", "了", "和", "与", "或", "在", "是", "我", "你", "他", "她", "它"}
+    for kw in keywords:
+        kw = kw.strip().strip("\"'").strip()
+        if not kw:
+            continue
+        if kw in noise:
+            continue
+        if len(kw) < 1:
+            continue
+        sanitized.append(kw)
+    return sanitized
+
+
+def _quote_match_token(token: str) -> str:
+    """Format keyword for SQLite FTS5 or other search backends."""
+    # Escape quotes and wrap in quotes for phrase matching
+    cleaned = str(token).replace('"', '""')
+    return f'"{cleaned}"'
+
+
+def _require_mapping(data: Any, path: str) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        raise RuntimeError(f"workflow config missing required mapping: {path}")
+    return data
+
+
 def env_str(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
@@ -246,22 +275,24 @@ def resolve_user_id_from_api_key(api_key: str) -> str | None:
     if not token_str:
         return "default"
     
-    # 强制从 PocketBase 查询
+    # 优先尝试从 PocketBase 查询 token 对应的 user_id
     pb_url = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090")
     try:
         import httpx
-        res = httpx.get(
-            f"{pb_url.rstrip('/')}/api/collections/api_tokens/records",
-            params={"filter": f"token = '{token_str}'"},
-            timeout=2.0
-        )
-        if res.status_code == 200:
-            items = res.json().get("items", [])
-            if items:
-                return items[0]["user_id"]
+        # 使用同步请求，因为 service.py 大部分是同步调用的
+        with httpx.Client(timeout=2.0) as client:
+            res = client.get(
+                f"{pb_url.rstrip('/')}/api/collections/api_tokens/records",
+                params={"filter": f"token = '{token_str}'"}
+            )
+            if res.status_code == 200:
+                items = res.json().get("items", [])
+                if items:
+                    return str(items[0]["user_id"])
     except Exception as e:
         log(f"Warning: failed to resolve user_id from PocketBase: {e}", level="warning")
     
+    # 如果没查到，说明可能就是 user_id 本身（或者是测试用的 token），直接返回
     return token_str
 
 
@@ -529,6 +560,7 @@ class OpenAIEmbeddingClient:
         response = self._client_instance().embeddings.create(
             model=self.model,
             input=cleaned_texts,
+            timeout=10.0
         )
         return [list(item.embedding) for item in response.data]
 
@@ -559,23 +591,22 @@ class StorageService:
         pass
 
     def _get_or_build_remember_provider(self) -> BaseRememberStore:
-        if self._remember_provider is None:
-            self._remember_provider = self._build_remember_provider()
-        return self._remember_provider
-
-    def _get_or_build_history_provider(self) -> BaseHistoryStore:
-        if self._history_store is None:
-            self._history_store = PocketBaseHistoryStore(self.config)
-        return self._history_store
-
-    def _get_or_build_remember_provider(self) -> BaseRememberStore:
         if self._remember_store is None:
+            # 注入搜索组件
+            self.config.embedding_client = self.embedding_client()
+            self.config.keyword_rewriter = self.keyword_rewriter()
+
             if self.config.backend == "mem0":
                 from .providers.mem0 import Mem0RememberStore
                 self._remember_store = Mem0RememberStore.from_config(self.config)
             else:
                 self._remember_store = PocketBaseRememberStore(self.config)
         return self._remember_store
+
+    def _get_or_build_history_provider(self) -> BaseHistoryStore:
+        if self._history_store is None:
+            self._history_store = PocketBaseHistoryStore(self.config)
+        return self._history_store
 
     @classmethod
     def from_env(cls, use_cli: bool = True) -> "StorageService":

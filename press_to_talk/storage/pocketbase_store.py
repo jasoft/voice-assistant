@@ -40,34 +40,155 @@ class PocketBaseRememberStore(BaseRememberStore):
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> str:
-        filter_str = f"user_id = '{self.user_id}'"
-        if query:
-            filter_str += f" && memory ~ '{query}'"
-        if start_date:
-            filter_str += f" && created >= '{start_date}'"
-        if end_date:
-            filter_str += f" && created <= '{end_date}'"
+        import json
+        from press_to_talk.utils.logging import log
+        from press_to_talk.utils.search import cosine_similarity, rerank_with_jina
 
-        res = self.client.get(
-            "/collections/remember_entries/records",
-            params={"filter": filter_str, "sort": "-created", "perPage": self.config.remember_max_results}
-        )
-        res.raise_for_status()
-        records = res.json().get("items", [])
+        log(f"PocketBase search started: query='{query}'", level="info")
         
-        # return formatted string matching the old CLI/FTS5 output format
-        if not records:
-            return "No matching memories found."
-            
-        result = []
-        for i, r in enumerate(records, 1):
-            result.append(f"{i}. [{r.get('created')}] {r.get('memory')}")
-        return "\n".join(result)
+        # 1. Prepare candidates dictionary
+        candidates = {}
+        
+        # 2. Date Filtering Params for PocketBase
+        filter_base = f"user_id = '{self.user_id}'"
+        if start_date:
+            filter_base += f" && created >= '{start_date}'"
+        if end_date:
+            filter_base += f" && created <= '{end_date} 23:59:59'"
+
+        # 3. Keyword Search
+        search_terms = [query]
+        if hasattr(self.config, "keyword_rewriter") and self.config.keyword_rewriter:
+            try:
+                rewritten = self.config.keyword_rewriter.rewrite(query)
+                # Parse "term1 OR term2" back into list
+                import re
+                terms = re.findall(r'"([^"]+)"', rewritten)
+                if terms:
+                    search_terms.extend(terms)
+                log(f"Keyword rewriter output: {rewritten}, terms: {search_terms}", level="info")
+            except Exception as e:
+                log(f"Keyword rewrite failed: {e}", level="error")
+
+        if hasattr(self.config, "keyword_search_enabled") and self.config.keyword_search_enabled:
+            try:
+                log("Keyword search: fetching candidates from PocketBase", level="info")
+                # Combine search terms into a PB filter
+                term_filters = []
+                for term in set(search_terms):
+                    term_filters.append(f"(memory ~ '{term}' || original_text ~ '{term}')")
+                
+                pb_filter = f"{filter_base} && ({' || '.join(term_filters)})"
+                
+                res = self.client.get(
+                    "/collections/remember_entries/records",
+                    params={"filter": pb_filter, "perPage": 50}
+                )
+                if res.status_code == 200:
+                    items = res.json().get("items", [])
+                    log(f"Keyword search found {len(items)} items", level="info")
+                    for r in items:
+                        cid = r["id"]
+                        candidates[cid] = {
+                            "id": cid, 
+                            "memory": r["memory"], 
+                            "created_at": r["created"],
+                            "fts_rank": 1,
+                            "score": 0.1 
+                        }
+            except Exception as e:
+                log(f"Keyword search failed: {e}", level="error")
+
+        # 4. Semantic Search (Embedding)
+        if hasattr(self.config, "embedding_search_enabled") and self.config.embedding_search_enabled:
+            # Optimization: If we already have plenty of keyword hits, skip or limit semantic search
+            if len(candidates) >= 15:
+                log(f"Skipping semantic search as keyword search found {len(candidates)} items", level="info")
+            else:
+                try:
+                    if not candidates:
+                        log("No keyword hits, fetching recent items for semantic search", level="info")
+                        res = self.client.get(
+                            "/collections/remember_entries/records",
+                            params={"filter": filter_base, "perPage": 50, "sort": "-created"}
+                        )
+                        if res.status_code == 200:
+                            items = res.json().get("items", [])
+                            for r in items:
+                                candidates[r["id"]] = {
+                                    "id": r["id"], 
+                                    "memory": r["memory"], 
+                                    "created_at": r["created"],
+                                    "score": 0.05
+                                }
+
+                    emb_client = self.config.embedding_client if hasattr(self.config, "embedding_client") else None
+                    if emb_client and candidates:
+                        log(f"Computing embeddings for {len(candidates)} items", level="info")
+                        q_embs = emb_client.embed_many([query])
+                        if q_embs:
+                            q_emb = q_embs[0]
+                            item_list = list(candidates.values())
+                            item_texts = [it["memory"] for it in item_list]
+                            item_embs = emb_client.embed_many(item_texts)
+                            
+                            for i, it in enumerate(item_list):
+                                score = cosine_similarity(q_emb, item_embs[i])
+                                candidates[it["id"]]["embedding_score"] = score
+                                if score >= self.config.embedding_min_score:
+                                    candidates[it["id"]]["vector_rank"] = i + 1
+                except Exception as e:
+                    log(f"Semantic search failed: {e}", level="error")
+
+        # 5. Reranking (Jina)
+        items = list(candidates.values())
+        if not items:
+            log("No candidates found after all search phases", level="info")
+            return json.dumps({"results": []}, ensure_ascii=False)
+
+        if hasattr(self.config, "reranker_enabled") and self.config.reranker_enabled and self.config.reranker_api_key:
+            try:
+                log(f"Reranking {len(items)} items with Jina", level="info")
+                rerank_scores = rerank_with_jina(
+                    query, 
+                    [it["memory"] for it in items],
+                    api_key=self.config.reranker_api_key,
+                    base_url=self.config.reranker_base_url,
+                    model=self.config.reranker_model
+                )
+                for i, it in enumerate(items):
+                    it["score"] = round(rerank_scores[i], 4)
+            except Exception as e:
+                log(f"Reranking failed: {e}", level="error")
+                for it in items:
+                    it["score"] = it.get("embedding_score", 0.1)
+        else:
+            for it in items:
+                it["score"] = it.get("embedding_score", 0.1)
+
+        # 6. Filter by min_score and sort
+        final_items = [it for it in items if it["score"] >= min_score]
+        final_items.sort(key=lambda x: x["score"], reverse=True)
+        final_items = final_items[:self.config.remember_max_results]
+        
+        log(f"Search completed: found {len(final_items)} final results", level="info")
+        return json.dumps({"results": final_items}, ensure_ascii=False)
 
     def extract_summary_items(
         self, raw_payload: str | dict[str, object] | list[object]
     ) -> dict[str, object]:
-        return {}  # specific to mem0 typically, or just return empty
+        import json
+        try:
+            if isinstance(raw_payload, str):
+                data = json.loads(raw_payload)
+            else:
+                data = raw_payload
+            
+            if isinstance(data, dict) and "results" in data:
+                return {"items": data["results"]}
+            return {"items": []}
+        except Exception:
+            return {"items": []}
 
     def delete(self, *, memory_id: str) -> None:
         res = self.client.delete(f"/collections/remember_entries/records/{memory_id}")
