@@ -24,9 +24,7 @@ from .models import (
 from .pocketbase_store import PocketBaseHistoryStore, PocketBaseRememberStore
 
 APP_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_APP_DB_PATH = APP_ROOT / "data" / "voice_assistant_store.sqlite3"
-DEFAULT_HISTORY_DB_PATH = DEFAULT_APP_DB_PATH
-DEFAULT_REMEMBER_DB_PATH = DEFAULT_APP_DB_PATH
+APP_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 
 
@@ -104,48 +102,28 @@ def load_storage_config(
         workflow_cfg.get("storage", {}) if isinstance(workflow_cfg, dict) else {}
     )
     storage_cfg = storage_cfg if isinstance(storage_cfg, dict) else {}
-    sqlite_cfg = storage_cfg.get("sqlite_fts5", {})
-    sqlite_cfg = sqlite_cfg if isinstance(sqlite_cfg, dict) else {}
     mem0_cfg = workflow_cfg.get("mem0", {}) if isinstance(workflow_cfg, dict) else {}
     mem0_cfg = mem0_cfg if isinstance(mem0_cfg, dict) else {}
-    rewrite_cfg = sqlite_cfg.get(
-        "query_rewrite", sqlite_cfg.get("groq_query_rewrite", {})
-    )
+    
+    rewrite_cfg = storage_cfg.get("query_rewrite", {})
     rewrite_cfg = rewrite_cfg if isinstance(rewrite_cfg, dict) else {}
-    embedding_cfg = sqlite_cfg.get("embedding_search", {})
+    
+    embedding_cfg = storage_cfg.get("embedding_search", {})
     embedding_cfg = embedding_cfg if isinstance(embedding_cfg, dict) else {}
-    reranker_cfg = sqlite_cfg.get("reranker", {})
+    
+    reranker_cfg = storage_cfg.get("reranker", {})
     reranker_cfg = reranker_cfg if isinstance(reranker_cfg, dict) else {}
+    
     global_max_results = int(storage_cfg.get("max_results", 20))
     raw_app_id = os.environ.get("MEM0_APP_ID")
     app_id = "voice-assistant" if raw_app_id is None else str(raw_app_id).strip()
-    configured_backend = str(storage_cfg.get("provider", "mem0")).strip() or "mem0"
+    configured_backend = str(storage_cfg.get("provider", "pocketbase")).strip() or "pocketbase"
     default_model = env_str("PTT_MODEL", "qwen/qwen3-32b")
 
-    h_path = env_str(
-        "PTT_HISTORY_DB_PATH", str(DEFAULT_HISTORY_DB_PATH)
-    ).strip() or str(DEFAULT_HISTORY_DB_PATH)
-    r_path = env_str(
-        "PTT_REMEMBER_DB_PATH",
-        str(sqlite_cfg.get("db_path", str(DEFAULT_REMEMBER_DB_PATH))),
-    ).strip() or str(DEFAULT_REMEMBER_DB_PATH)
-
-    # Normalize paths to be absolute
-    h_path_obj = Path(h_path)
-    if not h_path_obj.is_absolute():
-        h_path_obj = (APP_ROOT / h_path_obj).resolve()
-
-    r_path_obj = Path(r_path)
-    if not r_path_obj.is_absolute():
-        r_path_obj = (APP_ROOT / r_path_obj).resolve()
-
     # Resolve user identities from their respective config blocks
-    local_config_user_id = str(
-        storage_cfg.get("user_id", sqlite_cfg.get("user_id", "default"))
-    ).strip()
+    local_config_user_id = str(storage_cfg.get("user_id", "default")).strip()
     mem0_config_user_id = str(mem0_cfg.get("user_id", "default")).strip()
 
-    # The effective base ID: either override, or environment, or config, or default
     # Priority: Override > Env PTT_USER_ID > Config > default
     base_user_id = (
         user_id_override or str(env_str("PTT_USER_ID", local_config_user_id)).strip()
@@ -174,13 +152,13 @@ def load_storage_config(
                 "MEM0_MAX_ITEMS", int(mem0_cfg.get("max_items", global_max_results))
             ),
         ),
-        history_db_path=str(h_path_obj),
-        remember_db_path=str(r_path_obj),
+        history_db_path="",
+        remember_db_path="",
         remember_max_results=max(
             1,
             env_int(
                 "PTT_REMEMBER_MAX_RESULTS",
-                int(sqlite_cfg.get("max_results", global_max_results)),
+                int(storage_cfg.get("max_results", global_max_results)),
             ),
         ),
         keyword_search_enabled=env_bool("PTT_ENABLE_KEYWORD_SEARCH", True),

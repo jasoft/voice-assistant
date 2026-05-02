@@ -42,7 +42,7 @@ class SmokeCheckTests(unittest.TestCase):
         )
         
         # 2. Check if the logic actually found the item in the database.
-        # This matches the real knowledge stored in data/voice_assistant_store.sqlite3
+        # This matches the real knowledge stored in the database
         output = result.stderr # Logging goes to stderr
         self.assertIn("reply ready:", output)
         # Check for core keywords in the real response from the database/LLM

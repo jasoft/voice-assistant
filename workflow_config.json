@@ -174,27 +174,24 @@
         }
     },
     "storage": {
-        "provider": "sqlite_fts5",
-        "sqlite_fts5": {
-            "db_path": "data/voice_assistant_store.sqlite3",
-            "max_results": 50,
-            "query_rewrite": {
-                "enabled": true
-            },
-            "embedding_search": {
-                "enabled": true,
-                "base_url": "http://docker.home:11434/v1",
-                "api_key": "ollama",
-                "model": "bge-m3",
-                "max_results": 20,
-                "min_score": 0.45,
-                "context_min_score": 0.55
-            },
-            "reranker": {
-                "enabled": true,
-                "api_key": "${JINA_API_KEY}",
-                "model": "${PTT_RERANKER_MODEL}"
-            }
+        "provider": "pocketbase",
+        "max_results": 50,
+        "query_rewrite": {
+            "enabled": true
+        },
+        "embedding_search": {
+            "enabled": true,
+            "base_url": "http://docker.home:11434/v1",
+            "api_key": "ollama",
+            "model": "bge-m3",
+            "max_results": 20,
+            "min_score": 0.45,
+            "context_min_score": 0.55
+        },
+        "reranker": {
+            "enabled": true,
+            "api_key": "${JINA_API_KEY}",
+            "model": "${PTT_RERANKER_MODEL}"
         }
     },
     "mem0": {

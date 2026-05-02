@@ -142,8 +142,6 @@ class StorageCliTests(unittest.TestCase):
             storage_service_module.reset_storage_config_logged()
             with chdir(tmp_path), \
                  patch.dict(os.environ, {
-                     "PTT_HISTORY_DB_PATH": test_db_path,
-                     "PTT_REMEMBER_DB_PATH": test_db_path,
                      "PTT_PB_URL": "http://mock-pb-server:8080"
                  }), \
                  patch.object(PocketBaseHistoryStore, "list_recent", return_value=[]), \

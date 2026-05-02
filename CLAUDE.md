@@ -29,12 +29,12 @@ The assistant follows a linear pipeline:
   - `cli.py`: CLI entry point and command orchestration.
   - `storage/`: Memory and history management.
 - `workflow_config.json`: Central configuration for the assistant's logic, including storage providers and model settings.
-- `data/`: Local storage for SQLite databases (history and FTS memory).
+- `data/`: Local storage for logs and cache.
 
 ### Memory System
 The project supports two primary memory backends, configured in `workflow_config.json` under `storage.provider`:
-1. **`sqlite_fts5`**: Local SQLite using Full Text Search. Can optionally use an LLM to rewrite queries into keywords (`groq_query_rewrite`).
-2. **`mem0`**: External memory service.
+1. **`pocketbase`**: Primary local/remote backend for memory and history.
+2. **`mem0`**: Optional external memory service.
 
 The "remember" functionality (adding/finding memories) typically delegates to an external script defined by `URSOFT_REMEMBER_SCRIPT`.
 

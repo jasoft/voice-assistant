@@ -71,8 +71,6 @@ def main():
     test_data_dir.mkdir()
 
     ci_env = os.environ.copy()
-    ci_env["PTT_REMEMBER_DB_PATH"] = str(test_data_dir / "ci_store.sqlite3")
-    ci_env["PTT_HISTORY_DB_PATH"] = str(test_data_dir / "ci_store.sqlite3")
     ci_env["PTT_WORKSPACE_ROOT"] = str(test_data_dir)
     ci_env["PTT_USER_ID"] = "ci_admin"
 
@@ -128,22 +126,6 @@ def main():
     ):
         failed_checks.append("P0-5 | 配置验证")
 
-    # 3.6 FTS 重建验证 (P0-6)
-    log("Step 3.6: FTS 重建验证测试...")
-    if not run_command(
-        "uv run pytest tests/test_fts_rebuild_verification.py -v",
-        env=ci_env,
-    ):
-        failed_checks.append("P0-6 | FTS 重建验证")
-
-    # 3.7 数据库连接测试 (P0-7)
-    log("Step 3.7: 数据库连接测试...")
-    if not run_command(
-        "uv run pytest tests/test_database_connection.py -v",
-        env=ci_env,
-    ):
-        failed_checks.append("P0-7 | 数据库连接")
-
     # 3.8 行为树核心逻辑测试（新增：覆盖 BT 架构）
     log("Step 3.8: 行为树核心逻辑测试...")
     if not run_command(
@@ -170,14 +152,6 @@ def main():
     ):
         failed_checks.append("P0-7 | 存储层初始化")
 
-    # ─────────────────────────────────────────────
-    # Step 5: 端到端多用户隔离验证
-    # ─────────────────────────────────────────────
-    log("Step 5: 多用户数据隔离验证...")
-    if not run_command(
-        "uv run pytest tests/test_multi_user_robustness.py -v", env=ci_env, stream=True
-    ):
-        failed_checks.append("P0-2 | 多用户数据隔离")
 
     # ─────────────────────────────────────────────
     # Step 6: Docker 构建验证 (P0-4，可选)

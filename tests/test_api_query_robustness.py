@@ -1,7 +1,6 @@
 import base64
 import os
 import shutil
-import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 from pathlib import Path
@@ -22,15 +21,7 @@ def api_sandbox(tmp_path):
     photos_dir = data_dir / "photos"
     photos_dir.mkdir()
     
-    prod_db_path = Path("data/voice_assistant_store.sqlite3")
-    test_db_path = data_dir / "test_api.sqlite3"
-    
-    # 2. Copy prod DB to sandbox
-    if prod_db_path.exists():
-        shutil.copy(prod_db_path, test_db_path)
-    
     # 3. Environment isolation
-    os.environ["PTT_REMEMBER_DB_PATH"] = str(test_db_path)
     os.environ["PTT_USER_ID"] = "test_user"
     
     # 4. Mock Config

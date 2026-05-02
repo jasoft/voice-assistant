@@ -23,17 +23,6 @@ RUN apt-get update && apt-get install -y \
     libevdev-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 下载并编译 sqlite-simple 插件 (多阶段构建思想，但在一个层里完成以保持简单)
-RUN git clone https://github.com/wangfenjin/simple.git /tmp/simple && \
-    cd /tmp/simple && \
-    mkdir build && cd build && \
-    cmake .. && \
-    make && \
-    mkdir -p /app/third_party/simple && \
-    # 查找编译产物并复制
-    find . -name "libsimple.so" -exec cp {} /app/third_party/simple/ \; && \
-    rm -rf /tmp/simple
-
 # 安装 uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
@@ -41,7 +30,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 COPY press_to_talk/ ./press_to_talk/
 COPY workflow_config.json intent_extractor_config.json ./
-COPY start.sh patch_sqlite_web.py ./
+COPY start.sh ./
 
 # 创建 data 目录（用于挂载和持久化数据）
 RUN mkdir -p /app/data
@@ -49,25 +38,11 @@ RUN mkdir -p /app/data
 # 赋予执行权限
 RUN chmod +x /app/start.sh
 
-# 再次确保 libsimple.so 存在 (防止本地 COPY 覆盖掉了刚刚生成的目录)
-RUN [ -f /app/third_party/simple/libsimple.so ] || ( \
-    git clone https://github.com/wangfenjin/simple.git /tmp/simple_rebuild && \
-    cd /tmp/simple_rebuild && \
-    mkdir build && cd build && \
-    cmake .. && \
-    make && \
-    mkdir -p /app/third_party/simple && \
-    find . -name "libsimple.so" -exec cp {} /app/third_party/simple/ \; && \
-    rm -rf /tmp/simple_rebuild )
-
 # 安装项目依赖
 RUN uv sync --frozen
 
-# 安装 sqlite-web（用于网页查看数据库）
-RUN uv pip install sqlite-web
-
 # 暴露端口
-EXPOSE 10031 8080
+EXPOSE 10031
 
 # 声明 data 卷，可被外部映射
 VOLUME ["/app/data"]

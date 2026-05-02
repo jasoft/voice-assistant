@@ -10,8 +10,6 @@ import requests
 # --- Configuration ---
 API_PORT = 10066
 API_URL = f"http://127.0.0.1:{API_PORT}/v1/query"
-PROD_DB_PATH = Path("data/voice_assistant_store.sqlite3")
-TEST_DB_PATH = Path("data/report_test.sqlite3")
 TEST_USER_ID = "report_tester"
 REPORT_FILE = Path("data/vibe_report.html")
 
@@ -40,49 +38,9 @@ SCENARIOS = [
 ]
 
 
-def setup_test_db():
-    if PROD_DB_PATH.exists():
-        shutil.copy(PROD_DB_PATH, TEST_DB_PATH)
-        print(f"Copied production DB to {TEST_DB_PATH}")
-    else:
-        print(
-            f"Warning: Production DB {PROD_DB_PATH} not found, starting with empty DB"
-        )
-        TEST_DB_PATH.touch()
-
-    import sqlite3
-
-    conn = sqlite3.connect(TEST_DB_PATH)
-    cursor = conn.cursor()
-
-    # 1. 强制将所有存量记忆改为测试用户，确保召回
-    print(f"Reassigning all records in {TEST_DB_PATH} to {TEST_USER_ID}...")
-    cursor.execute("UPDATE remember_entries SET user_id = ?", (TEST_USER_ID,))
-
-    # 尝试更新嵌入表
-    try:
-        cursor.execute(
-            "UPDATE remember_entry_embeddings SET user_id = ?", (TEST_USER_ID,)
-        )
-    except sqlite3.OperationalError:
-        pass  # 可能表还没创建
-
-    # 尝试更新 FTS 表 (如果存在且有 user_id 字段)
-    try:
-        cursor.execute(
-            "UPDATE remember_entries_simple_fts SET user_id = ?", (TEST_USER_ID,)
-        )
-    except sqlite3.OperationalError:
-        pass
-
-    # 2. 插入测试 Token
-    cursor.execute(
-        "INSERT OR REPLACE INTO api_tokens (token, user_id, created_at) VALUES (?, ?, ?)",
-        (TEST_USER_ID, TEST_USER_ID, "2026-04-27 00:00:00"),
-    )
-
-    conn.commit()
-    conn.close()
+def setup_test_environment():
+    os.makedirs("data", exist_ok=True)
+    print("Test environment ready. Ensure PocketBase is running.")
 
 
 def generate_html(results):
@@ -279,11 +237,9 @@ def generate_html(results):
 
 def main():
     print("Starting Report Generation...")
-    setup_test_db()
+    setup_test_environment()
 
     env = os.environ.copy()
-    env["PTT_REMEMBER_DB_PATH"] = str(TEST_DB_PATH.absolute())
-    env["PTT_HISTORY_DB_PATH"] = str(TEST_DB_PATH.absolute())
     env["PTT_USER_ID"] = TEST_USER_ID
     env["PTT_CURRENT_TIME"] = "2026-04-27 12:00:00"
 
@@ -324,9 +280,6 @@ def main():
 
     proc.terminate()
     generate_html(results)
-
-    if TEST_DB_PATH.exists():
-        os.remove(TEST_DB_PATH)
 
     # Start server
     print("\nStarting Web Server to show report...")
