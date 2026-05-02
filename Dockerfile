@@ -27,10 +27,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # 复制项目核心文件
-COPY pyproject.toml uv.lock ./
-COPY press_to_talk/ ./press_to_talk/
-COPY workflow_config.json intent_extractor_config.json ./
-COPY start.sh ./
+COPY . .
 
 # 创建 data 目录（用于挂载和持久化数据）
 RUN mkdir -p /app/data
