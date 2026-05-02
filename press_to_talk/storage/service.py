@@ -560,7 +560,7 @@ class OpenAIEmbeddingClient:
         response = self._client_instance().embeddings.create(
             model=self.model,
             input=cleaned_texts,
-            timeout=10.0
+            timeout=5.0
         )
         return [list(item.embedding) for item in response.data]
 

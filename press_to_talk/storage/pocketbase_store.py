@@ -102,15 +102,15 @@ class PocketBaseRememberStore(BaseRememberStore):
         # 4. Semantic Search (Embedding)
         if hasattr(self.config, "embedding_search_enabled") and self.config.embedding_search_enabled:
             # Optimization: If we already have plenty of keyword hits, skip or limit semantic search
-            if len(candidates) >= 15:
-                log(f"Skipping semantic search as keyword search found {len(candidates)} items", level="info")
+            if len(candidates) >= 5:
+                log(f"Skipping semantic search as keyword search found {len(candidates)} items (threshold=5)", level="info")
             else:
                 try:
                     if not candidates:
                         log("No keyword hits, fetching recent items for semantic search", level="info")
                         res = self.client.get(
                             "/collections/remember_entries/records",
-                            params={"filter": filter_base, "perPage": 50, "sort": "-created"}
+                            params={"filter": filter_base, "perPage": 30, "sort": "-created"}
                         )
                         if res.status_code == 200:
                             items = res.json().get("items", [])
@@ -125,6 +125,7 @@ class PocketBaseRememberStore(BaseRememberStore):
                     emb_client = self.config.embedding_client if hasattr(self.config, "embedding_client") else None
                     if emb_client and candidates:
                         log(f"Computing embeddings for {len(candidates)} items", level="info")
+                        # 增加更严格的超时保护
                         q_embs = emb_client.embed_many([query])
                         if q_embs:
                             q_emb = q_embs[0]
@@ -138,7 +139,7 @@ class PocketBaseRememberStore(BaseRememberStore):
                                 if score >= self.config.embedding_min_score:
                                     candidates[it["id"]]["vector_rank"] = i + 1
                 except Exception as e:
-                    log(f"Semantic search failed: {e}", level="error")
+                    log(f"Semantic search failed or timed out: {e}", level="warn")
 
         # 5. Reranking (Jina)
         items = list(candidates.values())
