@@ -1,5 +1,6 @@
 services:
   voice-assistant:
+    container_name: voice-assistant-1
     build: .
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
