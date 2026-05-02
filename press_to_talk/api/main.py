@@ -1,5 +1,6 @@
 from __future__ import annotations
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -132,6 +133,18 @@ app.mount("/assets", StaticFiles(directory="data/photos"), name="assets")
 app.add_middleware(LoggingMiddleware)
 
 # --- PocketBase Proxy Routes (With Isolation) ---
+
+@app.get("/pb/_/{path:path}", include_in_schema=False)
+@app.get("/pb/_", include_in_schema=False)
+async def redirect_pb_admin_fix(path: str = ""):
+    """
+    当访问 /pb/_ 时，通常是浏览器访问后台。
+    由于 /pb/ 前缀路由强制要求 Bearer Auth，而后台管理界面依赖浏览器会话 (Cookie)，
+    因此将其重定向到 /_/ 路径，由 proxy_pocketbase_admin 接管（免 Bearer 验证）。
+    """
+    target = f"/_/{path}" if path else "/_/"
+    return RedirectResponse(url=target)
+
 @app.api_route("/pb/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def proxy_pocketbase_with_auth(path: str, request: Request, user_id: str = Depends(get_user_id)):
