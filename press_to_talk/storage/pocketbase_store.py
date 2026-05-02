@@ -170,7 +170,8 @@ class PocketBaseRememberStore(BaseRememberStore):
                             "memory": r["memory"],
                             "created_at": r["created"],
                             "embedding": r.get("embedding"),
-                            "score": 0.1 # Keyword base score
+                            "score": 0.1, # Keyword base score
+                            "search_method": "keyword"
                         }
                     log(f"Keyword search found {len(kw_items)} items", level="info")
         except Exception as e:
@@ -180,7 +181,6 @@ class PocketBaseRememberStore(BaseRememberStore):
         if self._embedding_enabled():
             try:
                 # 无论关键词是否命中，都额外拉取最近的 100 条记录作为语义比对池
-                # 这在大数据量且无原生向量索引时是目前兼顾性能与召回的最佳方案
                 res = self.client.get(
                     "/collections/remember_entries/records",
                     params={"filter": filter_base, "perPage": 100, "sort": "-created"}
@@ -194,7 +194,8 @@ class PocketBaseRememberStore(BaseRememberStore):
                                 "memory": r["memory"],
                                 "created_at": r["created"],
                                 "embedding": r.get("embedding"),
-                                "score": 0.0
+                                "score": 0.0,
+                                "search_method": "semantic_sample"
                             }
                 
                 # 计算 Query Embedding
@@ -204,9 +205,10 @@ class PocketBaseRememberStore(BaseRememberStore):
                     for it in candidates.values():
                         vec = it.get("embedding")
                         if vec and isinstance(vec, list) and len(vec) > 0:
-                            score = cosine_similarity(q_emb, vec)
-                            # 混合评分：取关键词权重和向量分数的最大值或加权
-                            it["score"] = max(it["score"], score)
+                            v_score = cosine_similarity(q_emb, vec)
+                            it["vector_score"] = round(v_score, 4)
+                            # 混合评分：取关键词权重和向量分数的最大值
+                            it["score"] = max(it.get("score", 0), v_score)
             except Exception as e:
                 log(f"Semantic search failed: {e}", level="warn")
 
@@ -226,12 +228,11 @@ class PocketBaseRememberStore(BaseRememberStore):
                     model=self.config.reranker_model
                 )
                 for i, it in enumerate(items):
-                    it["score"] = round(rerank_scores[i], 4)
+                    it["rerank_score"] = round(rerank_scores[i], 4)
+                    it["score"] = it["rerank_score"] # 使用 Rerank 作为最终分
             except Exception as e:
                 log(f"Reranking failed: {e}", level="warn")
 
-        # Sort and filter
-        final_results = [it for it in items if it["score"] >= min_score]
         final_results.sort(key=lambda x: x["score"], reverse=True)
         
         # 只要 Top N
