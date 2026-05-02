@@ -12,7 +12,7 @@ from .models import (
     RememberItemRecord,
     SessionHistoryRecord,
 )
-from press_to_talk.utils.logging import log
+from press_to_talk.utils.logging import log, log_multiline
 from press_to_talk.utils.search import cosine_similarity, rerank_with_jina
 
 PB_BASE_URL = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090").rstrip("/") + "/api"
@@ -171,6 +171,8 @@ class PocketBaseRememberStore(BaseRememberStore):
                         "score": 0.0,
                     }
                 log(f"Keyword search found {len(kw_items)} items", level="info")
+                if kw_items:
+                    log_multiline("Keyword search raw results", json.dumps([{"id": i["id"], "memory": i["memory"]} for i in kw_items], indent=2, ensure_ascii=False), level="debug")
         except Exception as e:
             log(f"Keyword search error: {e}", level="error")
 
@@ -221,6 +223,8 @@ class PocketBaseRememberStore(BaseRememberStore):
                         f"using top {len(sem_top)}",
                         level="info"
                     )
+                    if sem_top:
+                        log_multiline("Semantic search top hits", json.dumps([{"id": h[1], "score": h[0], "memory": h[2]["memory"]} for h in sem_top], indent=2, ensure_ascii=False), level="debug")
 
                     for rank, (score, rid, r) in enumerate(sem_top, 1):
                         if rid in candidates:
@@ -255,6 +259,7 @@ class PocketBaseRememberStore(BaseRememberStore):
 
         # 5. Pre-sort & Rerank
         items = sorted(candidates.values(), key=lambda x: x["score"], reverse=True)[:50]
+        log_multiline(f"RRF Combined Candidates (top {len(items)})", json.dumps(items, indent=2, ensure_ascii=False), level="debug")
 
         if hasattr(self.config, "reranker_enabled") and self.config.reranker_enabled:
             try:
@@ -269,12 +274,17 @@ class PocketBaseRememberStore(BaseRememberStore):
                 for i, it in enumerate(items):
                     it["rerank_score"] = round(rerank_scores[i], 4)
                     it["score"] = it["rerank_score"]
+                
+                # Log after reranking
+                log_multiline("Reranked results", json.dumps(items, indent=2, ensure_ascii=False), level="debug")
             except Exception as e:
                 log(f"Reranking failed: {e}", level="warn")
 
         items.sort(key=lambda x: x["score"], reverse=True)
         limit = getattr(self.config, "embedding_max_results", 10)
-        return json.dumps({"results": items[:limit]}, ensure_ascii=False)
+        final_results = items[:limit]
+        log(f"Final search returned {len(final_results)} items after limit", level="info")
+        return json.dumps({"results": final_results}, ensure_ascii=False)
 
     def delete(self, *, memory_id: str) -> None:
         res = self.client.delete(f"/collections/remember_entries/records/{memory_id}")

@@ -410,7 +410,7 @@ class OpenAICompatibleAgent:
                 mem_text = str(item.get("memory", "")).strip()
                 if mem_text:
                     date_prefix = _memory_date_prefix(
-                        str(item.get("updated_at") or item.get("created_at") or "")
+                        str(item.get("updated_at") or item.get("updated") or item.get("created_at") or item.get("created") or "")
                     )
                     if date_prefix:
                         extracted_memories.append(f"{date_prefix}: {mem_text}")

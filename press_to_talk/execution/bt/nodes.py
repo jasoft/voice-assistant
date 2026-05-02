@@ -131,7 +131,9 @@ class ExecuteSearchAction(Action):
                 bb.memories = extracted.get("items", [])
                 log(f"Search found {len(bb.memories)} relevant memories", level="info")
                 if bb.memories:
-                    log_multiline("Retrieved Memories", json.dumps(bb.memories, indent=2, ensure_ascii=False))
+                    # Debug: summary line that will survive grep
+                    log(f"Debug: Found {len(bb.memories)} memories, first keys: {list(bb.memories[0].keys())}", level="debug")
+                    log_multiline(f"Retrieved Memories ({len(bb.memories)} items)", json.dumps(bb.memories, indent=2, ensure_ascii=False))
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
