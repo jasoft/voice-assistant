@@ -30,5 +30,5 @@ if [ ! -f "$PB_BIN" ]; then
     chmod +x "$PB_BIN"
 fi
 
-echo "Starting PocketBase on 127.0.0.1:18090..."
-exec "$PB_BIN" serve --http="127.0.0.1:18090"
+echo "Starting PocketBase on 0.0.0.0:18090..."
+exec "$PB_BIN" serve --http="0.0.0.0:18090"
