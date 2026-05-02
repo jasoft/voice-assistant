@@ -10,18 +10,22 @@ from datetime import datetime
 import dataclasses
 from contextlib import asynccontextmanager
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response, StreamingResponse
+from starlette.background import BackgroundTask
+import json
+import httpx
+
 from .auth import get_user_id
 from ..models.config import Config, parse_args
 from ..execution import execute_transcript_async
-from ..storage.models import SessionHistory, RememberEntry, db
-from ..storage.service import ensure_storage_database, load_storage_config
+from ..storage.service import StorageService, load_storage_config, ensure_storage_database
 from ..utils.logging import log, log_multiline
 from ..utils.photo import get_photo_url
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-import json
+PB_URL = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090")
+pb_client = httpx.AsyncClient(base_url=PB_URL)
 
 def mask_auth_header(auth_str: str) -> str:
     """Mask Authorization header for security, showing only first 6 and last 4 characters."""
@@ -57,9 +61,6 @@ async def lifespan(app: FastAPI):
     # Cleanup on shutdown
     log("API Server shutting down.", level="info")
     close_session_log()
-    
-    if not db.is_closed():
-        db.close()
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -106,6 +107,95 @@ app = FastAPI(title="Press-to-Talk API", lifespan=lifespan)
 os.makedirs("data/photos", exist_ok=True)
 app.mount("/assets", StaticFiles(directory="data/photos"), name="assets")
 app.add_middleware(LoggingMiddleware)
+
+# --- PocketBase Proxy Routes (With Isolation) ---
+@app.api_route("/pb/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def proxy_pocketbase_with_auth(path: str, request: Request, user_id: str = Depends(get_user_id)):
+    """
+    代理 PocketBase 的 API 请求，并强制注入当前用户的隔离标识 (user_id)。
+    """
+    target_path = path
+    if request.url.path.startswith("/pb/api/"):
+        target_path = path # path already starts with api/
+    elif request.url.path.startswith("/api/"):
+        target_path = f"api/{path}"
+
+    # 注入隔离过滤器 (针对 GET/DELETE 等)
+    params = dict(request.query_params)
+    user_filter = f"user_id = '{user_id}'"
+    
+    if "filter" in params and params["filter"]:
+        params["filter"] = f"({params['filter']}) && {user_filter}"
+    else:
+        params["filter"] = user_filter
+
+    url = httpx.URL(path=f"/{target_path}", query=params)
+    
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    headers.pop("authorization", None)
+    
+    # 针对 POST/PATCH/PUT，注入 user_id 到 Body 中确保数据归属
+    content = None
+    if request.method in ("POST", "PATCH", "PUT") and "/records" in request.url.path:
+        try:
+            body_json = await request.json()
+            if isinstance(body_json, dict):
+                body_json["user_id"] = user_id
+                content = json.dumps(body_json).encode("utf-8")
+                headers["content-length"] = str(len(content))
+        except Exception:
+            pass # 如果不是 JSON 则保持原样
+    
+    req = pb_client.build_request(
+        request.method,
+        url,
+        headers=headers,
+        content=content or request.stream(),
+    )
+    
+    res = await pb_client.send(req, stream=True)
+    
+    res_headers = dict(res.headers)
+    res_headers.pop("transfer-encoding", None)
+    
+    return StreamingResponse(
+        res.aiter_raw(),
+        status_code=res.status_code,
+        headers=res_headers,
+        background=BackgroundTask(res.aclose)
+    )
+
+@app.api_route("/_/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def proxy_pocketbase_admin(path: str, request: Request):
+    """
+    后台管理界面不强制 Bearer Auth，因为它有自己的管理员登录机制。
+    """
+    target_path = f"_{path}" if path else "_"
+    url = httpx.URL(path=f"/{target_path}", query=request.url.query.encode("utf-8"))
+    
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    
+    req = pb_client.build_request(
+        request.method,
+        url,
+        headers=headers,
+        content=request.stream(),
+    )
+    
+    res = await pb_client.send(req, stream=True)
+    res_headers = dict(res.headers)
+    res_headers.pop("transfer-encoding", None)
+    
+    return StreamingResponse(
+        res.aiter_raw(),
+        status_code=res.status_code,
+        headers=res_headers,
+        background=BackgroundTask(res.aclose)
+    )
+# -------------------------------
 
 @app.get("/healthy", tags=["System"])
 async def healthy():
@@ -384,46 +474,39 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
 
 @app.post("/v1/history", response_model=List[HistoryItem], summary="获取会话历史记录", description="按时间倒序返回当前用户的最近 20 条会话历史记录（包含请求文本和助手回复）。")
 async def get_history(user_id: str = Depends(get_user_id)):
-    ensure_storage_database()
     try:
-        histories = (SessionHistory
-                    .select()
-                    .where(SessionHistory.user_id == user_id)
-                    .order_by(SessionHistory.created_at.desc())
-                    .limit(20))
+        config = load_storage_config(user_id_override=user_id)
+        service = StorageService(config, use_cli=False)
+        records = service.history_store().list_recent(limit=20)
         return [
             HistoryItem(
-                session_id=h.session_id,
-                transcript=h.transcript,
-                reply=h.reply,
-                created_at=h.created_at.isoformat() if hasattr(h.created_at, "isoformat") else str(h.created_at)
+                session_id=r.session_id,
+                transcript=r.transcript,
+                reply=r.reply,
+                created_at=r.started_at
             )
-            for h in histories
+            for r in records
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/v1/memories", response_model=List[MemoryItem], summary="获取长期记忆条目", description="按时间倒序返回当前用户的最近 50 条长期记忆记录。")
 async def get_memories(user_id: str = Depends(get_user_id)):
-    ensure_storage_database()
     try:
-        memories = (RememberEntry
-                   .select()
-                   .where(RememberEntry.user_id == user_id)
-                   .order_by(RememberEntry.created_at.desc())
-                   .limit(50))
+        config = load_storage_config(user_id_override=user_id)
+        service = StorageService(config, use_cli=False)
+        records = service.remember_store().list_all(limit=50)
         return [
             MemoryItem(
                 id=m.id,
                 memory=m.memory,
-                created_at=str(m.created_at),
+                created_at=m.created_at,
                 photo_path=m.photo_path,
                 photo_url=get_photo_url(m.photo_path),
-                score=0.0 # 列表接口暂无搜索评分
+                score=0.0 
                 )
-                for m in memories
+                for m in records
                 ]
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

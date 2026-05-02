@@ -133,21 +133,20 @@ class StorageCliTests(unittest.TestCase):
     def test_list_history_loads_backend_from_env_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            test_db_path = tmp_path / "absolutely_empty.sqlite3"
-            env_path = tmp_path / ".env"
-            env_path.write_text(
-                "MEM0_API_KEY=test-mem0-key\n"
-                f"PTT_HISTORY_DB_PATH={test_db_path}\n"
-                f"PTT_REMEMBER_DB_PATH={test_db_path}\n",
-                encoding="utf-8",
-            )
+            test_db_path = str(tmp_path / "absolutely_empty.sqlite3")
 
             stderr = io.StringIO()
             stdout = io.StringIO()
             from press_to_talk.storage import service as storage_service_module
+            from press_to_talk.storage.pocketbase_store import PocketBaseHistoryStore
             storage_service_module.reset_storage_config_logged()
             with chdir(tmp_path), \
-                 patch.dict(os.environ, {}, clear=True), \
+                 patch.dict(os.environ, {
+                     "PTT_HISTORY_DB_PATH": test_db_path,
+                     "PTT_REMEMBER_DB_PATH": test_db_path,
+                     "PTT_PB_URL": "http://mock-pb-server:8080"
+                 }), \
+                 patch.object(PocketBaseHistoryStore, "list_recent", return_value=[]), \
                  redirect_stdout(stdout), \
                  redirect_stderr(stderr):
                 code = storage_cli_app.main(["--user-id", "default", "-v", "history", "list", "--limit", "5"])

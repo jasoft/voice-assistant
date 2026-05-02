@@ -4,7 +4,6 @@ from typing import Any, Callable
 
 from ..models import BaseRememberStore
 from .mem0 import Mem0RememberStore, extract_mem0_summary_payload
-from .sqlite_fts import SQLiteFTS5RememberStore, extract_sqlite_summary_payload
 
 # Registry of available providers
 # Maps backend name to its Store class and summary extractor
@@ -13,16 +12,14 @@ REMEMBER_PROVIDERS: dict[str, dict[str, Any]] = {
         "class": Mem0RememberStore,
         "extractor": extract_mem0_summary_payload,
     },
-    "sqlite_fts5": {
-        "class": SQLiteFTS5RememberStore,
-        "extractor": extract_sqlite_summary_payload,
-    },
 }
 
 
 def get_remember_provider_class(name: str) -> type[BaseRememberStore]:
     provider = REMEMBER_PROVIDERS.get(name)
     if not provider:
+        # 兜底：如果找不到，尝试返回 PocketBaseStore 的逻辑在 service.py 中处理
+        # 这里仅维护显式注册的 provider
         raise ValueError(f"Unknown remember provider: {name}")
     return provider["class"]
 
@@ -37,7 +34,6 @@ def get_remember_summary_extractor(name: str) -> Callable[[Any], dict[str, Any]]
 
 __all__ = [
     "Mem0RememberStore",
-    "SQLiteFTS5RememberStore",
     "REMEMBER_PROVIDERS",
     "get_remember_provider_class",
     "get_remember_summary_extractor",

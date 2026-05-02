@@ -1,5 +1,6 @@
 import httpx
 import datetime
+import os
 from .models import (
     BaseRememberStore,
     BaseHistoryStore,
@@ -8,7 +9,7 @@ from .models import (
     SessionHistoryRecord,
 )
 
-PB_BASE_URL = "http://127.0.0.1:18090/api"
+PB_BASE_URL = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090").rstrip("/") + "/api"
 
 class PocketBaseRememberStore(BaseRememberStore):
     def __init__(self, config: StorageConfig):
@@ -94,6 +95,10 @@ class PocketBaseRememberStore(BaseRememberStore):
                 source_memory_id=r.get("source_memory_id", "")
             ) for r in records
         ]
+
+    def rebuild_fts(self) -> int:
+        """PocketBase does not use FTS; return 0 as a no-op."""
+        return 0
 
     def update(
         self,

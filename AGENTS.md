@@ -38,7 +38,7 @@
 - Chat 分支会加载 `brave-search` 和 `fetch` MCP 工具
 - Remember 分支使用存储层 CLI：
   `ptt-storage memory search` / `ptt-storage memory add`
-- 存储后端：支持 `Mem0` (云端) 和 `SQLite FTS5` (本地) 双引擎分发
+- 存储后端：支持 `Mem0` (云端) 和 `PocketBase` (本地/远程) 双引擎分发
 
 ## Git 工作流
 

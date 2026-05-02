@@ -1,69 +1,6 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Protocol
-from peewee import Model, CharField, DateTimeField, FloatField, BooleanField, TextField, SqliteDatabase, SQL
-
-db = SqliteDatabase(None)  # To be initialized in service
-
-
-class BaseModel(Model):
-    class Meta:
-        database = db
-
-
-class User(BaseModel):
-    user_id = CharField(primary_key=True)
-    nickname = CharField(null=True)
-    system_prompt = TextField(null=True)
-    preferences = TextField(null=True)  # JSON storage for user preferences
-    created_at = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
-
-    class Meta:
-        table_name = 'users'
-
-
-class APIToken(BaseModel):
-    token = CharField(primary_key=True)
-    user_id = CharField(index=True)
-    description = TextField(null=True)
-    created_at = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
-
-    class Meta:
-        table_name = 'api_tokens'
-
-
-class SessionHistory(BaseModel):
-    session_id = CharField(unique=True)
-    user_id = CharField(index=True)
-    started_at = CharField()  # Match existing schema types
-    ended_at = CharField()
-    transcript = TextField()
-    reply = TextField()
-    peak_level = FloatField()
-    mean_level = FloatField()
-    auto_closed = BooleanField()
-    reopened_by_click = BooleanField()
-    mode = CharField()
-    created_at = DateTimeField(constraints=[SQL('DEFAULT CURRENT_TIMESTAMP')])
-
-    class Meta:
-        table_name = 'session_histories'
-
-
-class RememberEntry(BaseModel):
-    id = CharField(primary_key=True)
-    user_id = CharField(index=True)
-    source_memory_id = CharField(null=True)
-    memory = TextField()
-    original_text = TextField()
-    photo_path = CharField(null=True)
-    created_at = CharField()
-    updated_at = CharField()
-
-    class Meta:
-        table_name = 'remember_entries'
-
 
 @dataclass
 class StorageConfig:

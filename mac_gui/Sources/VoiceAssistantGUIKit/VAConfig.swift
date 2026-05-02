@@ -23,7 +23,7 @@ public struct VAConfig: Sendable {
 
         // 1. Try environment variables first
         let env = ProcessInfo.processInfo.environment
-        var finalServerURL = env["VA_SERVER_URL"] ?? "https://va.soj.myds.me:1443/v1"
+        var finalServerURL = env["VA_SERVER_URL"] ?? "http://127.0.0.1:10031/v1"
         var finalApiKey = env["PTT_API_KEY"] ?? ""
         
         // 2. Load from .env if found

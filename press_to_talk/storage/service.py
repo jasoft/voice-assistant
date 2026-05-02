@@ -11,8 +11,7 @@ from press_to_talk.utils.logging import log, log_llm_prompt, log_multiline
 
 from .cli_wrapper import CLIHistoryStore, CLIRememberStore
 from .memory_backends import (
-    _quote_match_token,
-    _sanitize_rewritten_keywords,
+    export_memories_to_provider,
 )
 from .models import (
     BaseHistoryStore,
@@ -265,9 +264,27 @@ def ensure_storage_database(config: StorageConfig | None = None) -> None:
     pass  # Handled by PocketBase
 
 def resolve_user_id_from_api_key(api_key: str) -> str | None:
-    # Deprecated with PocketBase proxy if not using api_tokens collection
-    token = str(api_key or "").strip()
-    return token if token else "default"
+    token_str = str(api_key or "").strip()
+    if not token_str:
+        return "default"
+    
+    # 强制从 PocketBase 查询
+    pb_url = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090")
+    try:
+        import httpx
+        res = httpx.get(
+            f"{pb_url.rstrip('/')}/api/collections/api_tokens/records",
+            params={"filter": f"token = '{token_str}'"},
+            timeout=2.0
+        )
+        if res.status_code == 200:
+            items = res.json().get("items", [])
+            if items:
+                return items[0]["user_id"]
+    except Exception as e:
+        log(f"Warning: failed to resolve user_id from PocketBase: {e}", level="warning")
+    
+    return token_str
 
 
 class LLMKeywordRewriter:
@@ -554,38 +571,11 @@ class StorageService:
             if env_id and env_id != "default":
                 normalized.mem0_user_id = env_id
         h_path = str(normalized.history_db_path or "").strip()
-        r_path = str(normalized.remember_db_path or "").strip()
-
-        # If only one is provided, use it for both. If neither, use defaults.
-        if h_path and not r_path:
-            normalized.remember_db_path = h_path
-        elif r_path and not h_path:
-            normalized.history_db_path = r_path
-        elif not h_path and not r_path:
-            normalized.history_db_path = str(DEFAULT_HISTORY_DB_PATH)
-            normalized.remember_db_path = str(DEFAULT_REMEMBER_DB_PATH)
-
-        # All Peewee models share the same global 'db' instance, so paths MUST match
-        h_path_abs = Path(normalized.history_db_path).expanduser().resolve()
-        r_path_abs = Path(normalized.remember_db_path).expanduser().resolve()
-
-        if h_path_abs != r_path_abs:
-            log(
-                f"Warning: history_db_path and remember_db_path are different. Using {r_path_abs} for all storage.",
-                level="warning",
-            )
-            normalized.history_db_path = str(r_path_abs)
-            normalized.remember_db_path = str(r_path_abs)
-        else:
-            # Update paths to resolved absolute strings
-            normalized.history_db_path = str(h_path_abs)
-            normalized.remember_db_path = str(r_path_abs)
-
-        self.config = normalized
+        self.config = config
 
         self._remember_provider: BaseRememberStore | None = None
-        self._remember_store = PocketBaseRememberStore(self.config)
-        self._history_store = PocketBaseHistoryStore(self.config)
+        self._remember_store: BaseRememberStore | None = None
+        self._history_store: BaseHistoryStore | None = None
 
     def _initialize_users(self) -> None:
         pass
@@ -595,15 +585,19 @@ class StorageService:
             self._remember_provider = self._build_remember_provider()
         return self._remember_provider
 
-    def _build_remember_provider(self) -> BaseRememberStore:
-        from .providers import get_remember_provider_class
+    def _get_or_build_history_provider(self) -> BaseHistoryStore:
+        if self._history_store is None:
+            self._history_store = PocketBaseHistoryStore(self.config)
+        return self._history_store
 
-        provider_cls = get_remember_provider_class(self.config.backend)
-        return provider_cls.from_config(
-            self.config,
-            keyword_rewriter=self.keyword_rewriter(),
-            embedding_client=self.embedding_client(),
-        )
+    def _get_or_build_remember_provider(self) -> BaseRememberStore:
+        if self._remember_store is None:
+            if self.config.backend == "mem0":
+                from .providers.mem0 import Mem0RememberStore
+                self._remember_store = Mem0RememberStore.from_config(self.config)
+            else:
+                self._remember_store = PocketBaseRememberStore(self.config)
+        return self._remember_store
 
     @classmethod
     def from_env(cls, use_cli: bool = True) -> "StorageService":
@@ -621,14 +615,6 @@ class StorageService:
             base_url=self.config.llm_base_url,
         )
 
-    def _sqlite_memory_translator(self) -> MemoryTranslator | None:
-        if not self.config.llm_api_key.strip():
-            return None
-        return LLMMemoryTranslator(
-            api_key=self.config.llm_api_key,
-            llm_model=self.config.llm_model,
-            base_url=self.config.llm_base_url,
-        )
 
     def embedding_client(self) -> EmbeddingClient | None:
         if not self.config.embedding_search_enabled:
@@ -662,10 +648,23 @@ class StorageService:
         return self._remember_store
 
     def history_store(self) -> BaseHistoryStore:
-        return self._history_store
+        return self._get_or_build_history_provider()
 
     def get_user_nickname(self) -> str:
         base_id = str(self.config.user_id or "default")
-        res = "大王" if base_id == "default" else base_id
-        log(f"DEBUG get_user_nickname: returning fallback {repr(res)}", level="debug")
-        return res
+        pb_url = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090")
+        try:
+            import httpx
+            res = httpx.get(
+                f"{pb_url}/api/collections/users/records",
+                params={"filter": f"user_id = '{base_id}'"},
+                timeout=2.0
+            )
+            if res.status_code == 200:
+                items = res.json().get("items", [])
+                if items and items[0].get("nickname"):
+                    return items[0]["nickname"]
+        except Exception:
+            pass
+
+        return "大王" if base_id == "default" else base_id

@@ -508,7 +508,11 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             result = core.main()
 
         self.assertEqual(result, 0)
-        execute_mock.assert_called_once_with(cfg, "你好", photo_path=None)
+        # execute_transcript now accepts additional keyword args (session_id, started_at, etc.)
+        call_args = execute_mock.call_args
+        self.assertEqual(call_args[0][0], cfg)
+        self.assertEqual(call_args[0][1], "你好")
+        self.assertEqual(call_args[1].get("photo_path"), None)
         # Now we assert on log calls instead of print
         self.assertTrue(any("reply ready:" in str(call) and "Hermes 回复" in str(call) for call in log_mock.call_args_list))
 

@@ -132,9 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     m_list.add_argument("--offset", type=int, default=0)
 
     m_export = memory_sub.add_parser("export", help="Export memories", formatter_class=AgentHelpFormatter)
-    m_export.add_argument("--to-provider", required=True, choices=["mem0", "sqlite_fts5"])
-
-    m_rebuild = memory_sub.add_parser("rebuild-fts", help="Rebuild FTS index from main storage", formatter_class=AgentHelpFormatter)
+    m_export.add_argument("--to-provider", required=True, choices=["mem0"])
 
     return parser
 
@@ -195,11 +193,8 @@ def main(argv: list[str] | None = None) -> int:
     ).strip()
     explicit_user_id = global_args.user_id
 
-    # rebuild-fts 是免认证的管理命令，跳过所有 token 校验
-    is_rebuild_cmd = (args.category == "memory" and args.command == "rebuild-fts")
-
     api_key = cli_api_key or ("" if explicit_user_id else env_api_key)
-    if api_key and not is_rebuild_cmd:
+    if api_key:
         effective_user_id = resolve_user_id_from_api_key(api_key)
         if not effective_user_id:
             parser.error(f"invalid --api-key: {api_key}")
@@ -208,8 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     if not effective_user_id:
         effective_user_id = explicit_user_id
 
-    # 4. 强制校验 (除了 rebuild-fts 外都需要身份)
-    if not effective_user_id and not is_rebuild_cmd:
+    # 4. 强制校验 (需要身份)
+    if not effective_user_id:
         parser.error("the following arguments are required: --api-key")
 
     from press_to_talk.utils.logging import set_global_log_level
@@ -306,10 +301,6 @@ def main(argv: list[str] | None = None) -> int:
                 target_store = target_cls.from_config(config)
                 count = export_memories_to_provider(source_store=service.remember_store(), target_store=target_store)
                 print(json.dumps({"status": "ok", "exported_count": count}, ensure_ascii=False))
-            elif args.category == "memory" and args.command == "rebuild-fts":
-                # rebuild_fts() 始终执行全局重建，不区分用户
-                count = service.remember_store().rebuild_fts()
-                print(json.dumps({"status": "ok", "rebuilt_count": count, "mode": "all"}, ensure_ascii=False))
             elif args.category == "history" and args.command == "list":
                 records = service.history_store().list_recent(limit=args.limit, query=args.query)
                 print(json.dumps([asdict(r) for r in records], ensure_ascii=False))
