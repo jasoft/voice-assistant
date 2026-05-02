@@ -1,3 +1,4 @@
+from typing import Any, Optional, List, Dict
 import httpx
 import datetime
 import os
@@ -253,6 +254,16 @@ class PocketBaseRememberStore(BaseRememberStore):
         threading.Thread(target=self._sync_record_embedding, args=(record,), daemon=True).start()
         return RememberItemRecord(**record)
 
+    def extract_summary_items(self, raw_output: str) -> dict[str, list[dict[str, Any]]]:
+        try:
+            data = json.loads(raw_output)
+            # 兼容 find 返回的 {"results": [...]} 格式
+            items = data.get("results", [])
+            return {"items": items}
+        except Exception as e:
+            log(f"Failed to extract summary items: {e}", level="warn")
+            return {"items": []}
+
     def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
         page = (offset // limit) + 1
         res = self.client.get(
@@ -275,7 +286,7 @@ class PocketBaseHistoryStore(BaseHistoryStore):
             "user_id": self.user_id,
             "transcript": record.transcript,
             "reply": record.reply,
-            "mode": record.intent, # 旧表用 mode 存意图/模式
+            "mode": record.mode, # 修正：record 里叫 mode
             "photo_path": record.photo_path or "",
             "audio_path": record.audio_path or "",
             "started_at": record.started_at,
