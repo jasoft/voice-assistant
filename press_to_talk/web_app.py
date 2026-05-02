@@ -29,8 +29,7 @@ log(f"Web API Server starting. Log file: {log_path}")
 
 app = FastAPI(title="Voice Assistant Web API")
 
-PB_URL = env_path("PTT_PB_URL", "http://127.0.0.1:18090")
-pb_client = httpx.AsyncClient(base_url=PB_URL)
+
 
 # 允许跨域
 app.add_middleware(
@@ -148,48 +147,7 @@ async def process_audio(audio: UploadFile = File(...)):
         #     shutil.rmtree(temp_dir)
         pass
 
-# 直接转发 PocketBase 的 API 和 Admin UI 核心路由，确保静态资源和 API 调用路径一致
-@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-@app.api_route("/_/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-@app.api_route("/pb/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-async def proxy_pocketbase(path: str, request: Request):
-    # 重新构造目标路径。如果命中 /pb/ 则去掉前缀，否则保持原样（因为 path 本身就是 api/... 或 _/...）
-    target_path = path
-    if request.url.path.startswith("/pb/"):
-        target_path = path
-    else:
-        # 对于 /api/ 或 /_/ 开头的，path 已经包含了该部分
-        # 比如访问 /api/collections/...，path 就是 collections/...
-        # 我们需要重新拼回全路径
-        if request.url.path.startswith("/api/"):
-            target_path = f"api/{path}"
-        elif request.url.path.startswith("/_/"):
-            target_path = f"_{path}" if path else "_"
 
-    url = httpx.URL(path=f"/{target_path}", query=request.url.query.encode("utf-8"))
-    
-    headers = dict(request.headers)
-    headers.pop("host", None)
-    
-    req = pb_client.build_request(
-        request.method,
-        url,
-        headers=headers,
-        content=request.stream(),
-    )
-    
-    res = await pb_client.send(req, stream=True)
-    
-    # Filter out hop-by-hop headers from PocketBase response
-    res_headers = dict(res.headers)
-    res_headers.pop("transfer-encoding", None)
-    
-    return StreamingResponse(
-        res.aiter_raw(),
-        status_code=res.status_code,
-        headers=res_headers,
-        background=BackgroundTask(res.aclose)
-    )
 
 # 挂载静态文件放在最后，避免拦截 API 路由
 frontend_path = Path("web_gui")

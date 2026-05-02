@@ -9,6 +9,7 @@ services:
       - TZ=Asia/Shanghai
     ports:
       - "10031:10031"
+      - "18090:18090"
     volumes:
       - ./data:/app/data
       # 挂载代码文件以支持热重载，但避开编译产物目录

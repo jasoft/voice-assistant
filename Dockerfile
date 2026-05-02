@@ -42,7 +42,7 @@ RUN chmod +x /app/start.sh
 RUN uv sync --frozen
 
 # 暴露端口
-EXPOSE 10031
+EXPOSE 10031 18090
 
 # 声明 data 卷，可被外部映射
 VOLUME ["/app/data"]

@@ -27,8 +27,7 @@ from ..storage.service import StorageService, load_storage_config, ensure_storag
 from ..utils.logging import log, log_multiline
 from ..utils.photo import get_photo_url
 
-PB_URL = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090")
-pb_client = httpx.AsyncClient(base_url=PB_URL)
+
 
 def mask_auth_header(auth_str: str) -> str:
     """Mask Authorization header for security, showing only first 6 and last 4 characters."""
@@ -132,105 +131,6 @@ os.makedirs("data/photos", exist_ok=True)
 app.mount("/assets", StaticFiles(directory="data/photos"), name="assets")
 app.add_middleware(LoggingMiddleware)
 
-# --- PocketBase Proxy Routes (With Isolation) ---
-
-@app.get("/pb/_/{path:path}", include_in_schema=False)
-@app.get("/pb/_", include_in_schema=False)
-async def redirect_pb_admin_fix(path: str = ""):
-    """
-    当访问 /pb/_ 时，通常是浏览器访问后台。
-    由于 /pb/ 前缀路由强制要求 Bearer Auth，而后台管理界面依赖浏览器会话 (Cookie)，
-    因此将其重定向到 /_/ 路径，由 proxy_pocketbase_admin 接管（免 Bearer 验证）。
-    """
-    target = f"/_/{path}" if path else "/_/"
-    return RedirectResponse(url=target)
-
-@app.api_route("/pb/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-async def proxy_pocketbase_with_auth(path: str, request: Request, user_id: str = Depends(get_user_id)):
-    """
-    代理 PocketBase 的 API 请求，并强制注入当前用户的隔离标识 (user_id)。
-    """
-    target_path = path
-    if request.url.path.startswith("/pb/api/"):
-        target_path = path # path already starts with api/
-    elif request.url.path.startswith("/api/"):
-        target_path = f"api/{path}"
-
-    # 注入隔离过滤器 (针对 GET/DELETE 等)
-    params = dict(request.query_params)
-    user_filter = f"user_id = '{user_id}'"
-    
-    if "filter" in params and params["filter"]:
-        params["filter"] = f"({params['filter']}) && {user_filter}"
-    else:
-        params["filter"] = user_filter
-
-    url = httpx.URL(path=f"/{target_path}", query=params)
-    
-    headers = dict(request.headers)
-    headers.pop("host", None)
-    headers.pop("authorization", None)
-    
-    # 针对 POST/PATCH/PUT，注入 user_id 到 Body 中确保数据归属
-    content = None
-    if request.method in ("POST", "PATCH", "PUT") and "/records" in request.url.path:
-        try:
-            body_json = await request.json()
-            if isinstance(body_json, dict):
-                body_json["user_id"] = user_id
-                content = json.dumps(body_json).encode("utf-8")
-                headers["content-length"] = str(len(content))
-        except Exception:
-            pass # 如果不是 JSON 则保持原样
-    
-    req = pb_client.build_request(
-        request.method,
-        url,
-        headers=headers,
-        content=content or request.stream(),
-    )
-    
-    res = await pb_client.send(req, stream=True)
-    
-    res_headers = dict(res.headers)
-    res_headers.pop("transfer-encoding", None)
-    
-    return StreamingResponse(
-        res.aiter_raw(),
-        status_code=res.status_code,
-        headers=res_headers,
-        background=BackgroundTask(res.aclose)
-    )
-
-@app.api_route("/_/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-async def proxy_pocketbase_admin(path: str, request: Request):
-    """
-    后台管理界面不强制 Bearer Auth，因为它有自己的管理员登录机制。
-    """
-    target_path = f"_{path}" if path else "_"
-    url = httpx.URL(path=f"/{target_path}", query=request.url.query.encode("utf-8"))
-    
-    headers = dict(request.headers)
-    headers.pop("host", None)
-    
-    req = pb_client.build_request(
-        request.method,
-        url,
-        headers=headers,
-        content=request.stream(),
-    )
-    
-    res = await pb_client.send(req, stream=True)
-    res_headers = dict(res.headers)
-    res_headers.pop("transfer-encoding", None)
-    
-    return StreamingResponse(
-        res.aiter_raw(),
-        status_code=res.status_code,
-        headers=res_headers,
-        background=BackgroundTask(res.aclose)
-    )
 # -------------------------------
 
 @app.get("/healthy", tags=["System"])
@@ -240,11 +140,9 @@ async def healthy():
 
 @app.get("/ready", tags=["System"])
 async def ready():
-    """Readiness probe: returns 200 OK if the database and configurations are ready."""
+    """Readiness probe: returns 200 OK if the configurations are loaded."""
     if base_config is None:
         raise HTTPException(status_code=503, detail="Configuration not loaded")
-    if db.is_closed():
-        raise HTTPException(status_code=503, detail="Database is not connected")
     return {"status": "ready"}
 
 from enum import Enum
