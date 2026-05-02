@@ -30,5 +30,11 @@ if [ ! -f "$PB_BIN" ]; then
     chmod +x "$PB_BIN"
 fi
 
-echo "Starting PocketBase on 0.0.0.0:18090..."
-exec "$PB_BIN" serve --http="0.0.0.0:18090"
+PB_DATA_DIR="$PB_DIR/pb_data"
+if [ -d "/app/data" ]; then
+    # Docker 环境下使用挂载的卷
+    PB_DATA_DIR="/app/data/pb_data"
+fi
+
+echo "Starting PocketBase on 0.0.0.0:18090 using data dir $PB_DATA_DIR..."
+exec "$PB_BIN" serve --http="0.0.0.0:18090" --dir="$PB_DATA_DIR"
