@@ -1,6 +1,9 @@
 import httpx
 import datetime
 import os
+import json
+import re
+import threading
 from .models import (
     BaseRememberStore,
     BaseHistoryStore,
@@ -8,8 +11,15 @@ from .models import (
     RememberItemRecord,
     SessionHistoryRecord,
 )
+from press_to_talk.utils.logging import log
+from press_to_talk.utils.search import cosine_similarity, rerank_with_jina
 
 PB_BASE_URL = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090").rstrip("/") + "/api"
+
+
+def _escape_pb_string(value: str) -> str:
+    return str(value or "").replace("\\", "\\\\").replace("'", "\\'")
+
 
 class PocketBaseRememberStore(BaseRememberStore):
     def __init__(self, config: StorageConfig):
@@ -30,7 +40,83 @@ class PocketBaseRememberStore(BaseRememberStore):
         }
         res = self.client.post("/collections/remember_entries/records", json=data)
         res.raise_for_status()
-        return res.json().get("id")
+        record = res.json()
+        
+        # 异步计算向量并更新
+        threading.Thread(
+            target=self._sync_record_embedding, 
+            args=(record,), 
+            daemon=True
+        ).start()
+        
+        return record.get("id")
+
+    def _embedding_enabled(self) -> bool:
+        return (
+            bool(getattr(self.config, "semantic_search_enabled", True))
+            and bool(getattr(self.config, "embedding_search_enabled", False))
+            and bool(getattr(self.config, "embedding_client", None))
+        )
+
+    def _sync_record_embedding(self, record: dict) -> bool:
+        if not self._embedding_enabled():
+            return False
+        
+        item_id = record.get("id")
+        memory_text = record.get("memory")
+        if not item_id or not memory_text:
+            return False
+
+        try:
+            vectors = self.config.embedding_client.embed_many([memory_text])
+            if not vectors:
+                return False
+            
+            # PATCH 回 PocketBase
+            res = self.client.patch(
+                f"/collections/remember_entries/records/{item_id}",
+                json={"embedding": vectors[0]}
+            )
+            res.raise_for_status()
+            log(f"Async embedding updated for memory {item_id}", level="debug")
+            return True
+        except Exception as e:
+            log(f"Failed to sync embedding for {item_id}: {e}", level="warn")
+            return False
+
+    def rebuild_embeddings(self) -> int:
+        """全量重建向量数据"""
+        if not self._embedding_enabled():
+            log("Embedding search is not enabled, skipping rebuild", level="warn")
+            return 0
+
+        filter_str = f"user_id = '{self.user_id}'"
+        log(f"Rebuilding embeddings for user: {self.user_id}", level="info")
+        
+        processed = 0
+        # 简单分页处理
+        page = 1
+        while True:
+            res = self.client.get(
+                "/collections/remember_entries/records",
+                params={"filter": filter_str, "page": page, "perPage": 50}
+            )
+            res.raise_for_status()
+            data = res.json()
+            items = data.get("items", [])
+            if not items:
+                break
+            
+            for item in items:
+                # 即使已有也重建，确保一致性
+                if self._sync_record_embedding(item):
+                    processed += 1
+            
+            if page >= data.get("totalPages", 1):
+                break
+            page += 1
+            
+        return processed
 
     def find(
         self,
@@ -40,114 +126,94 @@ class PocketBaseRememberStore(BaseRememberStore):
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> str:
-        import json
-        from press_to_talk.utils.logging import log
-        from press_to_talk.utils.search import cosine_similarity, rerank_with_jina
-
-        log(f"PocketBase search started: query='{query}'", level="info")
-        
-        # 1. Prepare candidates dictionary
-        candidates = {}
-        
-        # 2. Date Filtering Params for PocketBase
+        # 1. Identity & Date Filters
         filter_base = f"user_id = '{self.user_id}'"
         if start_date:
-            filter_base += f" && created >= '{start_date}'"
+            filter_base += f" && created >= '{start_date} 00:00:00'"
         if end_date:
             filter_base += f" && created <= '{end_date} 23:59:59'"
 
-        # 3. Keyword Search
+        candidates = {} # id -> candidate dict
+
+        # 2. Keyword Search (Keyword Rewriter)
         search_terms = [query]
         if hasattr(self.config, "keyword_rewriter") and self.config.keyword_rewriter:
             try:
                 rewritten = self.config.keyword_rewriter.rewrite(query)
-                # Parse "term1 OR term2" back into list
                 import re
                 terms = re.findall(r'"([^"]+)"', rewritten)
                 if terms:
                     search_terms.extend(terms)
-                log(f"Keyword rewriter output: {rewritten}, terms: {search_terms}", level="info")
+                log(f"Keyword rewriter output: {rewritten}", level="debug")
             except Exception as e:
-                log(f"Keyword rewrite failed: {e}", level="error")
+                log(f"Keyword rewrite failed: {e}", level="warn")
 
-        if hasattr(self.config, "keyword_search_enabled") and self.config.keyword_search_enabled:
+        # Fetch keyword candidates
+        try:
+            term_filters = []
+            for term in set(search_terms):
+                safe_term = _escape_pb_string(term)
+                term_filters.append(f"(memory ~ '{safe_term}' || original_text ~ '{safe_term}')")
+            
+            pb_filter = f"{filter_base} && ({' || '.join(term_filters)})"
+            res = self.client.get(
+                "/collections/remember_entries/records",
+                params={"filter": pb_filter, "perPage": 50}
+            )
+            if res.status_code == 200:
+                items = res.json().get("items", [])
+                for r in items:
+                    candidates[r["id"]] = {
+                        "id": r["id"],
+                        "memory": r["memory"],
+                        "created_at": r["created"],
+                        "embedding": r.get("embedding"),
+                        "score": 0.05 # Base score for keyword hits
+                    }
+                log(f"Keyword search found {len(items)} items", level="info")
+        except Exception as e:
+            log(f"Keyword search error: {e}", level="error")
+
+        # 3. Semantic Search (Local Comparison)
+        if self._embedding_enabled():
             try:
-                log("Keyword search: fetching candidates from PocketBase", level="info")
-                # Combine search terms into a PB filter
-                term_filters = []
-                for term in set(search_terms):
-                    term_filters.append(f"(memory ~ '{term}' || original_text ~ '{term}')")
-                
-                pb_filter = f"{filter_base} && ({' || '.join(term_filters)})"
-                
-                res = self.client.get(
-                    "/collections/remember_entries/records",
-                    params={"filter": pb_filter, "perPage": 50}
-                )
-                if res.status_code == 200:
-                    items = res.json().get("items", [])
-                    log(f"Keyword search found {len(items)} items", level="info")
-                    for r in items:
-                        cid = r["id"]
-                        candidates[cid] = {
-                            "id": cid, 
-                            "memory": r["memory"], 
-                            "created_at": r["created"],
-                            "fts_rank": 1,
-                            "score": 0.1 
-                        }
-            except Exception as e:
-                log(f"Keyword search failed: {e}", level="error")
-
-        # 4. Semantic Search (Embedding)
-        if hasattr(self.config, "embedding_search_enabled") and self.config.embedding_search_enabled:
-            # Optimization: If we already have plenty of keyword hits, skip or limit semantic search
-            if len(candidates) >= 5:
-                log(f"Skipping semantic search as keyword search found {len(candidates)} items (threshold=5)", level="info")
-            else:
-                try:
-                    if not candidates:
-                        log("No keyword hits, fetching recent items for semantic search", level="info")
-                        res = self.client.get(
-                            "/collections/remember_entries/records",
-                            params={"filter": filter_base, "perPage": 30, "sort": "-created"}
-                        )
-                        if res.status_code == 200:
-                            items = res.json().get("items", [])
-                            for r in items:
+                # 如果候选集太少，补充一些最近的记录进行向量匹配
+                if len(candidates) < 10:
+                    res = self.client.get(
+                        "/collections/remember_entries/records",
+                        params={"filter": filter_base, "perPage": 50, "sort": "-created"}
+                    )
+                    if res.status_code == 200:
+                        for r in res.json().get("items", []):
+                            if r["id"] not in candidates:
                                 candidates[r["id"]] = {
-                                    "id": r["id"], 
-                                    "memory": r["memory"], 
+                                    "id": r["id"],
+                                    "memory": r["memory"],
                                     "created_at": r["created"],
-                                    "score": 0.05
+                                    "embedding": r.get("embedding"),
+                                    "score": 0.0
                                 }
 
-                    emb_client = self.config.embedding_client if hasattr(self.config, "embedding_client") else None
-                    if emb_client and candidates:
-                        log(f"Computing embeddings for {len(candidates)} items", level="info")
-                        # 增加更严格的超时保护
-                        q_embs = emb_client.embed_many([query])
-                        if q_embs:
-                            q_emb = q_embs[0]
-                            item_list = list(candidates.values())
-                            item_texts = [it["memory"] for it in item_list]
-                            item_embs = emb_client.embed_many(item_texts)
-                            
-                            for i, it in enumerate(item_list):
-                                score = cosine_similarity(q_emb, item_embs[i])
-                                candidates[it["id"]]["embedding_score"] = score
-                                if score >= self.config.embedding_min_score:
-                                    candidates[it["id"]]["vector_rank"] = i + 1
-                except Exception as e:
-                    log(f"Semantic search failed or timed out: {e}", level="warn")
+                # 只对 Query 计算一次 Embedding
+                q_embs = self.config.embedding_client.embed_many([query])
+                if q_embs:
+                    q_emb = q_embs[0]
+                    for it in candidates.values():
+                        vec = it.get("embedding")
+                        if vec and isinstance(vec, list) and len(vec) > 0:
+                            score = cosine_similarity(q_emb, vec)
+                            it["embedding_score"] = score
+                            # 简单的加权合并 (可以根据需要调整)
+                            it["score"] = max(it["score"], score)
+            except Exception as e:
+                log(f"Semantic comparison failed: {e}", level="warn")
 
-        # 5. Reranking (Jina)
+        # 4. Reranking (Jina)
         items = list(candidates.values())
         if not items:
-            log("No candidates found after all search phases", level="info")
             return json.dumps({"results": []}, ensure_ascii=False)
 
-        if hasattr(self.config, "reranker_enabled") and self.config.reranker_enabled and self.config.reranker_api_key:
+        if hasattr(self.config, "reranker_enabled") and self.config.reranker_enabled:
             try:
                 log(f"Reranking {len(items)} items with Jina", level="info")
                 rerank_scores = rerank_with_jina(
@@ -160,97 +226,42 @@ class PocketBaseRememberStore(BaseRememberStore):
                 for i, it in enumerate(items):
                     it["score"] = round(rerank_scores[i], 4)
             except Exception as e:
-                log(f"Reranking failed: {e}", level="error")
-                for it in items:
-                    it["score"] = it.get("embedding_score", 0.1)
-        else:
-            for it in items:
-                it["score"] = it.get("embedding_score", 0.1)
+                log(f"Reranking failed: {e}", level="warn")
 
-        # 6. Filter by min_score and sort
-        final_items = [it for it in items if it["score"] >= min_score]
-        final_items.sort(key=lambda x: x["score"], reverse=True)
-        final_items = final_items[:self.config.remember_max_results]
+        # Sort and filter
+        final_results = [it for it in items if it["score"] >= min_score]
+        final_results.sort(key=lambda x: x["score"], reverse=True)
         
-        log(f"Search completed: found {len(final_items)} final results", level="info")
-        return json.dumps({"results": final_items}, ensure_ascii=False)
+        # 只要 Top N
+        limit = getattr(self.config, "embedding_max_results", 10)
+        final_results = final_results[:limit]
 
-    def extract_summary_items(
-        self, raw_payload: str | dict[str, object] | list[object]
-    ) -> dict[str, object]:
-        import json
-        try:
-            if isinstance(raw_payload, str):
-                data = json.loads(raw_payload)
-            else:
-                data = raw_payload
-            
-            if isinstance(data, dict) and "results" in data:
-                return {"items": data["results"]}
-            return {"items": []}
-        except Exception:
-            return {"items": []}
+        return json.dumps({"results": final_results}, ensure_ascii=False)
 
     def delete(self, *, memory_id: str) -> None:
         res = self.client.delete(f"/collections/remember_entries/records/{memory_id}")
-        if res.status_code != 404:
-            res.raise_for_status()
+        res.raise_for_status()
+
+    def update(self, *, memory_id: str, memory: str, original_text: str = "", photo_path: str | None = None) -> RememberItemRecord:
+        data = {"memory": memory, "original_text": original_text}
+        if photo_path:
+            data["photo_path"] = photo_path
+        res = self.client.patch(f"/collections/remember_entries/records/{memory_id}", json=data)
+        res.raise_for_status()
+        record = res.json()
+        # 同样异步更新向量
+        threading.Thread(target=self._sync_record_embedding, args=(record,), daemon=True).start()
+        return RememberItemRecord(**record)
 
     def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
         page = (offset // limit) + 1
-        filter_str = f"user_id = '{self.user_id}'"
         res = self.client.get(
             "/collections/remember_entries/records",
-            params={"filter": filter_str, "sort": "-created", "perPage": limit, "page": page}
+            params={"filter": f"user_id = '{self.user_id}'", "page": page, "perPage": limit, "sort": "-created"}
         )
         res.raise_for_status()
-        records = res.json().get("items", [])
-        return [
-            RememberItemRecord(
-                id=r["id"],
-                user_id=r["user_id"],
-                memory=r["memory"],
-                original_text=r.get("original_text", ""),
-                photo_path=r.get("photo_path", ""),
-                created_at=r["created"],
-                updated_at=r["updated"],
-                source_memory_id=r.get("source_memory_id", "")
-            ) for r in records
-        ]
-
-    def rebuild_fts(self) -> int:
-        """PocketBase does not use FTS; return 0 as a no-op."""
-        return 0
-
-    def update(
-        self,
-        *,
-        memory_id: str,
-        memory: str,
-        original_text: str = "",
-        photo_path: str | None = None,
-    ) -> RememberItemRecord:
-        data = {
-            "memory": memory,
-        }
-        if original_text:
-            data["original_text"] = original_text
-        if photo_path is not None:
-            data["photo_path"] = photo_path
-
-        res = self.client.patch(f"/collections/remember_entries/records/{memory_id}", json=data)
-        res.raise_for_status()
-        r = res.json()
-        return RememberItemRecord(
-            id=r["id"],
-            user_id=r["user_id"],
-            memory=r["memory"],
-            original_text=r.get("original_text", ""),
-            photo_path=r.get("photo_path", ""),
-            created_at=r["created"],
-            updated_at=r["updated"],
-            source_memory_id=r.get("source_memory_id", "")
-        )
+        items = res.json().get("items", [])
+        return [RememberItemRecord(**item) for item in items]
 
 class PocketBaseHistoryStore(BaseHistoryStore):
     def __init__(self, config: StorageConfig):
@@ -258,60 +269,53 @@ class PocketBaseHistoryStore(BaseHistoryStore):
         self.client = httpx.Client(base_url=PB_BASE_URL)
         self.user_id = config.user_id
 
-    def persist(self, entry: SessionHistoryRecord) -> None:
+    def persist(self, record: SessionHistoryRecord) -> None:
         data = {
-            "session_id": entry.session_id,
+            "session_id": record.session_id,
             "user_id": self.user_id,
-            "started_at": entry.started_at,
-            "ended_at": entry.ended_at,
-            "transcript": entry.transcript,
-            "reply": entry.reply,
-            "peak_level": entry.peak_level,
-            "mean_level": entry.mean_level,
-            "auto_closed": entry.auto_closed,
-            "reopened_by_click": entry.reopened_by_click,
-            "mode": entry.mode,
+            "transcript": record.transcript,
+            "reply": record.reply,
+            "mode": record.intent, # 旧表用 mode 存意图/模式
+            "photo_path": record.photo_path or "",
+            "audio_path": record.audio_path or "",
+            "started_at": record.started_at,
         }
-        try:
-            res = self.client.post("/collections/session_histories/records", json=data)
-            res.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            # If 400 unique constraint fails, we can ignore or update
-            pass
+        res = self.client.post("/collections/session_histories/records", json=data)
+        res.raise_for_status()
 
-    def list_recent(
-        self, *, limit: int = 10, query: str = ""
-    ) -> list[SessionHistoryRecord]:
+    def list_recent(self, *, limit: int = 10, query: str = "") -> list[SessionHistoryRecord]:
         filter_str = f"user_id = '{self.user_id}'"
         if query:
-            filter_str += f" && transcript ~ '{query}'"
+            safe_q = _escape_pb_string(query)
+            filter_str += f" && (transcript ~ '{safe_q}' || reply ~ '{safe_q}')"
         
         res = self.client.get(
             "/collections/session_histories/records",
             params={"filter": filter_str, "sort": "-created", "perPage": limit}
         )
         res.raise_for_status()
-        records = res.json().get("items", [])
-        return [
-            SessionHistoryRecord(
-                session_id=r["session_id"],
-                started_at=r.get("started_at", ""),
-                ended_at=r.get("ended_at", ""),
-                transcript=r.get("transcript", ""),
-                reply=r.get("reply", ""),
-                peak_level=r.get("peak_level", 0.0),
-                mean_level=r.get("mean_level", 0.0),
-                auto_closed=r.get("auto_closed", False),
-                reopened_by_click=r.get("reopened_by_click", False),
-                mode=r.get("mode", "")
-            ) for r in records
-        ]
+        items = res.json().get("items", [])
+        
+        results = []
+        for item in items:
+            results.append(SessionHistoryRecord(
+                session_id=item.get("session_id", ""),
+                transcript=item.get("transcript", ""),
+                reply=item.get("reply", ""),
+                mode=item.get("mode", ""), # 映射回 mode
+                photo_path=item.get("photo_path", ""),
+                started_at=item.get("started_at", ""),
+                audio_path=item.get("audio_path", "")
+            ))
+        return results
 
     def delete(self, *, session_id: str) -> None:
-        # We need the PB record ID, not the session_id text field
-        filter_str = f"session_id = '{session_id}'"
-        res = self.client.get("/collections/session_histories/records", params={"filter": filter_str})
+        # 先查 ID
+        res = self.client.get(
+            "/collections/session_histories/records",
+            params={"filter": f"session_id = '{session_id}'"}
+        )
         res.raise_for_status()
-        records = res.json().get("items", [])
-        for r in records:
-            self.client.delete(f"/collections/session_histories/records/{r['id']}")
+        items = res.json().get("items", [])
+        for item in items:
+            self.client.delete(f"/collections/session_histories/records/{item['id']}")

@@ -131,6 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
     m_list.add_argument("--limit", type=int, default=100)
     m_list.add_argument("--offset", type=int, default=0)
 
+    memory_sub.add_parser(
+        "rebuild-embeddings",
+        help="Backfill missing PocketBase memory embeddings",
+        formatter_class=AgentHelpFormatter,
+    )
+
     m_export = memory_sub.add_parser("export", help="Export memories", formatter_class=AgentHelpFormatter)
     m_export.add_argument("--to-provider", required=True, choices=["mem0"])
 
@@ -295,6 +301,9 @@ def main(argv: list[str] | None = None) -> int:
                     d.pop("source_memory_id", None)
                     output_list.append(d)
                 print(json.dumps(output_list, ensure_ascii=False))
+            elif args.category == "memory" and args.command == "rebuild-embeddings":
+                count = service.remember_store().rebuild_embeddings()
+                print(json.dumps({"status": "ok", "rebuilt_count": count}, ensure_ascii=False))
             elif args.category == "memory" and args.command == "export":
                 from .memory_backends import get_remember_provider_class
                 target_cls = get_remember_provider_class(args.to_provider)

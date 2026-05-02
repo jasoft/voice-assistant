@@ -560,7 +560,7 @@ class OpenAIEmbeddingClient:
         response = self._client_instance().embeddings.create(
             model=self.model,
             input=cleaned_texts,
-            timeout=5.0
+            timeout=env_float("PTT_EMBEDDING_TIMEOUT_SECONDS", 8.0)
         )
         return [list(item.embedding) for item in response.data]
 

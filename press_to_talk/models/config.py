@@ -45,6 +45,7 @@ class Config:
     keyword_search_enabled: bool = True
     semantic_search_enabled: bool = True
     photo_path: str | None = None
+    stream: bool = False
 
 @dataclass
 class SessionHistory:
@@ -164,6 +165,7 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
     parser.add_argument("--ask", action="store_true")
     parser.add_argument("--record", action="store_true")
     parser.add_argument("--photo-path", help="Path to a photo file to attach.")
+    parser.add_argument("--stream", action="store_true", help="Enable streaming LLM output.")
 
     # 兼容处理：有些地方可能传了 'start' 子命令，我们跳过它
     cleaned_argv = [a for a in input_args if a != "start"]
@@ -263,5 +265,6 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
         force_record=force_record,
         keyword_search_enabled=env_bool("PTT_ENABLE_KEYWORD_SEARCH", True),
         semantic_search_enabled=env_bool("PTT_ENABLE_SEMANTIC_SEARCH", True),
-        photo_path=photo_path
+        photo_path=photo_path,
+        stream=args.stream
     )

@@ -93,7 +93,7 @@ def call_api(query, mode="memory-chat"):
         "query": query,
         "mode": mode
     }
-    response = requests.post(API_URL, json=payload, headers=headers, timeout=60)
+    response = requests.post(API_URL, json=payload, headers=headers, timeout=30)
     assert response.status_code == 200, f"API failed: {response.text}"
     return response.json()
 
@@ -120,7 +120,7 @@ def call_api(query, mode="memory-chat"):
     {"query": "上周关于工作的记录", "desc": "关键词+日期范围 (工作)"},
     {"query": "2026年5月可能会有什么计划？", "desc": "未来展望（取决于记忆）"},
 ])
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(30)
 def test_vibe_scenarios(scenario):
     query = scenario["query"]
     print(f"\nTesting Scenario: {scenario['desc']} - Query: {query}")

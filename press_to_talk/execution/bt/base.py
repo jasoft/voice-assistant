@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from ...utils.logging import log
 
@@ -27,6 +27,7 @@ class Blackboard:
     query: Optional[str] = None
     debug_info: dict = field(default_factory=dict)
     error: Optional[str] = None
+    stream_callback: Optional[Callable[[str], None]] = None
 
 class Node:
     async def tick(self, bb: Blackboard) -> Status:

@@ -3,7 +3,9 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
+from types import SimpleNamespace
 import os
+import asyncio
 import base64
 import uuid
 from datetime import datetime
@@ -429,14 +431,31 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
         session_id = uuid.uuid4().hex
         started_at = datetime.now().astimezone().isoformat(timespec="seconds")
 
-        result = await execute_transcript_async(
-            cfg, 
-            req.query, 
-            photo_path=photo_path,
-            session_id=session_id,
-            started_at=started_at,
-            session_mode="api"
-        )
+        query_timeout_seconds = float(os.environ.get("PTT_QUERY_TIMEOUT_SECONDS", "25"))
+        try:
+            result = await asyncio.wait_for(
+                execute_transcript_async(
+                    cfg,
+                    req.query,
+                    photo_path=photo_path,
+                    session_id=session_id,
+                    started_at=started_at,
+                    session_mode="api",
+                ),
+                timeout=query_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            log(
+                f"Execution timed out after {query_timeout_seconds:.1f}s: query={req.query}",
+                level="error",
+            )
+            result = SimpleNamespace(
+                reply="这次查询处理超时，请稍后再试。",
+                memories=[],
+                query=req.query,
+                debug_info={"timeout_seconds": query_timeout_seconds},
+                error=None,
+            )
 
         if result.error:
             log(f"Execution Error: {result.error}", level="error")

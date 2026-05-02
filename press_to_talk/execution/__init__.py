@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, List, Optional, Callable
 
 from .hermes import HermesExecutionRunner
 from .intent import IntentExecutionRunner
@@ -46,7 +46,8 @@ async def execute_transcript_async(
     started_at: str = "",
     peak_level: float = 0.0,
     mean_level: float = 0.0,
-    session_mode: str = "cli"
+    session_mode: str = "cli",
+    stream_callback: Optional[Callable[[str], None]] = None
 ) -> ExecutionResult:
     mode = resolve_execution_mode(cfg)
     
@@ -60,12 +61,17 @@ async def execute_transcript_async(
         started_at=started_at,
         peak_level=peak_level,
         mean_level=mean_level,
-        session_mode=session_mode
+        session_mode=session_mode,
+        stream_callback=stream_callback
     )
     
-    # Build and tick the behavior tree
+    # Build and tick the behavior tree with a 30-second timeout
     tree = build_master_tree()
-    await tree.tick(bb)
+    try:
+        await asyncio.wait_for(tree.tick(bb), timeout=30.0)
+    except asyncio.TimeoutError:
+        bb.error = "Execution timed out after 30 seconds"
+        log("Execution timed out after 30 seconds", level="error")
     
     if bb.reply:
         return ExecutionResult(reply=bb.reply, memories=bb.memories, query=bb.query, debug_info=bb.debug_info)
@@ -84,7 +90,8 @@ def execute_transcript(
     started_at: str = "",
     peak_level: float = 0.0,
     mean_level: float = 0.0,
-    session_mode: str = "cli"
+    session_mode: str = "cli",
+    stream_callback: Optional[Callable[[str], None]] = None
 ) -> ExecutionResult:
     return asyncio.run(execute_transcript_async(
         cfg, 
@@ -94,7 +101,8 @@ def execute_transcript(
         started_at=started_at,
         peak_level=peak_level,
         mean_level=mean_level,
-        session_mode=session_mode
+        session_mode=session_mode,
+        stream_callback=stream_callback
     ))
 
 

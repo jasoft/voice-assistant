@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -14,6 +15,7 @@ from ..utils.env import (
     load_json_file,
 )
 from ..utils.logging import log, log_llm_prompt, log_multiline
+from ..utils.llm_streaming import stream_chat_completion_text
 from ..utils.shell import parse_json_output
 from ..utils.text import strip_think_tags, current_time_text
 
@@ -37,7 +39,7 @@ class MemoryChatExecutionRunner:
     def __init__(self, cfg: Any) -> None:
         client_kwargs: dict[str, Any] = {
             "api_key": cfg.llm_api_key,
-            "timeout": 30.0  # 增加 30 秒超时
+            "timeout": float(os.environ.get("PTT_LLM_TIMEOUT_SECONDS", "12"))
         }
         if str(getattr(cfg, "llm_base_url", "") or "").strip():
             client_kwargs["base_url"] = str(cfg.llm_base_url).strip()
@@ -202,12 +204,13 @@ class MemoryChatExecutionRunner:
             memory_context=memory_context,
         )
         log_llm_prompt("memory-chat summary", messages)
-        response = await self.client.chat.completions.create(
+        raw_reply = await stream_chat_completion_text(
+            self.client,
             model=self.summary_model,
             messages=messages,
             temperature=0.2,
         )
-        raw_reply = str(response.choices[0].message.content or "").strip()
+        raw_reply = str(raw_reply or "").strip()
         log_multiline("memory-chat summary raw", raw_reply)
         reply = strip_think_tags(raw_reply).strip()
         log_multiline("memory-chat summary cleaned", reply)

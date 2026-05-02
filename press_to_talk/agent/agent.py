@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import asdict
 from typing import Any
@@ -15,6 +16,7 @@ from ..utils.env import (
     load_json_file,
 )
 from ..utils.logging import log, log_llm_prompt, log_multiline
+from ..utils.llm_streaming import stream_chat_completion_text
 from ..utils.shell import parse_json_output
 from ..utils.text import (
     current_time_text,
@@ -103,7 +105,7 @@ class OpenAICompatibleAgent:
         self.cfg = cfg
         client_kwargs: dict[str, Any] = {
             "api_key": cfg.llm_api_key,
-            "timeout": 30.0  # 增加 30 秒超时控制，防止 API 响应卡死
+            "timeout": float(os.environ.get("PTT_LLM_TIMEOUT_SECONDS", "12"))
         }
         raw_url = str(cfg.llm_base_url or "").strip()
         if raw_url:
@@ -470,15 +472,17 @@ class OpenAICompatibleAgent:
                     {"role": "user", "content": user_prompt},
                 ],
             )
-            response = await self.client.chat.completions.create(
+            raw_summary = await stream_chat_completion_text(
+                self.client,
                 model=summary_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0,
+                callback=getattr(self, "stream_callback", None)
             )
-            raw_summary = str(response.choices[0].message.content or "").strip()
+            raw_summary = str(raw_summary or "").strip()
             clean_summary = strip_think_tags(raw_summary)
             log(
                 f"remember summary response: chars_raw={len(raw_summary)} chars_cleaned={len(clean_summary)}",

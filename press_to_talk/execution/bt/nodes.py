@@ -141,6 +141,7 @@ class LLMSummarizeAction(Action):
     async def tick(self, bb: Blackboard) -> Status:
         from ...agent.agent import OpenAICompatibleAgent
         agent = OpenAICompatibleAgent(bb.cfg)
+        agent.stream_callback = bb.stream_callback
         try:
             # Use raw memories for summarization
             raw_output = bb.memories_raw or json.dumps({"results": bb.memories}, ensure_ascii=False)

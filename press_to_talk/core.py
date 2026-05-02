@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -214,6 +215,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         events.emit("status", phase="thinking")
+        
+        def cli_stream_callback(text: str):
+            if not cfg.gui_events:
+                sys.stdout.write(text)
+                sys.stdout.flush()
+
         result = execute_transcript(
             cfg, 
             transcript, 
@@ -222,7 +229,8 @@ def main(argv: list[str] | None = None) -> int:
             started_at=session_started_at,
             peak_level=session_peak_level,
             mean_level=session_mean_level,
-            session_mode=session_mode
+            session_mode=session_mode,
+            stream_callback=cli_stream_callback if cfg.stream else None
         )
         reply = result.reply
 

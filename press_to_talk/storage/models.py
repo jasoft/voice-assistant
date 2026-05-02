@@ -50,20 +50,23 @@ class RememberItemRecord:
     created_at: str = ""
     updated_at: str = ""
     source_memory_id: str = ""
+    embedding: list[float] | None = None
 
 
 @dataclass
 class SessionHistoryRecord:
     session_id: str
-    started_at: str
-    ended_at: str
-    transcript: str
-    reply: str
-    peak_level: float
-    mean_level: float
-    auto_closed: bool
-    reopened_by_click: bool
-    mode: str
+    started_at: str = ""
+    ended_at: str = ""
+    transcript: str = ""
+    reply: str = ""
+    peak_level: float = 0.0
+    mean_level: float = 0.0
+    auto_closed: bool = False
+    reopened_by_click: bool = False
+    mode: str = ""
+    photo_path: str = ""
+    audio_path: str = ""
 
 
 class KeywordRewriter(Protocol):
@@ -105,6 +108,9 @@ class BaseRememberStore:
         raise NotImplementedError
 
     def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
+        raise NotImplementedError
+
+    def rebuild_fts(self) -> int:
         raise NotImplementedError
 
     def update(
