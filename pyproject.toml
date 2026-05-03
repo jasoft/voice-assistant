@@ -60,5 +60,3 @@ markers = [
     "unit: Quick running unit tests",
     "e2e: Slow running end-to-end tests involving real models or services",
 ]
-# 默认只运行非 e2e 测试
-addopts = "-m \"not e2e\""
