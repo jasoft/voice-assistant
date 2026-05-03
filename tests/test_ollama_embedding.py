@@ -21,12 +21,10 @@ def test_ollama_embedding():
             dim = len(embeddings[0].get("embedding", []))
             print(f"Embedding dimension: {dim}")
             assert dim > 0
-            return True
+            assert dim > 0
     except Exception as e:
-        print(f"Failed: {e}")
-        if hasattr(e, 'response') and e.response:
-            print(f"Response: {e.response.text}")
-        return False
+        import pytest
+        pytest.fail(f"Ollama embedding test failed: {e}")
 
 if __name__ == "__main__":
     if test_ollama_embedding():

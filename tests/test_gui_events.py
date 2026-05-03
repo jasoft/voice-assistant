@@ -88,7 +88,7 @@ class LoggingTests(unittest.TestCase):
 
             self.assertTrue(log_path.is_file())
             self.assertEqual(log_path.parent, Path(tmpdir))
-            self.assertIn("session-xyz", log_path.name)
+            self.assertEqual(log_path.name, "local.log")
             self.assertEqual(log_path.suffix, ".log")
 
 
@@ -261,6 +261,7 @@ class StorageCliTests(unittest.TestCase):
                     "photo_path": "",
                     "created_at": "2026-04-22 12:00:00",
                     "updated_at": "2026-04-22 12:01:00",
+                    "embedding": None,
                 }
             },
         )

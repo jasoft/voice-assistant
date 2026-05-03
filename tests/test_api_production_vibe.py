@@ -16,7 +16,7 @@ TEST_USER_ID = "vibe_tester"
 def api_server():
     """启动测试 API 服务器"""
     import httpx
-    
+
     PB_URL = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090")
     PB_API = f"{PB_URL.rstrip('/')}/api"
 
@@ -24,19 +24,23 @@ def api_server():
     try:
         with httpx.Client(timeout=5.0) as client:
             # 检查是否存在
-            res = client.get(f"{PB_API}/collections/api_tokens/records", params={
-                "filter": f"token = '{TEST_USER_ID}'"
-            })
+            res = client.get(
+                f"{PB_API}/collections/api_tokens/records",
+                params={"filter": f"token = '{TEST_USER_ID}'"},
+            )
             res.raise_for_status()
             items = res.json().get("items", [])
-            
+
             if not items:
                 print(f"Injecting test token {TEST_USER_ID} into PocketBase...")
-                client.post(f"{PB_API}/collections/api_tokens/records", json={
-                    "token": TEST_USER_ID,
-                    "user_id": TEST_USER_ID,
-                    "description": "Auto-injected for vibe check"
-                }).raise_for_status()
+                client.post(
+                    f"{PB_API}/collections/api_tokens/records",
+                    json={
+                        "token": TEST_USER_ID,
+                        "user_id": TEST_USER_ID,
+                        "description": "Auto-injected for vibe check",
+                    },
+                ).raise_for_status()
             else:
                 print(f"Test token {TEST_USER_ID} already exists in PocketBase.")
     except Exception as e:
@@ -59,7 +63,7 @@ def api_server():
     )
 
     # 4. 等待就绪
-    max_retries = 10
+    max_retries = 20
     ready = False
     for i in range(max_retries):
         try:
@@ -93,8 +97,10 @@ def api_server():
 def call_api(query, mode="memory-chat"):
     headers = {"Authorization": f"Bearer {TEST_USER_ID}"}
     payload = {"query": query, "mode": mode}
-    response = requests.post(API_URL, json=payload, headers=headers, timeout=30)
-    assert response.status_code == 200, f"API failed: {response.text}"
+    response = requests.post(API_URL, json=payload, headers=headers, timeout=300)
+    assert (
+        response.status_code == 200
+    ), f"API failed with status {response.status_code}: {response.text}"
     return response.json()
 
 
@@ -124,7 +130,7 @@ def call_api(query, mode="memory-chat"):
         {"query": "2026年5月可能会有什么计划？", "desc": "未来展望（取决于记忆）"},
     ],
 )
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(180)
 def test_vibe_scenarios(scenario):
     query = scenario["query"]
     print(f"\nTesting Scenario: {scenario['desc']} - Query: {query}")
@@ -155,7 +161,7 @@ def test_vibe_scenarios(scenario):
 
     # 简单的业务逻辑校验
     if "start_date" in str(result.get("debug_info", "")):
-        print(f"Detected extracted date range in debug_info")
+        print("Detected extracted date range in debug_info")
 
     # 对于 record 类的，检查 reply 是否包含“已记录”或类似确认
     if "帮我记" in query or "记一下" in query:

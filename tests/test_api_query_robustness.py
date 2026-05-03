@@ -48,7 +48,6 @@ def api_sandbox(tmp_path):
         yield {
             "client": TestClient(app),
             "mock_exec": mock_exec,
-            "test_db": test_db_path,
             "photos_dir": photos_dir,
             "data_dir": data_dir,
             "tmp_path": tmp_path

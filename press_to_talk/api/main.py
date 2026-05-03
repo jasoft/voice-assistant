@@ -192,18 +192,19 @@ class QueryRequest(BaseModel):
         description="可选的图片附件。若提供，系统会将其持久化并与当前会话关联。空值将被安全忽略。"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "query": "最近三天的记录",
                 "mode": "memory-chat",
                 "photo": {
                     "type": "base64",
                     "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
-                    "mime": "image/png"
-                }
+                    "mime": "image/png",
+                },
             }
         }
+    }
 
 class HistoryItem(BaseModel):
     """
@@ -342,7 +343,7 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
         session_id = uuid.uuid4().hex
         started_at = datetime.now().astimezone().isoformat(timespec="seconds")
 
-        query_timeout_seconds = float(os.environ.get("PTT_QUERY_TIMEOUT_SECONDS", "25"))
+        query_timeout_seconds = float(os.environ.get("PTT_QUERY_TIMEOUT_SECONDS", "60"))
         try:
             result = await asyncio.wait_for(
                 execute_transcript_async(

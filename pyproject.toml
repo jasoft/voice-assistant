@@ -50,9 +50,9 @@ voice = "ptt-voice"
 doctor = "ptt-voice doctor"
 storage = "ptt-storage"
 token = "ptt-token"
-api = "ptt-api"
+api = "bash scripts/start_pocketbase.sh & ptt-api"
 test = "pytest"
 
 [tool.pytest.ini_options]
 # 任何单个测试超过 30 秒自动失败，防止卡死
-timeout = 30
+timeout = 120

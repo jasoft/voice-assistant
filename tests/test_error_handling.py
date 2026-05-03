@@ -102,7 +102,7 @@ class TestMalformedRequests:
         """测试缺少 Content-Type"""
         response = client.post(
             "/v1/query",
-            data='{"query": "测试"}',  # 不设置 application/json
+            content='{"query": "测试"}',  # 不设置 application/json
             headers={"Content-Type": "text/plain"}
         )
         assert response.status_code in [200, 415, 422]
@@ -111,7 +111,7 @@ class TestMalformedRequests:
         """测试无效 JSON"""
         response = client.post(
             "/v1/query",
-            data='{"query": "测试",}',  # 无效的 JSON
+            content='{"query": "测试",}',  # 无效的 JSON
             headers={"Content-Type": "application/json"}
         )
         assert response.status_code in [400, 422]

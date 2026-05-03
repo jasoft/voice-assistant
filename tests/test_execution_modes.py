@@ -487,6 +487,7 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             execution_mode="hermes",
             workspace_root=Path("/tmp"),
             photo_path=None,
+            stream=False,
             debug=False,
         )
 
@@ -506,7 +507,7 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             patch("builtins.print") as print_mock,
         ):
             result = core.main()
-
+        
         self.assertEqual(result, 0)
         # execute_transcript now accepts additional keyword args (session_id, started_at, etc.)
         call_args = execute_mock.call_args
