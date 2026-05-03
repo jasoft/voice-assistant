@@ -110,7 +110,7 @@ def test_pocketbase_add_schedules_embedding_without_blocking_record_write():
     store = PocketBaseRememberStore(config)
     store.client = FakePocketBaseClient()
 
-    with patch.object(store, "_sync_record_embedding_async") as schedule:
+    with patch.object(store, "_sync_record_embedding") as schedule:
         record_id = store.add(memory="钥匙在玄关柜子上", original_text="钥匙在玄关柜子上")
 
     assert record_id == "new-embedding"

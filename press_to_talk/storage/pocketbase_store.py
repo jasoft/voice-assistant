@@ -299,7 +299,16 @@ class PocketBaseRememberStore(BaseRememberStore):
         record = res.json()
         # 同样异步更新向量
         threading.Thread(target=self._sync_record_embedding, args=(record,), daemon=True).start()
-        return RememberItemRecord(**record)
+        return RememberItemRecord(
+            id=record.get("id"),
+            user_id=record.get("user_id", "default"),
+            memory=record.get("memory", ""),
+            original_text=record.get("original_text", ""),
+            photo_path=record.get("photo_path", ""),
+            created_at=record.get("created", ""),
+            updated_at=record.get("updated", ""),
+            embedding=json.loads(record["embedding_json"]) if record.get("embedding_json") else None
+        )
 
     def extract_summary_items(self, raw_output: str) -> dict[str, list[dict[str, Any]]]:
         try:
@@ -319,7 +328,19 @@ class PocketBaseRememberStore(BaseRememberStore):
         )
         res.raise_for_status()
         items = res.json().get("items", [])
-        return [RememberItemRecord(**item) for item in items]
+        results = []
+        for item in items:
+            results.append(RememberItemRecord(
+                id=item.get("id"),
+                user_id=item.get("user_id", "default"),
+                memory=item.get("memory", ""),
+                original_text=item.get("original_text", ""),
+                photo_path=item.get("photo_path", ""),
+                created_at=item.get("created", ""),
+                updated_at=item.get("updated", ""),
+                embedding=json.loads(item["embedding_json"]) if item.get("embedding_json") else None
+            ))
+        return results
 
 class PocketBaseHistoryStore(BaseHistoryStore):
     def __init__(self, config: StorageConfig):
