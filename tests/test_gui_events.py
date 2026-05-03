@@ -4,7 +4,7 @@ import io
 import json
 import os
 import tempfile
-import unittest
+import pytest
 from contextlib import contextmanager
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -26,7 +26,7 @@ def chdir(path: Path):
         os.chdir(previous)
 
 
-class GuiEventWriterTests(unittest.TestCase):
+class TestGuiEventWriter:
     def test_emit_writes_single_json_line_to_stdout(self) -> None:
         stream = io.StringIO()
         writer = core.GuiEventWriter(enabled=True, stdout=stream)
@@ -34,10 +34,7 @@ class GuiEventWriterTests(unittest.TestCase):
         writer.emit("status", phase="recording", elapsed_ms=12)
 
         payload = json.loads(stream.getvalue().strip())
-        self.assertEqual(
-            payload,
-            {"type": "status", "phase": "recording", "elapsed_ms": 12},
-        )
+        assert payload == {"type": "status", "phase": "recording", "elapsed_ms": 12}
 
     def test_emit_is_noop_when_disabled(self) -> None:
         stream = io.StringIO()
@@ -45,11 +42,13 @@ class GuiEventWriterTests(unittest.TestCase):
 
         writer.emit("status", phase="recording")
 
-        self.assertEqual(stream.getvalue(), "")
+        assert stream.getvalue() == ""
 
 
-class LoggingTests(unittest.TestCase):
-    def tearDown(self) -> None:
+class TestLogging:
+    @pytest.fixture(autouse=True)
+    def auto_close_log(self):
+        yield
         core.close_session_log()
 
     def test_log_writes_to_stderr_with_level(self) -> None:
@@ -59,9 +58,9 @@ class LoggingTests(unittest.TestCase):
         with redirect_stdout(stdout), redirect_stderr(stderr):
             core.log("hello")
 
-        self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("hello", stderr.getvalue())
-        self.assertIn("INFO", stderr.getvalue())
+        assert stdout.getvalue() == ""
+        assert "hello" in stderr.getvalue()
+        assert "INFO" in stderr.getvalue()
 
     def test_log_colors_console_but_not_session_log_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -75,24 +74,24 @@ class LoggingTests(unittest.TestCase):
             ):
                 core.log("hello file", level="error")
 
-            self.assertTrue(log_path.is_file())
-            self.assertIn("hello file", log_path.read_text(encoding="utf-8"))
-            self.assertIn("ERROR", log_path.read_text(encoding="utf-8"))
-            self.assertIn("hello file", stderr.getvalue())
-            self.assertNotIn("\x1b[", log_path.read_text(encoding="utf-8"))
-            self.assertEqual(stdout.getvalue(), "")
+            assert log_path.is_file()
+            assert "hello file" in log_path.read_text(encoding="utf-8")
+            assert "ERROR" in log_path.read_text(encoding="utf-8")
+            assert "hello file" in stderr.getvalue()
+            assert "\x1b[" not in log_path.read_text(encoding="utf-8")
+            assert stdout.getvalue() == ""
 
     def test_init_session_log_creates_timestamped_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = core.init_session_log(Path(tmpdir), session_id="session-xyz")
 
-            self.assertTrue(log_path.is_file())
-            self.assertEqual(log_path.parent, Path(tmpdir))
-            self.assertEqual(log_path.name, "local.log")
-            self.assertEqual(log_path.suffix, ".log")
+            assert log_path.is_file()
+            assert log_path.parent == Path(tmpdir)
+            assert log_path.name == "local.log"
+            assert log_path.suffix == ".log"
 
 
-class StorageCliTests(unittest.TestCase):
+class TestStorageCli:
     def test_build_local_service_keeps_query_rewrite_enabled(self) -> None:
         fake_config = SimpleNamespace(query_rewrite_enabled=True)
 
@@ -102,8 +101,8 @@ class StorageCliTests(unittest.TestCase):
         ):
             service = storage_cli_app._build_local_service()
 
-        self.assertEqual(service, "service")
-        self.assertTrue(fake_config.query_rewrite_enabled)
+        assert service == "service"
+        assert fake_config.query_rewrite_enabled
         service_mock.assert_called_once_with(fake_config, use_cli=False)
 
     def test_no_args_prints_help_and_returns_zero(self) -> None:
@@ -113,22 +112,22 @@ class StorageCliTests(unittest.TestCase):
         with redirect_stdout(stdout), redirect_stderr(stderr):
             code = storage_cli_app.main(["--user-id", "default"])
 
-        self.assertEqual(code, 0)
-        self.assertIn("Standalone Storage CLI", stdout.getvalue())
-        self.assertIn("Examples", stdout.getvalue())
-        self.assertIn("memory search", stdout.getvalue())
-        self.assertEqual(stderr.getvalue(), "")
+        assert code == 0
+        assert "Standalone Storage CLI" in stdout.getvalue()
+        assert "Examples" in stdout.getvalue()
+        assert "memory search" in stdout.getvalue()
+        assert stderr.getvalue() == ""
 
     def test_invalid_command_suggests_possible_match(self) -> None:
         stdout = io.StringIO()
         stderr = io.StringIO()
 
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            with self.assertRaises(SystemExit) as exc:
+            with pytest.raises(SystemExit) as exc:
                 storage_cli_app.main(["memory", "serch"])
 
-        self.assertEqual(exc.exception.code, 2)
-        self.assertIn("Did you mean 'search'?", stderr.getvalue())
+        assert exc.value.code == 2
+        assert "Did you mean 'search'?" in stderr.getvalue()
 
     def test_list_history_loads_backend_from_env_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -148,9 +147,9 @@ class StorageCliTests(unittest.TestCase):
                  redirect_stdout(stdout), \
                  redirect_stderr(stderr):
                 code = storage_cli_app.main(["--user-id", "default", "-v", "history", "list", "--limit", "5"])
-            self.assertEqual(code, 0)
-            self.assertEqual(json.loads(stdout.getvalue().strip()), [])
-            self.assertIn("Storage configuration loaded", stderr.getvalue())
+            assert code == 0
+            assert json.loads(stdout.getvalue().strip()) == []
+            assert "Storage configuration loaded" in stderr.getvalue()
 
     def test_memory_search_writes_json_to_stdout(self) -> None:
         fake_results = {
@@ -176,9 +175,9 @@ class StorageCliTests(unittest.TestCase):
         ):
             code = storage_cli_app.main(["--user-id", "default", "memory", "search", "--query", "壮壮"])
 
-        self.assertEqual(code, 0)
-        self.assertEqual(json.loads(stdout.getvalue().strip()), fake_results)
-        self.assertEqual(stderr.getvalue(), "")
+        assert code == 0
+        assert json.loads(stdout.getvalue().strip()) == fake_results
+        assert stderr.getvalue() == ""
 
     def test_memory_search_keeps_json_output_on_tty(self) -> None:
         fake_results = {
@@ -208,9 +207,9 @@ class StorageCliTests(unittest.TestCase):
         ):
             code = storage_cli_app.main(["--user-id", "default", "memory", "search", "--query", "壮壮"])
 
-        self.assertEqual(code, 0)
-        self.assertEqual(json.loads(stdout.getvalue().strip()), fake_results)
-        self.assertEqual(stderr.getvalue(), "")
+        assert code == 0
+        assert json.loads(stdout.getvalue().strip()) == fake_results
+        assert stderr.getvalue() == ""
 
     def test_memory_update_writes_json_to_stdout(self) -> None:
         fake_store = SimpleNamespace(
@@ -249,24 +248,17 @@ class StorageCliTests(unittest.TestCase):
                 ]
             )
 
-        self.assertEqual(code, 0)
-        self.assertEqual(
-            json.loads(stdout.getvalue().strip()),
-            {
-                "updated": {
-                    "id": "m1",
-                    "user_id": "default",
-                    "memory": "壮壮改成明天下午去打篮球",
-                    "original_text": "帮我改成明天下午去打篮球",
-                    "photo_path": "",
-                    "created_at": "2026-04-22 12:00:00",
-                    "updated_at": "2026-04-22 12:01:00",
-                    "embedding": None,
-                }
-            },
-        )
-        self.assertEqual(stderr.getvalue(), "")
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert code == 0
+        assert json.loads(stdout.getvalue().strip()) == {
+            "updated": {
+                "id": "m1",
+                "user_id": "default",
+                "memory": "壮壮改成明天下午去打篮球",
+                "original_text": "帮我改成明天下午去打篮球",
+                "photo_path": "",
+                "created_at": "2026-04-22 12:00:00",
+                "updated_at": "2026-04-22 12:01:00",
+                "embedding": None,
+            }
+        }
+        assert stderr.getvalue() == ""

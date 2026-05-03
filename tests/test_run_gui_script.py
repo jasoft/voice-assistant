@@ -4,7 +4,7 @@ import os
 import stat
 import subprocess
 import tempfile
-import unittest
+import pytest
 from pathlib import Path
 
 
@@ -12,7 +12,7 @@ PROJECT_ROOT = Path("/Users/weiwang/Projects/voice-assistant")
 SCRIPT_PATH = PROJECT_ROOT / "mac_gui/scripts/run-gui.sh"
 
 
-class RunGuiScriptTests(unittest.TestCase):
+class TestRunGuiScript:
     def test_script_forwards_cli_arguments_to_release_binary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -44,10 +44,7 @@ class RunGuiScriptTests(unittest.TestCase):
                 check=True,
             )
 
-            self.assertEqual(
-                capture_path.read_text(encoding="utf-8").splitlines(),
-                ["--chat-mode", "--foo"],
-            )
+            assert capture_path.read_text(encoding="utf-8").splitlines() == ["--chat-mode", "--foo"]
 
     def test_script_rebuilds_when_sources_are_newer_than_release_binary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -107,11 +104,4 @@ class RunGuiScriptTests(unittest.TestCase):
                 check=True,
             )
 
-            self.assertEqual(
-                capture_path.read_text(encoding="utf-8").splitlines(),
-                ["--chat-mode"],
-            )
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert capture_path.read_text(encoding="utf-8").splitlines() == ["--chat-mode"]

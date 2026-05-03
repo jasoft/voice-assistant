@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import unittest
 import pytest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from press_to_talk import core
 from press_to_talk.models import config as config_module
 
-
-class ExecutionModeConfigTests(unittest.TestCase):
+class TestExecutionModeConfig:
     def parse_config(
         self,
         argv: list[str],
@@ -43,26 +41,23 @@ class ExecutionModeConfigTests(unittest.TestCase):
             ["--text-input", "你好"],
             workflow_data={"execution": {"default_mode": "hermes"}},
         )
-
-        self.assertEqual(config.execution_mode, "hermes")
+        assert config.execution_mode == "hermes"
 
     def test_parse_args_prefers_cli_execution_mode_over_workflow_default(self) -> None:
         config = self.parse_config(
             ["--text-input", "你好", "--execution-mode", "intent"],
             workflow_data={"execution": {"default_mode": "hermes"}},
         )
-
-        self.assertEqual(config.execution_mode, "database")
+        assert config.execution_mode == "database"
 
     def test_parse_args_falls_back_to_memory_chat_when_workflow_has_no_execution_mode(
         self,
     ) -> None:
         config = self.parse_config(["--text-input", "你好"], workflow_data={})
-
-        self.assertEqual(config.execution_mode, "memory-chat")
+        assert config.execution_mode == "memory-chat"
 
     def test_parse_args_rejects_classify_only_outside_database_mode(self) -> None:
-        with self.assertRaises(SystemExit):
+        with pytest.raises(SystemExit):
             self.parse_config(
                 ["--text-input", "你好", "--execution-mode", "hermes", "--classify-only"],
                 workflow_data={},
@@ -73,16 +68,14 @@ class ExecutionModeConfigTests(unittest.TestCase):
             ["--text-input", "你好", "--execution-mode", "memory-chat"],
             workflow_data={},
         )
-
-        self.assertEqual(config.execution_mode, "memory-chat")
+        assert config.execution_mode == "memory-chat"
 
     def test_parse_args_accepts_database_execution_mode(self) -> None:
         config = self.parse_config(
             ["--text-input", "你好", "--execution-mode", "database"],
             workflow_data={},
         )
-
-        self.assertEqual(config.execution_mode, "database")
+        assert config.execution_mode == "database"
 
     def test_parse_args_reads_summarize_model_from_env(self) -> None:
         with (
@@ -107,11 +100,11 @@ class ExecutionModeConfigTests(unittest.TestCase):
         ):
             config = config_module.parse_args(["--user-id", "default", "--text-input", "你好"])
 
-        self.assertEqual(config.llm_model, "intent-model")
-        self.assertEqual(config.llm_summarize_model, "summary-model")
+        assert config.llm_model == "intent-model"
+        assert config.llm_summarize_model == "summary-model"
 
 
-class HermesExecutionRunnerTests(unittest.TestCase):
+class TestHermesExecutionRunner:
     def test_runner_returns_reply_without_session_id_trailer(self) -> None:
         from press_to_talk.execution import HermesExecutionRunner
 
@@ -129,7 +122,7 @@ class HermesExecutionRunnerTests(unittest.TestCase):
         ):
             reply = runner.run("测试一下")
 
-        self.assertEqual(reply, "这是 Hermes 的回复")
+        assert reply == "这是 Hermes 的回复"
 
     def test_runner_strips_quiet_mode_banner_lines(self) -> None:
         from press_to_talk.execution import HermesExecutionRunner
@@ -152,7 +145,7 @@ class HermesExecutionRunnerTests(unittest.TestCase):
         ):
             reply = runner.run("测试一下")
 
-        self.assertEqual(reply, "这是 Hermes 的回复")
+        assert reply == "这是 Hermes 的回复"
 
     def test_runner_raises_when_hermes_command_fails(self) -> None:
         from press_to_talk.execution import HermesExecutionRunner
@@ -169,10 +162,11 @@ class HermesExecutionRunnerTests(unittest.TestCase):
                 stderr="provider unavailable",
             ),
         ):
-            with self.assertRaisesRegex(RuntimeError, "provider unavailable"):
+            with pytest.raises(RuntimeError, match="provider unavailable"):
                 runner.run("测试一下")
 
-class MemoryChatExecutionRunnerTests(unittest.TestCase):
+
+class TestMemoryChatExecutionRunner:
     def test_runner_routes_record_intent_to_intent_execution_runner(self) -> None:
         from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
 
@@ -185,14 +179,14 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
         )
 
         fake_intent_runner = SimpleNamespace(
-            run_async=unittest.mock.AsyncMock(return_value="已记录：杜甫是外星人")
+            run_async=AsyncMock(return_value="已记录：杜甫是外星人")
         )
 
         with patch(
             "press_to_talk.execution.memory_chat.AsyncOpenAI",
             return_value=SimpleNamespace(
                 chat=SimpleNamespace(
-                    completions=SimpleNamespace(create=unittest.mock.AsyncMock())
+                    completions=SimpleNamespace(create=AsyncMock())
                 )
             ),
         ), patch(
@@ -204,7 +198,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
                 patch.object(
                     runner,
                     "_analyze_intent_async",
-                    new_callable=unittest.mock.AsyncMock,
+                    new_callable=AsyncMock,
                     return_value={"intent": "record", "notes": "用户要记录事实"},
                 ),
                 patch.object(runner, "_memory_context_items") as memory_context_mock,
@@ -212,7 +206,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             ):
                 reply = runner.run("记录一下, 杜甫是外星人")
 
-        self.assertEqual(reply, "已记录：杜甫是外星人")
+        assert reply == "已记录：杜甫是外星人"
         fake_intent_runner.run_async.assert_called_once_with("记录一下, 杜甫是外星人")
         memory_context_mock.assert_not_called()
         build_messages_mock.assert_not_called()
@@ -256,12 +250,12 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
                 memory_context="1. 护照在书房抽屉里（记录时间：2026-04-18T10:00:00+08:00）",
             )
 
-        self.assertEqual(messages[0]["role"], "system")
-        self.assertIn("先参考我提供的相关记忆", messages[0]["content"])
-        self.assertEqual(messages[1]["role"], "user")
-        self.assertIn("护照在书房抽屉里", messages[1]["content"])
-        self.assertIn("意图分析：chat", messages[1]["content"])
-        self.assertIn("用户问题：护照在哪", messages[1]["content"])
+        assert messages[0]["role"] == "system"
+        assert "先参考我提供的相关记忆" in messages[0]["content"]
+        assert messages[1]["role"] == "user"
+        assert "护照在书房抽屉里" in messages[1]["content"]
+        assert "意图分析：chat" in messages[1]["content"]
+        assert "用户问题：护照在哪" in messages[1]["content"]
 
     def test_runner_calls_openai_client_instead_of_hermes(self) -> None:
         from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
@@ -271,7 +265,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
         )
         fake_client = SimpleNamespace(
             chat=SimpleNamespace(
-                completions=SimpleNamespace(create=unittest.mock.AsyncMock(return_value=fake_response))
+                completions=SimpleNamespace(create=AsyncMock(return_value=fake_response))
             )
         )
 
@@ -289,13 +283,13 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
         ):
             runner = MemoryChatExecutionRunner(cfg)
             with (
-                patch.object(runner, "_analyze_intent_async", new_callable=unittest.mock.AsyncMock, return_value={"intent": "chat", "notes": ""}),
+                patch.object(runner, "_analyze_intent_async", new_callable=AsyncMock, return_value={"intent": "chat", "notes": ""}),
                 patch.object(runner, "_memory_context_items", return_value=[{"memory": "记忆内容"}]),
                 patch.object(runner, "_build_messages", return_value=[{"role": "user", "content": "hi"}]),
             ):
                 reply = runner.run("usb测试版在哪")
 
-        self.assertIn("记忆聊天回复", reply)
+        assert "记忆聊天回复" in reply
 
     def test_runner_logs_intent_and_summary_steps(self) -> None:
         from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
@@ -305,7 +299,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             return_value=SimpleNamespace(
                 chat=SimpleNamespace(
                     completions=SimpleNamespace(
-                        create=unittest.mock.AsyncMock(
+                        create=AsyncMock(
                             side_effect=[
                                 SimpleNamespace(
                                     choices=[
@@ -366,29 +360,20 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             runner = MemoryChatExecutionRunner(cfg)
             reply = runner.run("今天股市收盘多少")
 
-        self.assertIn(
-            "今天上证收盘我现在没法确认精确点位，但你可以让我继续查实时来源。",
-            reply,
-        )
+        assert "今天上证收盘我现在没法确认精确点位，但你可以让我继续查实时来源。" in reply
         create = openai_mock.return_value.chat.completions.create
-        self.assertEqual(create.call_count, 2)
-        self.assertEqual(create.call_args_list[0].kwargs["model"], "fast")
-        self.assertEqual(create.call_args_list[1].kwargs["model"], "summary-fast")
-        self.assertEqual(prompt_log.call_count, 2)
-        self.assertEqual(prompt_log.call_args_list[0].args[0], "memory-chat intent")
-        self.assertEqual(prompt_log.call_args_list[1].args[0], "memory-chat summary")
+        assert create.call_count == 2
+        assert create.call_args_list[0].kwargs["model"] == "fast"
+        assert create.call_args_list[1].kwargs["model"] == "summary-fast"
+        assert prompt_log.call_count == 2
+        assert prompt_log.call_args_list[0].args[0] == "memory-chat intent"
+        assert prompt_log.call_args_list[1].args[0] == "memory-chat summary"
         summary_messages = prompt_log.call_args_list[1].args[1]
-        self.assertIn("没有命中相关记忆。", summary_messages[1]["content"])
-        self.assertIn("继续根据你的知识和联网检索能力回答问题", summary_messages[0]["content"])
-        self.assertTrue(
-            any(call.args[0] == "memory-chat summary raw" for call in multiline_log.call_args_list)
-        )
-        self.assertTrue(
-            any(call.args[0] == "memory-chat summary cleaned" for call in multiline_log.call_args_list)
-        )
-        self.assertTrue(
-            any("memory-chat intent parsed" in call.args[0] for call in log_mock.call_args_list)
-        )
+        assert "没有命中相关记忆。" in summary_messages[1]["content"]
+        assert "继续根据你的知识和联网检索能力回答问题" in summary_messages[0]["content"]
+        assert any(call.args[0] == "memory-chat summary raw" for call in multiline_log.call_args_list)
+        assert any(call.args[0] == "memory-chat summary cleaned" for call in multiline_log.call_args_list)
+        assert any("memory-chat intent parsed" in call.args[0] for call in log_mock.call_args_list)
 
     @pytest.mark.anyio
     async def test_runner_falls_back_to_chat_when_intent_analysis_fails(self) -> None:
@@ -405,7 +390,7 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             return_value=SimpleNamespace(
                 chat=SimpleNamespace(
                     completions=SimpleNamespace(
-                        create=unittest.mock.AsyncMock(side_effect=RuntimeError("provider unavailable"))
+                        create=AsyncMock(side_effect=RuntimeError("provider unavailable"))
                     )
                 )
             ),
@@ -414,13 +399,11 @@ class MemoryChatExecutionRunnerTests(unittest.TestCase):
             with patch("press_to_talk.execution.memory_chat.log") as log_mock:
                 intent = await runner._analyze_intent_async("今天股市收盘多少")
 
-        self.assertEqual(intent, {"intent": "chat", "notes": ""})
-        self.assertTrue(
-            any("memory-chat intent analysis failed" in call.args[0] for call in log_mock.call_args_list)
-        )
+        assert intent == {"intent": "chat", "notes": ""}
+        assert any("memory-chat intent analysis failed" in call.args[0] for call in log_mock.call_args_list)
 
 
-class CoreExecutionDispatchTests(unittest.TestCase):
+class TestCoreExecutionDispatch:
     def test_execute_transcript_routes_database_mode_to_intent_runner(self) -> None:
         from press_to_talk.execution import execute_transcript
 
@@ -434,7 +417,7 @@ class CoreExecutionDispatchTests(unittest.TestCase):
         )
 
         with patch("press_to_talk.execution.build_master_tree") as build_mock:
-            fake_tree = unittest.mock.AsyncMock()
+            fake_tree = AsyncMock()
             async def set_reply(bb):
                 bb.reply = "行为树回复"
             fake_tree.tick.side_effect = set_reply
@@ -442,7 +425,7 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             
             reply_res = execute_transcript(cfg, "usb测试版在哪")
 
-        self.assertEqual(reply_res.reply, "行为树回复")
+        assert reply_res.reply == "行为树回复"
         build_mock.assert_called_once()
 
     def test_execute_transcript_routes_memory_chat_to_memory_chat_runner(self) -> None:
@@ -457,7 +440,7 @@ class CoreExecutionDispatchTests(unittest.TestCase):
         )
 
         with patch("press_to_talk.execution.build_master_tree") as build_mock:
-            fake_tree = unittest.mock.AsyncMock()
+            fake_tree = AsyncMock()
             async def set_reply(bb):
                 bb.reply = "记忆聊天回复"
             fake_tree.tick.side_effect = set_reply
@@ -465,7 +448,7 @@ class CoreExecutionDispatchTests(unittest.TestCase):
             
             reply_res = execute_transcript(cfg, "usb测试版在哪")
 
-        self.assertEqual(reply_res.reply, "记忆聊天回复")
+        assert reply_res.reply == "记忆聊天回复"
         build_mock.assert_called_once()
 
     def test_main_routes_text_input_through_execution_layer(self) -> None:
@@ -508,15 +491,9 @@ class CoreExecutionDispatchTests(unittest.TestCase):
         ):
             result = core.main()
         
-        self.assertEqual(result, 0)
-        # execute_transcript now accepts additional keyword args (session_id, started_at, etc.)
+        assert result == 0
         call_args = execute_mock.call_args
-        self.assertEqual(call_args[0][0], cfg)
-        self.assertEqual(call_args[0][1], "你好")
-        self.assertEqual(call_args[1].get("photo_path"), None)
-        # Now we assert on log calls instead of print
-        self.assertTrue(any("reply ready:" in str(call) and "Hermes 回复" in str(call) for call in log_mock.call_args_list))
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert call_args[0][0] == cfg
+        assert call_args[0][1] == "你好"
+        assert call_args[1].get("photo_path") == None
+        assert any("reply ready:" in str(call) and "Hermes 回复" in str(call) for call in log_mock.call_args_list)

@@ -2,22 +2,26 @@ import pytest
 
 def pytest_collection_modifyitems(config, items):
     """
-    默认跳过标记为 e2e 的测试，除非显式指定了 -m e2e 或者是运行特定的测试文件。
-    这样可以确保 VS Code 的测试面板能看到所有测试，但命令行执行 pytest 时默认只跑单元测试。
+    智能过滤: 
+    1. 默认情况下 (不带 -m e2e)，跳过所有标记为 e2e 的测试。
+    2. 如果在 VS Code 测试面板中运行 (由插件自动添加特定的 nodeid)，则不跳过。
     """
-    markexpr = config.getoption("-m")
+    # 检查是否显式请求了 e2e
+    markexpr = config.getoption("markexpr")
+    if "e2e" in markexpr:
+        return
+
+    # 检查是否在 VS Code 测试面板环境中
+    # VS Code 运行时通常会通过 args 传递具体的 nodeid，而不是直接运行整个目录
+    is_vscode = any("vscode_pytest" in arg for arg in config.invocation_params.args)
     
-    # 1. 如果显式指定了 e2e 标记，则允许运行
-    if markexpr and "e2e" in markexpr:
+    # 检查是否有具体的过滤项 (如果是具体运行某一个测试，也不跳过)
+    has_specific_tests = len(config.getoption("file_or_dir")) > 0 and any("::" in arg for arg in config.getoption("file_or_dir"))
+
+    if is_vscode or has_specific_tests:
         return
 
-    # 2. 如果是运行特定的测试文件/测试项 (VS Code 常用方式)，则允许运行
-    # 判断标准：命令行参数中包含具体的文件路径或 nodeid
-    if any(".py" in arg for arg in config.args):
-        return
-
-    # 3. 否则 (全量运行且未指定 e2e)，自动跳过 e2e 测试
-    skip_e2e = pytest.mark.skip(reason="E2E test skipped by default. Use '-m e2e' to run or run specific test file.")
+    skip_e2e = pytest.mark.skip(reason="slow e2e test, use -m e2e to run")
     for item in items:
         if "e2e" in item.keywords:
             item.add_marker(skip_e2e)
