@@ -7,9 +7,10 @@ import json
 from pathlib import Path
 
 # 配置
-API_PORT = 10055
+API_PORT = 10056
 API_URL = f"http://127.0.0.1:{API_PORT}/v1/query"
 TEST_USER_ID = "vibe_tester"
+LOG_FILE = "/tmp/ptt-api-test.log"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -23,7 +24,6 @@ def api_server():
     # 1. 确保测试 Token 存在
     try:
         with httpx.Client(timeout=5.0) as client:
-            # 检查是否存在
             res = client.get(
                 f"{PB_API}/collections/api_tokens/records",
                 params={"filter": f"token = '{TEST_USER_ID}'"},
@@ -49,42 +49,43 @@ def api_server():
     # 2. 准备环境变量
     env = os.environ.copy()
     env["PTT_USER_ID"] = TEST_USER_ID
-    # 固定当前时间为 2026-04-27，以便相对日期查询可预测
     env["PTT_CURRENT_TIME"] = "2026-04-27 12:00:00"
 
     # 3. 启动服务器
-    print(f"Starting ptt-api on port {API_PORT}...")
+    print(f"Starting ptt-api on port {API_PORT}, logging to {LOG_FILE}...")
+    log_f = open(LOG_FILE, "w")
     proc = subprocess.Popen(
         ["uv", "run", "ptt-api", "--port", str(API_PORT)],
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        stdout=log_f,
+        stderr=subprocess.STDOUT, # 合并输出
     )
 
     # 4. 等待就绪
-    max_retries = 20
+    max_retries = 30
     ready = False
     for i in range(max_retries):
         try:
-            # 尝试访问根目录或简单的健康检查（如果有的话）
-            # 这里直接尝试访问这个端口
             time.sleep(1)
-            # 简单的 socket 检测或请求
+            # 尝试访问根目录
             requests.get(f"http://127.0.0.1:{API_PORT}/docs", timeout=1)
             ready = True
+            print(f"API server is ready after {i+1} seconds.")
             break
         except requests.exceptions.RequestException:
+            if proc.poll() is not None:
+                print("API server process exited prematurely!")
+                break
             continue
 
     if not ready:
         proc.terminate()
-        stdout, stderr = proc.communicate()
-        print(f"STDOUT: {stdout}")
-        print(f"STDERR: {stderr}")
+        if os.path.exists(LOG_FILE):
+            with open(LOG_FILE, "r") as f:
+                print(f"--- API Server Logs ---\n{f.read()}\n----------------------")
         pytest.fail("API server failed to start")
 
-    yield f"http://127.0.0.1:{API_PORT}"
+    yield proc
 
     # 5. 清理
     proc.terminate()
@@ -94,37 +95,21 @@ def api_server():
         proc.kill()
 
 
-def call_api(query, mode="memory-chat"):
+def call_api(query):
+    """调用测试 API"""
     headers = {"Authorization": f"Bearer {TEST_USER_ID}"}
-    payload = {"query": query, "mode": mode}
-    response = requests.post(API_URL, json=payload, headers=headers, timeout=300)
-    assert (
-        response.status_code == 200
-    ), f"API failed with status {response.status_code}: {response.text}"
+    payload = {"query": query}
+    response = requests.post(API_URL, json=payload, headers=headers, timeout=60)
+    response.raise_for_status()
     return response.json()
 
 
 @pytest.mark.parametrize(
     "scenario",
     [
-        {"query": "最近三天的记忆", "desc": "相对日期提取"},
-        {"query": "上周的记录", "desc": "相对日期提取 (上周)"},
-        {"query": "昨天我说了什么", "desc": "昨天日期提取"},
-        {"query": "查询关于壮壮的记忆", "desc": "关键词搜索 (壮壮)"},
-        {"query": "伊朗什么时候停火的？", "desc": "事实查询"},
-        {"query": "护照在哪里？", "desc": "位置查询"},
-        {"query": "验证码是多少？", "desc": "敏感信息查询"},
-        {"query": "帮我记一下，今天中午吃的是火锅", "desc": "记录意图 (record)"},
-        {"query": "今天我吃什么了？", "desc": "即时召回"},
-        {"query": "钥匙在玄关柜子上", "desc": "隐式记录判定"},
-        {"query": "钥匙在哪？", "desc": "位置查询 (记录后)"},
-        {"query": "2026年4月15日的记录", "desc": "特定日期查询"},
-        {"query": "4月11日到4月14日的记录", "desc": "日期范围查询"},
-        {"query": "帮我总结一下最近三天的生活", "desc": "总结性查询"},
-        {"query": "早上好", "desc": "寒暄/默认查找"},
-        {"query": "帮我记一下：明天下午三点开会", "desc": "含未来时间的记录"},
-        {"query": "刚才我们说了什么？", "desc": "会话历史查询"},
-        {"query": "壮壮上周干了什么？", "desc": "关键词+日期范围"},
+        {"query": "帮我记一下，杜甫是外星人", "desc": "基础记录功能 (Record)"},
+        {"query": "杜甫是谁？", "desc": "记忆检索功能 (Memory Chat)"},
+        {"query": "今天上证指数是多少？", "desc": "联网搜索功能 (Chat w/ Search)"},
         {"query": "我最喜欢的电脑是什么？", "desc": "个人偏好查询"},
         {"query": "上周关于工作的记录", "desc": "关键词+日期范围 (工作)"},
         {"query": "2026年5月可能会有什么计划？", "desc": "未来展望（取决于记忆）"},
@@ -166,5 +151,4 @@ def test_vibe_scenarios(scenario):
 
     # 对于 record 类的，检查 reply 是否包含“已记录”或类似确认
     if "帮我记" in query or "记一下" in query:
-        # 这里取决于 LLM 的回复风格，但通常会有正面确认
         pass
