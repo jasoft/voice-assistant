@@ -1,6 +1,9 @@
 import requests
 import json
 
+import pytest
+
+@pytest.mark.e2e
 def test_ollama_embedding():
     url = "http://docker.home:11434/v1/embeddings"
     headers = {"Content-Type": "application/json"}

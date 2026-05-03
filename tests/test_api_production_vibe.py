@@ -130,6 +130,7 @@ def call_api(query, mode="memory-chat"):
         {"query": "2026年5月可能会有什么计划？", "desc": "未来展望（取决于记忆）"},
     ],
 )
+@pytest.mark.e2e
 @pytest.mark.timeout(180)
 def test_vibe_scenarios(scenario):
     query = scenario["query"]

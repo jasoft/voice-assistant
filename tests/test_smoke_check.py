@@ -5,6 +5,9 @@ import os
 import re
 from pathlib import Path
 
+import pytest
+
+@pytest.mark.e2e
 class SmokeCheckTests(unittest.TestCase):
     """
     Real-world smoke tests that execute the actual installed CLI scripts

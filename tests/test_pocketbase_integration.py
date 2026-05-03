@@ -22,6 +22,7 @@ def test_config():
         embedding_min_score=0.0, # 确保能搜到
     )
 
+@pytest.mark.e2e
 def test_pocketbase_remember_lifecycle(test_config):
     store = PocketBaseRememberStore(test_config)
     
@@ -54,6 +55,7 @@ def test_pocketbase_remember_lifecycle(test_config):
     records_after = store.list_all()
     assert not any(r.id == record_id for r in records_after)
 
+@pytest.mark.e2e
 def test_pocketbase_history_lifecycle(test_config):
     store = PocketBaseHistoryStore(test_config)
     session_id = f"session-{uuid.uuid4().hex[:8]}"
