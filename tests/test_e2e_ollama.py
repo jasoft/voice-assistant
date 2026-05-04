@@ -29,9 +29,3 @@ def test_ollama_embedding():
         import pytest
         pytest.fail(f"Ollama embedding test failed: {e}")
 
-if __name__ == "__main__":
-    if test_ollama_embedding():
-        print("Test PASSED")
-    else:
-        print("Test FAILED")
-        exit(1)

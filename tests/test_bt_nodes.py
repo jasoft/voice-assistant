@@ -1,62 +1,65 @@
-import unittest
-from unittest.mock import MagicMock, patch
+import pytest
+from unittest.mock import MagicMock, patch, AsyncMock
 import asyncio
 import json
-from press_to_talk.execution.bt.base import Status, Blackboard
+from press_to_talk.execution.bt.base import Status, Blackboard, Selector
 from press_to_talk.execution.bt.nodes import (
     IsRecordIntent, HasMemoryHits, IsChatMode, IsHermesMode,
     ExtractIntentAction, ExecuteSearchAction, LLMSummarizeAction,
     LLMChatFallbackAction, ExecuteRecordAction
 )
 
-class TestBTNodes(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
+@pytest.mark.anyio
+class TestBTNodes:
+    @pytest.fixture(autouse=True)
+    def setup_bb(self):
         cfg_mock = MagicMock()
         cfg_mock.force_record = False
         cfg_mock.force_ask = False
+        cfg_mock.llm_base_url = "http://localhost:8000"
+        cfg_mock.llm_api_key = "test-key"
+        cfg_mock.llm_model = "test-model"
+        cfg_mock.query_rewrite_enabled = False
+        cfg_mock.keyword_search_enabled = True
+        cfg_mock.semantic_search_enabled = False
+        cfg_mock.reranker_enabled = False
         self.bb = Blackboard(transcript="test", cfg=cfg_mock)
 
     async def test_is_record_intent(self):
         node = IsRecordIntent()
         self.bb.intent = {"intent": "record"}
-        self.assertEqual(await node.tick(self.bb), Status.SUCCESS)
+        assert await node.tick(self.bb) == Status.SUCCESS
         
         self.bb.intent = {"intent": "other"}
-        self.assertEqual(await node.tick(self.bb), Status.FAILURE)
+        assert await node.tick(self.bb) == Status.FAILURE
 
     async def test_has_memory_hits(self):
         node = HasMemoryHits()
         self.bb.memories = [{"content": "hit"}]
-        self.assertEqual(await node.tick(self.bb), Status.SUCCESS)
+        assert await node.tick(self.bb) == Status.SUCCESS
         
         self.bb.memories = []
-        self.assertEqual(await node.tick(self.bb), Status.FAILURE)
-
-    async def test_has_memory_hits_failure(self):
-        node = HasMemoryHits()
-        self.bb.memories = []
-        self.assertEqual(await node.tick(self.bb), Status.FAILURE)
+        assert await node.tick(self.bb) == Status.FAILURE
 
     async def test_is_chat_mode(self):
         node = IsChatMode()
         self.bb.mode = "memory-chat"
-        self.assertEqual(await node.tick(self.bb), Status.SUCCESS)
+        assert await node.tick(self.bb) == Status.SUCCESS
         
         self.bb.mode = "database"
-        self.assertEqual(await node.tick(self.bb), Status.FAILURE)
+        assert await node.tick(self.bb) == Status.FAILURE
 
     async def test_is_hermes_mode(self):
         node = IsHermesMode()
         self.bb.mode = "hermes"
-        self.assertEqual(await node.tick(self.bb), Status.SUCCESS)
+        assert await node.tick(self.bb) == Status.SUCCESS
         
         self.bb.mode = "database"
-        self.assertEqual(await node.tick(self.bb), Status.FAILURE)
+        assert await node.tick(self.bb) == Status.FAILURE
 
     @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
     async def test_extract_intent_action(self, MockAgent):
         mock_agent = MockAgent.return_value
-        from unittest.mock import AsyncMock
         async def mock_extract(transcript):
             return {"intent": "find", "args": {"query": transcript}}
         mock_agent._extract_intent_payload = AsyncMock(side_effect=mock_extract)
@@ -64,9 +67,9 @@ class TestBTNodes(unittest.IsolatedAsyncioTestCase):
         node = ExtractIntentAction()
         status = await node.tick(self.bb)
         
-        self.assertEqual(status, Status.SUCCESS)
-        self.assertEqual(self.bb.intent["intent"], "find")
-        self.assertEqual(self.bb.intent["args"]["query"], "test")
+        assert status == Status.SUCCESS
+        assert self.bb.intent["intent"] == "find"
+        assert self.bb.intent["args"]["query"] == "test"
 
     @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
     async def test_execute_search_action(self, MockAgent):
@@ -80,9 +83,9 @@ class TestBTNodes(unittest.IsolatedAsyncioTestCase):
         node = ExecuteSearchAction()
         status = await node.tick(self.bb)
 
-        self.assertEqual(status, Status.SUCCESS)
-        self.assertEqual(len(self.bb.memories), 1)
-        self.assertEqual(self.bb.memories[0]["memory"], "found")
+        assert status == Status.SUCCESS
+        assert len(self.bb.memories) == 1
+        assert self.bb.memories[0]["memory"] == "found"
 
     @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
     async def test_llm_summarize_action_with_ids(self, MockAgent):
@@ -100,21 +103,20 @@ class TestBTNodes(unittest.IsolatedAsyncioTestCase):
         node = LLMSummarizeAction()
         status = await node.tick(self.bb)
 
-        self.assertEqual(status, Status.SUCCESS)
-        self.assertEqual(self.bb.reply, "Here is your info.")
+        assert status == Status.SUCCESS
+        assert self.bb.reply == "Here is your info."
 
     @patch("press_to_talk.execution.memory_chat.MemoryChatExecutionRunner")
     async def test_llm_chat_fallback_action(self, MockRunner):
-        mock_runner = MockRunner.return_value
-        async def mock_run(transcript, **kwargs):
-            return "fallback reply"
-        mock_runner.run_async.side_effect = mock_run
+        # 注意：这里需要 patch nodes.py 里的导入路径
+        mock_runner_instance = MockRunner.return_value
+        mock_runner_instance.run_async = AsyncMock(return_value="fallback reply")
 
         node = LLMChatFallbackAction()
         status = await node.tick(self.bb)
 
-        self.assertEqual(status, Status.SUCCESS)
-        self.assertEqual(self.bb.reply, "fallback reply")
+        assert status == Status.SUCCESS
+        assert self.bb.reply == "fallback reply"
 
     @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
     async def test_execute_record_action(self, MockAgent):
@@ -127,8 +129,8 @@ class TestBTNodes(unittest.IsolatedAsyncioTestCase):
         node = ExecuteRecordAction()
         status = await node.tick(self.bb)
 
-        self.assertEqual(status, Status.SUCCESS)
-        self.assertEqual(self.bb.reply, "recorded success")
+        assert status == Status.SUCCESS
+        assert self.bb.reply == "recorded success"
 
     @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
     async def test_execute_search_action_empty(self, MockAgent):
@@ -142,8 +144,26 @@ class TestBTNodes(unittest.IsolatedAsyncioTestCase):
         node = ExecuteSearchAction()
         status = await node.tick(self.bb)
 
-        self.assertEqual(status, Status.SUCCESS)
-        self.assertEqual(len(self.bb.memories), 0)
+        assert status == Status.SUCCESS
+        assert len(self.bb.memories) == 0
 
-if __name__ == "__main__":
-    unittest.main()
+    @patch("press_to_talk.agent.agent.OpenAICompatibleAgent")
+    @patch("press_to_talk.execution.memory_chat.MemoryChatExecutionRunner")
+    async def test_fallback_selector_logic(self, MockRunner, MockAgent):
+        """验证 Selector 能够处理 ExtractIntentAction 失败并跳转到 Fallback"""
+        # 1. Mock ExtractIntentAction 失败
+        mock_agent = MockAgent.return_value
+        mock_agent._extract_intent_payload = AsyncMock(side_effect=Exception("Intent Fail"))
+        
+        # 2. Mock Fallback 成功
+        mock_runner_instance = MockRunner.return_value
+        mock_runner_instance.run_async = AsyncMock(return_value="fallback response")
+        
+        # 3. 构造树
+        root = Selector([ExtractIntentAction(), LLMChatFallbackAction()])
+        
+        status = await root.tick(self.bb)
+        
+        assert status == Status.SUCCESS
+        assert self.bb.reply == "fallback response"
+        assert self.bb.error == "Intent Fail"

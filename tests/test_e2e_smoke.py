@@ -1,14 +1,12 @@
-import unittest
 import subprocess
 import sys
 import os
 import re
 from pathlib import Path
-
 import pytest
 
 @pytest.mark.e2e
-class SmokeCheckTests(unittest.TestCase):
+class TestSmokeCheck:
     """
     Real-world smoke tests that execute the actual installed CLI scripts
     without mocking internal logic.
@@ -20,8 +18,6 @@ class SmokeCheckTests(unittest.TestCase):
         This test expects the local database and environment to be correctly configured.
         It verifies the full chain from CLI parsing to LLM/DB response.
         """
-        # We use sys.executable -m press_to_talk to ensure we use the same environment
-        # and don't depend on whether 'ptt-voice' is in the system PATH yet.
         cmd = [
             sys.executable, "-m", "press_to_talk",
             "start",
@@ -30,7 +26,6 @@ class SmokeCheckTests(unittest.TestCase):
             "--no-tts"
         ]
         
-        # Inherit the current environment (including .env loaded variables if any)
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -39,23 +34,20 @@ class SmokeCheckTests(unittest.TestCase):
         )
         
         # 1. Check exit code
-        self.assertEqual(
-            result.returncode, 0, 
-            f"Command failed with exit code {result.returncode}\nStderr: {result.stderr}"
-        )
+        assert result.returncode == 0, f"Command failed with exit code {result.returncode}\nStderr: {result.stderr}"
         
         # 2. Check if the logic actually found the item in the database.
-        # This matches the real knowledge stored in the database
         output = result.stderr # Logging goes to stderr
-        self.assertIn("reply ready:", output)
+        assert "reply ready:" in output
+        
         # Check for core keywords in the real response from the database/LLM
         output_lower = output.lower()
-        self.assertIn("usb", output_lower)
-        self.assertIn("测试版", output_lower)
+        assert "usb" in output_lower
+        assert "测试版" in output_lower
         
         # Verify it went through the core execution steps
-        self.assertIn("LLM intent parsed", output)
-        self.assertIn("history record persisted", output)
+        assert "LLM intent parsed" in output
+        assert "history record persisted" in output
 
     def test_e2e_soj_cycling_record(self):
         """
@@ -79,30 +71,20 @@ class SmokeCheckTests(unittest.TestCase):
         )
         
         # 1. Exit code check
-        self.assertEqual(
-            result.returncode, 0, 
-            f"E2E Test failed with exit code {result.returncode}\nStderr: {result.stderr}"
-        )
+        assert result.returncode == 0, f"E2E Test failed with exit code {result.returncode}\nStderr: {result.stderr}"
         
         # 2. Evidence of success in logs
         output = result.stderr
-        self.assertIn("reply ready:", output)
+        assert "reply ready:" in output
         
         # 3. Data Integrity: The reply MUST contain cycling related keywords 
-        # and should not be a 'no data found' message.
         reply_marker = "reply ready:\n"
         reply_content = output.split(reply_marker)[-1] if reply_marker in output else ""
         
         has_context_keyword = any(kw in reply_content for kw in ["骑车", "自行车", "公园", "壮壮"])
         has_date_answer = re.search(r"\d{1,2}\s*月\s*\d{1,2}\s*日", reply_content) is not None
-        self.assertTrue(
-            has_context_keyword or has_date_answer,
-            f"E2E Test: Reply does not seem to contain the retrieved cycling data. Reply: {reply_content}"
-        )
+        assert has_context_keyword or has_date_answer, f"E2E Test: Reply does not seem to contain the retrieved cycling data. Reply: {reply_content}"
         
         # Verify intent was correctly forced/parsed
-        self.assertIn('"intent":"find"', output)
-        self.assertIn("history record persisted", output)
-
-if __name__ == "__main__":
-    unittest.main()
+        assert '"intent":"find"' in output
+        assert "history record persisted" in output
