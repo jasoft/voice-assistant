@@ -3,8 +3,6 @@ import subprocess
 import time
 import pytest
 import requests
-import json
-from pathlib import Path
 
 # 配置
 API_PORT = 10056

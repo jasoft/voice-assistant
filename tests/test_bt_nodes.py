@@ -1,7 +1,5 @@
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
-import asyncio
-import json
 from press_to_talk.execution.bt.base import Status, Blackboard, Selector
 from press_to_talk.execution.bt.nodes import (
     IsRecordIntent, HasMemoryHits, IsChatMode, IsHermesMode,

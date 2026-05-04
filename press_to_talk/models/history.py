@@ -8,7 +8,7 @@ from press_to_talk.storage import (
     load_storage_config,
 )
 from .config import Config, SessionHistory
-from ..utils.env import APP_ROOT, env_str
+from ..utils.env import env_str
 
 def format_history_timestamp(ts: datetime | None = None) -> str:
     current = ts or datetime.now().astimezone()

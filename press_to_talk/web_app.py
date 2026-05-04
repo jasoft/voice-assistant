@@ -1,18 +1,13 @@
-import os
 import uuid
 import shutil
 from pathlib import Path
-from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
-from starlette.background import BackgroundTask
-import httpx
+from fastapi.responses import JSONResponse
 
 from .execution import execute_transcript_async
 from .core import run_stt, load_env_files, parse_args
-from .audio.tts import generate_tts_wav
 from .utils.logging import log, init_session_log, set_global_log_level
 from .utils.env import env_path, DEFAULT_LOG_DIR
 
@@ -126,7 +121,7 @@ async def process_audio(audio: UploadFile = File(...)):
         log(f"Web API: transcript: '{transcript}'", level="debug")
         
         # 2. 执行逻辑流
-        log(f"Web API: executing transcript...", level="debug")
+        log("Web API: executing transcript...", level="debug")
         reply = await execute_transcript_async(cfg, transcript)
         log(f"Web API: reply: '{reply[:50]}...'", level="debug")
         

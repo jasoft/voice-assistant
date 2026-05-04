@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import asdict
 from typing import Any
 
 from press_to_talk.storage import StorageService

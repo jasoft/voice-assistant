@@ -2,7 +2,6 @@ import asyncio
 import json
 import re
 from .base import Node, Status, Blackboard
-from ...utils.photo import get_photo_url
 from ...utils.logging import log, log_multiline
 from ...storage.models import SessionHistoryRecord
 from ...models.history import format_history_timestamp

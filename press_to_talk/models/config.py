@@ -8,7 +8,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from ..utils.env import (
-    load_env_files, env_int, env_float, env_str, env_path, env_bool,
+    load_env_files, env_int, env_float, env_str, env_bool,
     PROJECT_ROOT, WORKFLOW_CONFIG_PATH, load_json_file
 )
 

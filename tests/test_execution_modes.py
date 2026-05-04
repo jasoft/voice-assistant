@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, AsyncMock
 
 from press_to_talk import core
 from press_to_talk.models import config as config_module

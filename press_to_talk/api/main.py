@@ -1,6 +1,5 @@
 from __future__ import annotations
 from fastapi import FastAPI, Depends, HTTPException
-from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -15,10 +14,7 @@ from contextlib import asynccontextmanager
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response, StreamingResponse
-from starlette.background import BackgroundTask
 import json
-import httpx
 
 from .auth import get_user_id
 from ..models.config import Config, parse_args
@@ -466,7 +462,6 @@ def run_server():
     """Entry point for ptt-api command."""
     import uvicorn
     import argparse
-    import sys
 
     parser = argparse.ArgumentParser(description="Run the Press-to-Talk API server.")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind the server to.")

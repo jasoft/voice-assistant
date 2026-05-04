@@ -1,8 +1,6 @@
 import subprocess
 import sys
-import os
 import re
-from pathlib import Path
 import pytest
 
 @pytest.mark.e2e

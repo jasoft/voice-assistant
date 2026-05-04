@@ -1,4 +1,3 @@
-import json
 import os
 import httpx
 from press_to_talk.storage.service import load_storage_config, StorageService

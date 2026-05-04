@@ -9,7 +9,7 @@ API 端点覆盖率测试 - P0 检查项 1
 import os
 import pytest
 from fastapi.testclient import TestClient
-from press_to_talk.api.main import app, base_config
+from press_to_talk.api.main import app
 from press_to_talk.api.auth import get_user_id
 from press_to_talk.execution import ExecutionResult
 from unittest.mock import AsyncMock, patch

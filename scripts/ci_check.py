@@ -223,7 +223,7 @@ def main():
 
                 if not ready:
                     print(
-                        f"\033[1;31m请求失败: 容器内部服务未能在 30 秒内就绪 (/ready 未通过)。\033[0m"
+                        "\033[1;31m请求失败: 容器内部服务未能在 30 秒内就绪 (/ready 未通过)。\033[0m"
                     )
                     logs = subprocess.check_output(
                         f"docker logs {container_id}",

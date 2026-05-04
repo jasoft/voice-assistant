@@ -127,7 +127,6 @@ class TestDatabasePath:
 
     def test_database_path_writable(self):
         """测试数据库路径可写"""
-        import tempfile
         # 检查默认数据库路径是否可写
         db_path = Path("data/voice_assistant_store.sqlite3")
         if db_path.exists():

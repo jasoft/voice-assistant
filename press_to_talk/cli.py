@@ -6,7 +6,6 @@ import sys
 import subprocess
 from pathlib import Path
 
-from .models.config import parse_args
 from .core import main as core_main
 
 

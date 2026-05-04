@@ -9,7 +9,7 @@ from dataclasses import asdict
 from typing import Any, Callable
 
 from .models import BaseHistoryStore, BaseRememberStore, RememberItemRecord, SessionHistoryRecord
-from ..utils.logging import log, log_multiline
+from ..utils.logging import log
 
 
 class CLIStoreBase:
