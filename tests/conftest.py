@@ -1,4 +1,73 @@
+import os
+import subprocess
+import time
+import signal
 import pytest
+import requests
+
+@pytest.fixture(scope="session", autouse=True)
+def pocketbase_server():
+    """
+    启动 PocketBase 并在测试结束后关闭。
+    使用不同的数据目录以避免干扰开发环境。
+    """
+    pb_url = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090")
+    # 提取端口
+    port = pb_url.split(":")[-1]
+    
+    pb_bin = "./.pocketbase/pocketbase"
+    pb_data_dir = "./.pocketbase/pb_data_test"
+    
+    # 确保二进制文件存在
+    if not os.path.exists(pb_bin):
+        # 尝试运行下载脚本
+        subprocess.run(["./scripts/start_pocketbase.sh", "--help"], capture_output=True)
+    
+    # 启动进程
+    process = subprocess.Popen(
+        [pb_bin, "serve", "--http", f"127.0.0.1:{port}", "--dir", pb_data_dir],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        preexec_fn=os.setsid
+    )
+    
+    # 等待启动
+    max_retries = 10
+    for i in range(max_retries):
+        try:
+            requests.get(f"{pb_url}/api/health", timeout=1)
+            break
+        except requests.exceptions.RequestException:
+            if i == max_retries - 1:
+                # 获取错误输出
+                stdout, stderr = process.communicate()
+                print(f"STDOUT: {stdout.decode()}")
+                print(f"STDERR: {stderr.decode()}")
+                process.kill()
+                raise RuntimeError("PocketBase failed to start for tests")
+            time.sleep(1)
+    
+    yield
+    
+    # 停止进程
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        process.wait(timeout=5)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            process.kill()
+        except:
+            pass
+        
+    # 清理测试数据目录 (带重试逻辑，防止文件句柄未释放)
+    import shutil
+    if os.path.exists(pb_data_dir):
+        for _ in range(5):
+            try:
+                shutil.rmtree(pb_data_dir)
+                break
+            except OSError:
+                time.sleep(1)
 
 def pytest_collection_modifyitems(config, items):
     """
