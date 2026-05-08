@@ -65,7 +65,7 @@ public final class PTTProcessBridge {
         try? FileManager.default.createDirectory(at: controlDirectory, withIntermediateDirectories: true)
         self.controlDirectory = controlDirectory
 
-        let resolvedWorkingDirectory = resolveWorkingDirectory(startingAt: workingDirectory)
+        let resolvedWorkingDirectory = PathHelper.resolveProjectRoot(startingAt: workingDirectory)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
 
@@ -183,23 +183,6 @@ public final class PTTProcessBridge {
             onEvent?(line)
             viewModel.apply(jsonLine: line)
         }
-    }
-
-    private func resolveWorkingDirectory(startingAt directory: URL) -> URL {
-        var cursor = directory
-        let fm = FileManager.default
-        for _ in 0..<5 {
-            let marker = cursor.appendingPathComponent("press_to_talk/core.py").path
-            if fm.fileExists(atPath: marker) {
-                return cursor
-            }
-            let parent = cursor.deletingLastPathComponent()
-            if parent.path == cursor.path {
-                break
-            }
-            cursor = parent
-        }
-        return directory
     }
 
     private func emitLocalEvent(_ event: [String: Any]) {

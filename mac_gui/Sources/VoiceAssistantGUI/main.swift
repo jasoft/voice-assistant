@@ -110,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.stopSpeaking()
         model.stopRecording()
+        model.stopServices()
     }
 
     func applicationDidResignActive(_ notification: Notification) {

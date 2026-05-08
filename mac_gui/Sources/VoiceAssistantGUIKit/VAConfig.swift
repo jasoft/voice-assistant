@@ -3,31 +3,20 @@ import Foundation
 public struct VAConfig: Sendable {
     public let serverURL: URL
     public let apiKey: String
+    public let pbURL: URL
     
     public static func load(workingDirectory: URL) -> VAConfig? {
-        let fm = FileManager.default
-        var cursor = workingDirectory
-        var dotEnvPath: URL?
-        
-        // Search up to 5 levels for .env file
-        for _ in 0..<5 {
-            let candidate = cursor.appendingPathComponent(".env")
-            if fm.fileExists(atPath: candidate.path) {
-                dotEnvPath = candidate
-                break
-            }
-            let parent = cursor.deletingLastPathComponent()
-            if parent.path == cursor.path { break }
-            cursor = parent
-        }
+        let projectRoot = PathHelper.resolveProjectRoot(startingAt: workingDirectory)
+        let dotEnvPath = projectRoot.appendingPathComponent(".env")
 
         // 1. Try environment variables first
         let env = ProcessInfo.processInfo.environment
         var finalServerURL = env["VA_SERVER_URL"] ?? "http://127.0.0.1:10031/v1"
         var finalApiKey = env["PTT_API_KEY"] ?? ""
+        var finalPbURL = env["PTT_PB_URL"] ?? "http://127.0.0.1:18090"
         
         // 2. Load from .env if found
-        if let path = dotEnvPath, let dotEnvContent = try? String(contentsOf: path, encoding: .utf8) {
+        if let dotEnvContent = try? String(contentsOf: dotEnvPath, encoding: .utf8) {
             let lines = dotEnvContent.components(separatedBy: .newlines)
             for line in lines {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -44,12 +33,15 @@ public struct VAConfig: Sendable {
                         finalServerURL = value
                     } else if key == "PTT_API_KEY" {
                         finalApiKey = value
+                    } else if key == "PTT_PB_URL" {
+                        finalPbURL = value
                     }
                 }
             }
         }
         
         guard let url = URL(string: finalServerURL) else { return nil }
-        return VAConfig(serverURL: url, apiKey: finalApiKey)
+        guard let pbUrl = URL(string: finalPbURL) else { return nil }
+        return VAConfig(serverURL: url, apiKey: finalApiKey, pbURL: pbUrl)
     }
 }

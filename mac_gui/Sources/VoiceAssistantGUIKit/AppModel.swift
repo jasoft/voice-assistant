@@ -18,6 +18,7 @@ public final class AppModel: ObservableObject {
     @Published public var draftInput = ""
 
     private let bridge: PTTProcessBridge
+    private let serviceManager: ServiceManager?
     private let forwardedArgs: [String]
     public let workingDirectory: URL
     private var cancellables = Set<AnyCancellable>()
@@ -36,8 +37,10 @@ public final class AppModel: ObservableObject {
         let config = VAConfig.load(workingDirectory: workingDirectory)
         if let config = config {
             self.vaClient = VAClient(config: config)
+            self.serviceManager = ServiceManager(workingDirectory: workingDirectory, serverURL: config.serverURL, pbURL: config.pbURL)
         } else {
             self.vaClient = nil
+            self.serviceManager = nil
         }
 
         session.objectWillChange
@@ -55,6 +58,12 @@ public final class AppModel: ObservableObject {
         bridge.onEvent = { [weak self] line in
             Task { @MainActor in
                 self?.handleBridgeEvent(line: line)
+            }
+        }
+
+        if let serviceManager = self.serviceManager {
+            Task {
+                await serviceManager.ensureServicesRunning()
             }
         }
     }
@@ -163,6 +172,10 @@ public final class AppModel: ObservableObject {
             ttsProcess.terminate()
         }
         ttsProcess = nil
+    }
+
+    public func stopServices() {
+        serviceManager?.stopServices()
     }
 
     public func keepWindowOpen() {
