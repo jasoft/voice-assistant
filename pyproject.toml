@@ -50,7 +50,7 @@ voice = "ptt-voice"
 doctor = "ptt-voice doctor"
 storage = "ptt-storage"
 token = "ptt-token"
-api = "bash scripts/start_pocketbase.sh & ptt-api"
+api = "scripts/start_pocketbase.sh & uv run ptt-api"
 test = "pytest"
 
 [tool.pytest.ini_options]
