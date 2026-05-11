@@ -4,6 +4,7 @@ import os
 import json
 import threading
 import time
+import numpy as np
 from .models import (
     BaseRememberStore,
     BaseHistoryStore,
@@ -12,7 +13,7 @@ from .models import (
     SessionHistoryRecord,
 )
 from press_to_talk.utils.logging import log, log_multiline
-from press_to_talk.utils.search import cosine_similarity, rerank_with_jina
+from press_to_talk.utils.search import rerank_with_jina
 
 PB_BASE_URL = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090").rstrip("/") + "/api"
 
@@ -29,6 +30,11 @@ class PocketBaseRememberStore(BaseRememberStore):
             timeout=httpx.Timeout(10.0, connect=5.0)
         )
         self.user_id = config.user_id
+        # Numpy vector cache: lazily loaded, invalidated on write
+        self._emb_matrix: np.ndarray | None = None  # (N, D) L2-normalized
+        self._emb_ids: list[str] = []                 # record ids aligned with rows
+        self._emb_meta: list[dict] = []               # {memory, created_at} per row
+        self._emb_dirty = True
 
     @classmethod
     def from_config(cls, config: StorageConfig, **kwargs) -> "PocketBaseRememberStore":
@@ -47,11 +53,11 @@ class PocketBaseRememberStore(BaseRememberStore):
         
         # 异步计算向量并更新
         threading.Thread(
-            target=self._sync_record_embedding, 
-            args=(record,), 
+            target=self._sync_record_embedding,
+            args=(record,),
             daemon=True
         ).start()
-        
+        self._emb_dirty = True
         return record.get("id")
 
     def _embedding_enabled(self) -> bool:
@@ -86,6 +92,97 @@ class PocketBaseRememberStore(BaseRememberStore):
         except Exception as e:
             log(f"Failed to sync embedding for {item_id}: {e}", level="warn")
             return False
+
+    def _load_embedding_cache(self) -> None:
+        """Load all embeddings from PocketBase into a normalized numpy matrix."""
+        filter_str = f"user_id = '{self.user_id}'"
+        all_ids: list[str] = []
+        all_meta: list[dict] = []
+        all_vecs: list[list[float]] = []
+
+        t0 = time.monotonic()
+        page = 1
+        # Use a dedicated longer-timeout client for cache loading
+        cache_client = httpx.Client(
+            base_url=PB_BASE_URL,
+            timeout=httpx.Timeout(30.0, connect=10.0)
+        )
+        try:
+            while True:
+                res = cache_client.get(
+                    "/collections/remember_entries/records",
+                    params={
+                        "filter": filter_str,
+                        "fields": "id,memory,created,embedding_json",
+                        "perPage": 200,
+                        "page": page,
+                    }
+                )
+                if res.status_code != 200:
+                    break
+                data = res.json()
+                for r in data.get("items", []):
+                    raw = r.get("embedding_json")
+                    vec = json.loads(raw) if isinstance(raw, str) and raw else raw
+                    if vec and isinstance(vec, list) and len(vec) > 0:
+                        all_ids.append(r["id"])
+                        all_meta.append({"memory": r["memory"], "created_at": r["created"]})
+                        all_vecs.append(vec)
+                if page >= data.get("totalPages", 1):
+                    break
+                page += 1
+        finally:
+            cache_client.close()
+
+        if all_vecs:
+            mat = np.array(all_vecs, dtype=np.float32)
+            norms = np.linalg.norm(mat, axis=1, keepdims=True)
+            norms = np.where(norms == 0, 1.0, norms)
+            mat = mat / norms
+            self._emb_matrix = mat
+        else:
+            self._emb_matrix = np.empty((0, 0), dtype=np.float32)
+        self._emb_ids = all_ids
+        self._emb_meta = all_meta
+        self._emb_dirty = False
+        log(f"Embedding cache loaded: {len(all_ids)} vectors", level="info")
+
+    def _vector_search(
+        self, query_emb: list[float], top_k: int, min_score: float
+    ) -> list[tuple[float, str, dict]]:
+        """Fast numpy vector search against cached embeddings."""
+        if self._emb_dirty or self._emb_matrix is None:
+            self._load_embedding_cache()
+
+        if self._emb_matrix.size == 0:
+            return []
+
+        q = np.array(query_emb, dtype=np.float32)
+        q_norm = np.linalg.norm(q)
+        if q_norm == 0:
+            return []
+        q = q / q_norm
+
+        scores = self._emb_matrix @ q  # (N,)
+        mask = scores >= min_score
+        if not np.any(mask):
+            return []
+
+        # Top-k via argpartition (O(n) average)
+        idxs = np.where(mask)[0]
+        scores_valid = scores[idxs]
+        if len(idxs) > top_k:
+            top_local = np.argpartition(scores_valid, -top_k)[-top_k:]
+            idxs = idxs[top_local]
+            scores_valid = scores_valid[top_local]
+
+        # Sort by score descending
+        order = np.argsort(-scores_valid)
+        results = []
+        for i in order:
+            row = int(idxs[i])
+            results.append((float(scores_valid[i]), self._emb_ids[row], self._emb_meta[row]))
+        return results
 
     def rebuild_embeddings(self) -> int:
         """全量重建向量数据"""
@@ -178,79 +275,39 @@ class PocketBaseRememberStore(BaseRememberStore):
         except Exception as e:
             log(f"Keyword search error: {e}", level="error")
 
-        # 3. Full-Database Vector Scan (对齐旧版 SQLite 逻辑)
-        # 分页拉取全库 embedding，本地全量计算 cosine_similarity，过滤 min_score 后取 Top N
+        # 3. Vector Search (numpy cached, O(1) after first load)
         if self._embedding_enabled():
             try:
+                t0 = time.monotonic()
                 q_embs = self.config.embedding_client.embed_many([query])
                 if q_embs:
-                    q_emb = q_embs[0]
-                    semantic_hits: list[tuple[float, str, dict]] = []
-
-                    page = 1
-                    total_scanned = 0
-                    scan_start = time.monotonic()
-                    scan_timeout = 15.0  # 向量扫描总超时 15 秒
-                    while True:
-                        # 检查总超时
-                        if time.monotonic() - scan_start > scan_timeout:
-                            log(f"Vector scan timed out after {scan_timeout}s, scanned {total_scanned} records", level="warn")
-                            break
-                        res = self.client.get(
-                            "/collections/remember_entries/records",
-                            params={
-                                "filter": filter_base,
-                                "fields": "id,memory,created,embedding_json",
-                                "perPage": 200,
-                                "page": page,
-                            }
-                        )
-                        if res.status_code != 200:
-                            break
-                        data = res.json()
-                        page_items = data.get("items", [])
-                        total_scanned += len(page_items)
-
-                        for r in page_items:
-                            raw_emb = r.get("embedding_json")
-                            vec = json.loads(raw_emb) if isinstance(raw_emb, str) and raw_emb else raw_emb
-                            if vec and isinstance(vec, list) and len(vec) > 0:
-                                score = cosine_similarity(q_emb, vec)
-                                if score >= self.config.embedding_min_score:
-                                    semantic_hits.append((score, r["id"], r))
-
-                        if page >= data.get("totalPages", 1):
-                            break
-                        page += 1
-
-                    semantic_hits.sort(key=lambda x: x[0], reverse=True)
-                    sem_top = semantic_hits[:self.config.embedding_max_results]
-                    log(
-                        f"Vector scan: scanned {total_scanned} records, "
-                        f"{len(semantic_hits)} above min_score={self.config.embedding_min_score}, "
-                        f"using top {len(sem_top)}",
-                        level="info"
+                    sem_top = self._vector_search(
+                        q_embs[0],
+                        top_k=self.config.embedding_max_results,
+                        min_score=self.config.embedding_min_score,
                     )
+                    elapsed = time.monotonic() - t0
+                    log(f"Vector search: {len(sem_top)} hits in {elapsed:.3f}s", level="info")
                     if sem_top:
                         log_multiline("Semantic search top hits", json.dumps([{"id": h[1], "score": h[0], "memory": h[2]["memory"]} for h in sem_top], indent=2, ensure_ascii=False), level="debug")
 
-                    for rank, (score, rid, r) in enumerate(sem_top, 1):
+                    for rank, (score, rid, meta) in enumerate(sem_top, 1):
                         if rid in candidates:
                             candidates[rid]["vector_score"] = round(score, 4)
                             candidates[rid]["vector_rank"] = rank
-                            candidates[rid]["search_method"] = "hybrid" # 标记为混合命中
+                            candidates[rid]["search_method"] = "hybrid"
                         else:
                             candidates[rid] = {
                                 "id": rid,
-                                "memory": r["memory"],
-                                "created_at": r["created"],
+                                "memory": meta["memory"],
+                                "created_at": meta["created_at"],
                                 "vector_score": round(score, 4),
                                 "vector_rank": rank,
                                 "search_method": "vector",
                                 "score": 0.0,
                             }
             except Exception as e:
-                log(f"Vector scan failed: {e}", level="warn")
+                log(f"Vector search failed: {e}", level="warn")
 
         if not candidates:
             return json.dumps({"results": []}, ensure_ascii=False)
@@ -307,6 +364,7 @@ class PocketBaseRememberStore(BaseRememberStore):
         record = res.json()
         # 同样异步更新向量
         threading.Thread(target=self._sync_record_embedding, args=(record,), daemon=True).start()
+        self._emb_dirty = True
         return RememberItemRecord(
             id=record.get("id"),
             user_id=record.get("user_id", "default"),
