@@ -70,7 +70,7 @@ class PocketBaseRememberStore(BaseRememberStore):
     def _sync_record_embedding(self, record: dict) -> bool:
         if not self._embedding_enabled():
             return False
-        
+
         item_id = record.get("id")
         memory_text = record.get("memory")
         if not item_id or not memory_text:
@@ -80,13 +80,14 @@ class PocketBaseRememberStore(BaseRememberStore):
             vectors = self.config.embedding_client.embed_many([memory_text])
             if not vectors:
                 return False
-            
-            # PATCH 回 PocketBase
-            res = self.client.patch(
-                f"/collections/remember_entries/records/{item_id}",
-                json={"embedding_json": json.dumps(vectors[0])}
-            )
-            res.raise_for_status()
+
+            # Use a dedicated client to avoid thread-safety issues with shared self.client
+            with httpx.Client(base_url=PB_BASE_URL, timeout=httpx.Timeout(10.0, connect=5.0)) as c:
+                res = c.patch(
+                    f"/collections/remember_entries/records/{item_id}",
+                    json={"embedding_json": json.dumps(vectors[0])}
+                )
+                res.raise_for_status()
             log(f"Async embedding updated for memory {item_id}", level="debug")
             return True
         except Exception as e:
