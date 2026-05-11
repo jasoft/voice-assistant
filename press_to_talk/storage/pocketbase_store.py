@@ -3,6 +3,7 @@ import httpx
 import os
 import json
 import threading
+import time
 from .models import (
     BaseRememberStore,
     BaseHistoryStore,
@@ -23,7 +24,10 @@ def _escape_pb_string(value: str) -> str:
 class PocketBaseRememberStore(BaseRememberStore):
     def __init__(self, config: StorageConfig):
         self.config = config
-        self.client = httpx.Client(base_url=PB_BASE_URL)
+        self.client = httpx.Client(
+            base_url=PB_BASE_URL,
+            timeout=httpx.Timeout(10.0, connect=5.0)
+        )
         self.user_id = config.user_id
 
     @classmethod
@@ -185,7 +189,13 @@ class PocketBaseRememberStore(BaseRememberStore):
 
                     page = 1
                     total_scanned = 0
+                    scan_start = time.monotonic()
+                    scan_timeout = 15.0  # 向量扫描总超时 15 秒
                     while True:
+                        # 检查总超时
+                        if time.monotonic() - scan_start > scan_timeout:
+                            log(f"Vector scan timed out after {scan_timeout}s, scanned {total_scanned} records", level="warn")
+                            break
                         res = self.client.get(
                             "/collections/remember_entries/records",
                             params={
@@ -343,7 +353,10 @@ class PocketBaseRememberStore(BaseRememberStore):
 class PocketBaseHistoryStore(BaseHistoryStore):
     def __init__(self, config: StorageConfig):
         self.config = config
-        self.client = httpx.Client(base_url=PB_BASE_URL)
+        self.client = httpx.Client(
+            base_url=PB_BASE_URL,
+            timeout=httpx.Timeout(10.0, connect=5.0)
+        )
         self.user_id = config.user_id
 
     def persist(self, record: SessionHistoryRecord) -> None:
