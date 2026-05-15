@@ -19,7 +19,6 @@ from .models import (
 from .pocketbase_store import PocketBaseHistoryStore, PocketBaseRememberStore
 
 APP_ROOT = Path(__file__).resolve().parents[2]
-APP_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 
 
@@ -86,12 +85,6 @@ def load_workflow_config() -> dict[str, Any]:
     except Exception:
         pass
     return {}
-
-
-def _require_mapping(value: Any, path: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise RuntimeError(f"workflow config missing required section: {path}")
-    return value
 
 
 def _render_prompt_template(template: str, values: dict[str, str]) -> str:
@@ -560,6 +553,59 @@ class OpenAIEmbeddingClient:
         return [list(item.embedding) for item in response.data]
 
 
+class JinaEmbeddingClient:
+    """Client for Jina AI Embeddings API.
+    Get your Jina AI API key for free: https://jina.ai/?sui=apikey
+    """
+    def __init__(self, *, api_key: str, model: str, base_url: str = "") -> None:
+        self.api_key = api_key.strip()
+        self.model = model.strip() or "jina-embeddings-v5-text-small"
+        self.base_url = (base_url.strip() or "https://api.jina.ai/v1/embeddings").rstrip("/")
+        if "/v1/embeddings" not in self.base_url and self.base_url.endswith("/v1"):
+            self.base_url = f"{self.base_url}/embeddings"
+        elif not self.base_url.endswith("/embeddings"):
+             # If it's just the root or something else, we append the path
+             pass 
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        import httpx
+        cleaned_texts = [
+            str(text or "").strip() for text in texts if str(text or "").strip()
+        ]
+        if not cleaned_texts:
+            return []
+
+        # Jina v5 models perform better with task specified. 
+        # Since embed_many doesn't know the intent, we use 'text-matching' as a robust default.
+        # For retrieval.query vs retrieval.passage, 'text-matching' is a good middle ground.
+        payload = {
+            "model": self.model,
+            "input": cleaned_texts,
+            "task": "text-matching",
+            "dimensions": env_int("PTT_JINA_EMBEDDING_DIMENSIONS", 512) if "v5" in self.model else None
+        }
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+
+        try:
+            with httpx.Client(timeout=env_float("PTT_EMBEDDING_TIMEOUT_SECONDS", 10.0)) as client:
+                resp = client.post(self.base_url, json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                # Jina returns { "data": [ {"embedding": [..]}, ... ] } 
+                # or { "embeddings": [ [..], [..] ] } depending on the API version/endpoint
+                if "data" in data and isinstance(data["data"], list):
+                     return [list(item["embedding"]) for item in data["data"]]
+                return [list(emb) for emb in data.get("embeddings", [])]
+        except Exception as e:
+            log(f"Jina Embedding failed: {e}", level="error")
+            return []
+
+
 class StorageService:
     def __init__(self, config: StorageConfig, use_cli: bool = True) -> None:
         normalized = StorageConfig(**config.__dict__)
@@ -623,15 +669,25 @@ class StorageService:
     def embedding_client(self) -> EmbeddingClient | None:
         if not self.config.embedding_search_enabled:
             return None
-        if (
-            not self.config.embedding_model.strip()
-            or not self.config.embedding_base_url.strip()
-        ):
+        
+        model = self.config.embedding_model.strip()
+        base_url = self.config.embedding_base_url.strip()
+        api_key = self.config.embedding_api_key.strip()
+
+        if not model or not base_url:
             return None
+
+        if model.startswith("jina-"):
+            return JinaEmbeddingClient(
+                api_key=api_key,
+                model=model,
+                base_url=base_url
+            )
+
         return OpenAIEmbeddingClient(
-            api_key=self.config.embedding_api_key,
-            model=self.config.embedding_model,
-            base_url=self.config.embedding_base_url,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
         )
 
     def build_export_target_store(self, provider_name: str) -> BaseRememberStore:

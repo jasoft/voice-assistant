@@ -181,12 +181,12 @@
         },
         "embedding_search": {
             "enabled": true,
-            "base_url": "http://docker.home:11434/v1",
-            "api_key": "ollama",
-            "model": "bge-m3",
+            "base_url": "https://api.jina.ai/v1/embeddings",
+            "api_key": "${JINA_API_KEY}",
+            "model": "jina-embeddings-v5-text-small",
             "max_results": 20,
-            "min_score": 0.45,
-            "context_min_score": 0.55
+            "min_score": 0.35,
+            "context_min_score": 0.45
         },
         "reranker": {
             "enabled": true,
