@@ -103,11 +103,15 @@ class PocketBaseRememberStore(BaseRememberStore):
 
         t0 = time.monotonic()
         page = 1
-        # Use a dedicated longer-timeout client for cache loading
-        cache_client = httpx.Client(
-            base_url=PB_BASE_URL,
-            timeout=httpx.Timeout(30.0, connect=10.0)
-        )
+        cache_client: Any = self.client
+        close_cache_client = False
+        if isinstance(self.client, httpx.Client):
+            cache_client = httpx.Client(
+                base_url=PB_BASE_URL,
+                timeout=httpx.Timeout(30.0, connect=10.0)
+            )
+            close_cache_client = True
+
         try:
             while True:
                 res = cache_client.get(
@@ -133,7 +137,8 @@ class PocketBaseRememberStore(BaseRememberStore):
                     break
                 page += 1
         finally:
-            cache_client.close()
+            if close_cache_client:
+                cache_client.close()
 
         if all_vecs:
             mat = np.array(all_vecs, dtype=np.float32)

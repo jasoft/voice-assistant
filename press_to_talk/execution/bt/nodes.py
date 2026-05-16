@@ -12,6 +12,11 @@ class Condition(Node):
 class Action(Node):
     pass
 
+
+def get_photo_url(photo_path: str | None) -> str:
+    return str(photo_path or "")
+
+
 class IsRecordIntent(Condition):
     async def tick(self, bb: Blackboard) -> Status:
         # 如果带有图片，强制判定为记录意图

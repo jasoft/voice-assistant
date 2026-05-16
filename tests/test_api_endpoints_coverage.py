@@ -75,14 +75,15 @@ class TestQueryEndpoint:
 
     def test_query_with_photo_base64(self, client, mock_execution):
         """测试带 base64 图片的查询"""
-        import base64
-        from PIL import Image
-        import io
-
-        img = Image.new("RGB", (100, 100), color="red")
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG")
-        img_b64 = base64.b64encode(buf.getvalue()).decode()
+        img_b64 = (
+            "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////"
+            "////2wBDAf//////////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIA"
+            "AhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAA"
+            "AAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/"
+            "ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAA"
+            "EP/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH//EABQQAQAAAAAAAAAA"
+            "AAAAAAAAABD/2gAIAQEAAT8QH//Z"
+        )
 
         response = client.post("/v1/query", json={
             "query": "记录这张图片",

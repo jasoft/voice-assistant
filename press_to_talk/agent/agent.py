@@ -140,6 +140,7 @@ class OpenAICompatibleAgent:
         # 统一从 prompts.query_rewrite 读取
         _require_mapping(prompts.get("query_rewrite"), "prompts.query_rewrite")
         _require_mapping(prompts.get("memory_translate"), "prompts.memory_translate")
+        _require_mapping(prompts.get("distill_memory"), "prompts.distill_memory")
         _require_mapping(prompts.get("remember_summary"), "prompts.remember_summary")
         return workflow_cfg
 
@@ -191,7 +192,7 @@ class OpenAICompatibleAgent:
         messages.append({"role": "user", "content": user_input})
         return messages
 
-    async def _distill_memory(self, user_input: str) -> str:
+    async def _distill_memory(self, user_input: str, *, fallback: str | None = None) -> str:
         """专门将杂乱的语音输入提炼成一条适合存入数据库的精简记忆。"""
         prompts = self.workflow.get("prompts", {})
         distill_cfg = prompts.get("distill_memory", {})
@@ -208,10 +209,10 @@ class OpenAICompatibleAgent:
                 temperature=0,
             )
             distilled = str(response.choices[0].message.content or "").strip()
-            return strip_think_tags(distilled) or user_input
+            return strip_think_tags(distilled) or str(fallback or user_input)
         except Exception as e:
             log(f"Memory distillation failed: {e}", level="warn")
-            return user_input
+            return str(fallback or user_input)
 
     async def _extract_intent_payload(self, user_input: str) -> dict[str, Any]:
         extract_messages = self._build_intent_extractor_messages(user_input)
@@ -281,6 +282,11 @@ class OpenAICompatibleAgent:
                 args.setdefault("memory", "")
                 args.pop("note", None)
                 args.pop("notes", None)
+                extracted_memory = str(args.get("memory", "")).strip()
+                args["memory"] = await self._distill_memory(
+                    user_input,
+                    fallback=extracted_memory or user_input.strip(),
+                )
                 payload["args"] = args
 
             # 强制指定模式（大王要求的 API 强制参数）
