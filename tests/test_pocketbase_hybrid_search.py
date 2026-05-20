@@ -89,6 +89,16 @@ def test_pocketbase_hybrid_search_uses_persisted_embedding_json():
     store = PocketBaseRememberStore(config)
     store.client = FakePocketBaseClient()
 
+    # Pre-populate the embedding cache to avoid hitting real PB
+    import numpy as np
+    PocketBaseRememberStore._global_emb_matrix = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+    PocketBaseRememberStore._global_emb_ids = ["semantic-hit", "keyword-hit"]
+    PocketBaseRememberStore._global_emb_meta = [
+        {"memory": "壮壮上次骑车是在公园", "created_at": "2026-05-01 10:00:00Z"},
+        {"memory": "自行车轮胎打气", "created_at": "2026-05-01 09:00:00Z"},
+    ]
+    PocketBaseRememberStore._global_emb_dirty = False
+
     payload = json.loads(store.find(query="壮壮骑车"))
     result_ids = [item["id"] for item in payload["results"]]
 

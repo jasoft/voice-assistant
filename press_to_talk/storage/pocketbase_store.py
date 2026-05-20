@@ -300,6 +300,16 @@ class PocketBaseRememberStore(BaseRememberStore):
                         log_multiline("Semantic search top hits", json.dumps([{"id": h[1], "score": h[0], "memory": h[2]["memory"]} for h in sem_top], indent=2, ensure_ascii=False), level="debug")
 
                     for rank, (score, rid, meta) in enumerate(sem_top, 1):
+                        # Apply date filter to vector search results
+                        if start_date or end_date:
+                            created_at = str(meta.get("created_at", "")).strip()
+                            if not created_at:
+                                continue
+                            if start_date and created_at < f"{start_date} 00:00:00":
+                                continue
+                            if end_date and created_at > f"{end_date} 23:59:59":
+                                continue
+
                         if rid in candidates:
                             candidates[rid]["vector_score"] = round(score, 4)
                             candidates[rid]["vector_rank"] = rank
