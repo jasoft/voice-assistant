@@ -23,6 +23,13 @@ def _escape_pb_string(value: str) -> str:
 
 
 class PocketBaseRememberStore(BaseRememberStore):
+    # Class-level cache to share across instances
+    _global_emb_matrix: np.ndarray | None = None
+    _global_emb_ids: list[str] = []
+    _global_emb_meta: list[dict] = []
+    _global_emb_dirty: bool = True
+    _cache_lock = threading.Lock()
+
     def __init__(self, config: StorageConfig):
         self.config = config
         self.client = httpx.Client(
@@ -30,11 +37,6 @@ class PocketBaseRememberStore(BaseRememberStore):
             timeout=httpx.Timeout(10.0, connect=5.0)
         )
         self.user_id = config.user_id
-        # Numpy vector cache: lazily loaded, invalidated on write
-        self._emb_matrix: np.ndarray | None = None  # (N, D) L2-normalized
-        self._emb_ids: list[str] = []                 # record ids aligned with rows
-        self._emb_meta: list[dict] = []               # {memory, created_at} per row
-        self._emb_dirty = True
 
     @classmethod
     def from_config(cls, config: StorageConfig, **kwargs) -> "PocketBaseRememberStore":
@@ -57,7 +59,8 @@ class PocketBaseRememberStore(BaseRememberStore):
             args=(record,),
             daemon=True
         ).start()
-        self._emb_dirty = True
+        with self._cache_lock:
+            PocketBaseRememberStore._global_emb_dirty = True
         return record.get("id")
 
     def _embedding_enabled(self) -> bool:
@@ -96,71 +99,70 @@ class PocketBaseRememberStore(BaseRememberStore):
 
     def _load_embedding_cache(self) -> None:
         """Load all embeddings from PocketBase into a normalized numpy matrix."""
-        filter_str = f"user_id = '{self.user_id}'"
-        all_ids: list[str] = []
-        all_meta: list[dict] = []
-        all_vecs: list[list[float]] = []
+        with self._cache_lock:
+            if not PocketBaseRememberStore._global_emb_dirty and PocketBaseRememberStore._global_emb_matrix is not None:
+                return
 
-        t0 = time.monotonic()
-        page = 1
-        cache_client: Any = self.client
-        close_cache_client = False
-        if isinstance(self.client, httpx.Client):
+            filter_str = f"user_id = '{self.user_id}'"
+            all_ids: list[str] = []
+            all_meta: list[dict] = []
+            all_vecs: list[list[float]] = []
+
+            t0 = time.monotonic()
+            page = 1
+            # Use a dedicated longer-timeout client for cache loading
             cache_client = httpx.Client(
                 base_url=PB_BASE_URL,
                 timeout=httpx.Timeout(30.0, connect=10.0)
             )
-            close_cache_client = True
-
-        try:
-            while True:
-                res = cache_client.get(
-                    "/collections/remember_entries/records",
-                    params={
-                        "filter": filter_str,
-                        "fields": "id,memory,created,embedding_json",
-                        "perPage": 200,
-                        "page": page,
-                    }
-                )
-                if res.status_code != 200:
-                    break
-                data = res.json()
-                for r in data.get("items", []):
-                    raw = r.get("embedding_json")
-                    vec = json.loads(raw) if isinstance(raw, str) and raw else raw
-                    if vec and isinstance(vec, list) and len(vec) > 0:
-                        all_ids.append(r["id"])
-                        all_meta.append({"memory": r["memory"], "created_at": r["created"]})
-                        all_vecs.append(vec)
-                if page >= data.get("totalPages", 1):
-                    break
-                page += 1
-        finally:
-            if close_cache_client:
+            try:
+                while True:
+                    res = cache_client.get(
+                        "/collections/remember_entries/records",
+                        params={
+                            "filter": filter_str,
+                            "fields": "id,memory,created,embedding_json",
+                            "perPage": 200,
+                            "page": page,
+                        }
+                    )
+                    if res.status_code != 200:
+                        break
+                    data = res.json()
+                    for r in data.get("items", []):
+                        raw = r.get("embedding_json")
+                        vec = json.loads(raw) if isinstance(raw, str) and raw else raw
+                        if vec and isinstance(vec, list) and len(vec) > 0:
+                            all_ids.append(r["id"])
+                            all_meta.append({"memory": r["memory"], "created_at": r["created"]})
+                            all_vecs.append(vec)
+                    if page >= data.get("totalPages", 1):
+                        break
+                    page += 1
+            finally:
                 cache_client.close()
 
-        if all_vecs:
-            mat = np.array(all_vecs, dtype=np.float32)
-            norms = np.linalg.norm(mat, axis=1, keepdims=True)
-            norms = np.where(norms == 0, 1.0, norms)
-            mat = mat / norms
-            self._emb_matrix = mat
-        else:
-            self._emb_matrix = np.empty((0, 0), dtype=np.float32)
-        self._emb_ids = all_ids
-        self._emb_meta = all_meta
-        self._emb_dirty = False
-        log(f"Embedding cache loaded: {len(all_ids)} vectors", level="info")
+            if all_vecs:
+                mat = np.array(all_vecs, dtype=np.float32)
+                norms = np.linalg.norm(mat, axis=1, keepdims=True)
+                norms = np.where(norms == 0, 1.0, norms)
+                mat = mat / norms
+                PocketBaseRememberStore._global_emb_matrix = mat
+            else:
+                PocketBaseRememberStore._global_emb_matrix = np.empty((0, 0), dtype=np.float32)
+            PocketBaseRememberStore._global_emb_ids = all_ids
+            PocketBaseRememberStore._global_emb_meta = all_meta
+            PocketBaseRememberStore._global_emb_dirty = False
+            log(f"Embedding cache loaded: {len(all_ids)} vectors (user: {self.user_id})", level="info")
 
     def _vector_search(
         self, query_emb: list[float], top_k: int, min_score: float
     ) -> list[tuple[float, str, dict]]:
         """Fast numpy vector search against cached embeddings."""
-        if self._emb_dirty or self._emb_matrix is None:
+        if PocketBaseRememberStore._global_emb_dirty or PocketBaseRememberStore._global_emb_matrix is None:
             self._load_embedding_cache()
 
-        if self._emb_matrix.size == 0:
+        if PocketBaseRememberStore._global_emb_matrix.size == 0:
             return []
 
         q = np.array(query_emb, dtype=np.float32)
@@ -169,7 +171,7 @@ class PocketBaseRememberStore(BaseRememberStore):
             return []
         q = q / q_norm
 
-        scores = self._emb_matrix @ q  # (N,)
+        scores = PocketBaseRememberStore._global_emb_matrix @ q  # (N,)
         mask = scores >= min_score
         if not np.any(mask):
             return []
@@ -187,7 +189,7 @@ class PocketBaseRememberStore(BaseRememberStore):
         results = []
         for i in order:
             row = int(idxs[i])
-            results.append((float(scores_valid[i]), self._emb_ids[row], self._emb_meta[row]))
+            results.append((float(scores_valid[i]), PocketBaseRememberStore._global_emb_ids[row], PocketBaseRememberStore._global_emb_meta[row]))
         return results
 
     def rebuild_embeddings(self) -> int:
@@ -370,7 +372,8 @@ class PocketBaseRememberStore(BaseRememberStore):
         record = res.json()
         # 同样异步更新向量
         threading.Thread(target=self._sync_record_embedding, args=(record,), daemon=True).start()
-        self._emb_dirty = True
+        with self._cache_lock:
+            PocketBaseRememberStore._global_emb_dirty = True
         return RememberItemRecord(
             id=record.get("id"),
             user_id=record.get("user_id", "default"),
