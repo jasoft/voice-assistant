@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -297,9 +298,16 @@ def resolve_user_id_from_api_key(api_key: str) -> str | None:
                     params={"filter": f"user_id = '{_escape_pb_string(token_str)}'", "fields": "id"}
                 )
                 if user_check.status_code == 200 and not user_check.json().get("items"):
+                    random_pw = secrets.token_urlsafe(16)
                     client.post(
                         f"{pb_url.rstrip('/')}/api/collections/users/records",
-                        json={"user_id": token_str, "nickname": "大人"}
+                        json={
+                            "user_id": token_str,
+                            "nickname": "大人",
+                            "username": token_str,
+                            "password": random_pw,
+                            "passwordConfirm": random_pw,
+                        }
                     )
                     log(f"Created user record for {token_str[:8]} with default nickname", level="info")
             except Exception as e:

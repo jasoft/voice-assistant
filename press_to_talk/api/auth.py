@@ -1,4 +1,5 @@
 import os
+import secrets
 import httpx
 from typing import Optional
 from fastapi import Depends, HTTPException, status
@@ -42,9 +43,16 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
                     params={"filter": f"user_id = '{user_id}'", "fields": "id"}
                 )
                 if user_check.status_code == 200 and not user_check.json().get("items"):
+                    random_pw = secrets.token_urlsafe(16)
                     await client.post(
                         f"{PB_API_URL}/collections/users/records",
-                        json={"user_id": user_id, "nickname": "大人"}
+                        json={
+                            "user_id": user_id,
+                            "nickname": "大人",
+                            "username": user_id,
+                            "password": random_pw,
+                            "passwordConfirm": random_pw,
+                        }
                     )
                     log(f"Created user record for {user_id} with default nickname", level="info")
             except Exception as e:
