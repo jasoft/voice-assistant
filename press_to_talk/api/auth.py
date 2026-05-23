@@ -44,7 +44,7 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
                 )
                 if user_check.status_code == 200 and not user_check.json().get("items"):
                     random_pw = secrets.token_urlsafe(16)
-                    await client.post(
+                    user_res = await client.post(
                         f"{PB_API_URL}/collections/users/records",
                         json={
                             "user_id": user_id,
@@ -54,7 +54,10 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
                             "passwordConfirm": random_pw,
                         }
                     )
-                    log(f"Created user record for {user_id} with default nickname", level="info")
+                    if user_res.status_code in (200, 201):
+                        log(f"Created user record for {user_id} with default nickname", level="info")
+                    else:
+                        log(f"Failed to create user record: {user_res.status_code} {user_res.text}", level="warn")
             except Exception as e:
                 log(f"Warning: failed to create user record: {e}", level="warn")
 
