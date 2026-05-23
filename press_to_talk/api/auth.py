@@ -38,15 +38,12 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
 
             # 同步创建 user 记录（默认 nickname 为"大人"）
             try:
-                log(f"Checking if user {user_id} exists...", level="info")
                 user_check = await client.get(
                     f"{PB_API_URL}/collections/users/records",
                     params={"filter": f"user_id = '{user_id}'", "fields": "id"}
                 )
-                log(f"User check response: status={user_check.status_code}, body={user_check.text[:200]}", level="info")
                 if user_check.status_code == 200 and not user_check.json().get("items"):
                     random_pw = secrets.token_urlsafe(16)
-                    log(f"Creating user record for {user_id}...", level="info")
                     user_res = await client.post(
                         f"{PB_API_URL}/collections/users/records",
                         json={
@@ -57,15 +54,12 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
                             "passwordConfirm": random_pw,
                         }
                     )
-                    log(f"User creation response: status={user_res.status_code}, body={user_res.text[:200]}", level="info")
                     if user_res.status_code in (200, 201):
                         log(f"Created user record for {user_id} with default nickname", level="info")
                     else:
-                        log(f"Failed to create user record: {user_res.status_code} {user_res.text}", level="warn")
-                else:
-                    log(f"User {user_id} already exists or check failed", level="info")
+                        log(f"Failed to create user record: {user_res.status_code}", level="warn")
             except Exception as e:
-                log(f"Warning: failed to create user record: {type(e).__name__}: {e}", level="warn")
+                log(f"Warning: failed to create user record: {e}", level="warn")
 
             return user_id
 
