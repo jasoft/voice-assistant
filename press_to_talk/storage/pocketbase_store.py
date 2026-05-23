@@ -23,11 +23,8 @@ def _escape_pb_string(value: str) -> str:
 
 
 class PocketBaseRememberStore(BaseRememberStore):
-    # Class-level cache to share across instances
-    _global_emb_matrix: np.ndarray | None = None
-    _global_emb_ids: list[str] = []
-    _global_emb_meta: list[dict] = []
-    _global_emb_dirty: bool = True
+    # Per-user embedding cache — keyed by user_id to prevent cross-user data leaks
+    _user_caches: dict[str, dict] = {}  # user_id -> {"matrix": np.ndarray|None, "ids": [], "meta": [], "dirty": bool}
     _cache_lock = threading.Lock()
 
     def __init__(self, config: StorageConfig):
@@ -60,7 +57,7 @@ class PocketBaseRememberStore(BaseRememberStore):
             daemon=True
         ).start()
         with self._cache_lock:
-            PocketBaseRememberStore._global_emb_dirty = True
+            self._get_user_cache()["dirty"] = True
         return record.get("id")
 
     def _embedding_enabled(self) -> bool:
@@ -97,10 +94,22 @@ class PocketBaseRememberStore(BaseRememberStore):
             log(f"Failed to sync embedding for {item_id}: {e}", level="warn")
             return False
 
+    def _get_user_cache(self) -> dict:
+        """Get or create the per-user cache entry."""
+        if self.user_id not in PocketBaseRememberStore._user_caches:
+            PocketBaseRememberStore._user_caches[self.user_id] = {
+                "matrix": None,
+                "ids": [],
+                "meta": [],
+                "dirty": True,
+            }
+        return PocketBaseRememberStore._user_caches[self.user_id]
+
     def _load_embedding_cache(self) -> None:
-        """Load all embeddings from PocketBase into a normalized numpy matrix."""
+        """Load all embeddings from PocketBase into a per-user normalized numpy matrix."""
         with self._cache_lock:
-            if not PocketBaseRememberStore._global_emb_dirty and PocketBaseRememberStore._global_emb_matrix is not None:
+            uc = self._get_user_cache()
+            if not uc["dirty"] and uc["matrix"] is not None:
                 return
 
             filter_str = f"user_id = '{self.user_id}'"
@@ -147,22 +156,24 @@ class PocketBaseRememberStore(BaseRememberStore):
                 norms = np.linalg.norm(mat, axis=1, keepdims=True)
                 norms = np.where(norms == 0, 1.0, norms)
                 mat = mat / norms
-                PocketBaseRememberStore._global_emb_matrix = mat
+                uc["matrix"] = mat
             else:
-                PocketBaseRememberStore._global_emb_matrix = np.empty((0, 0), dtype=np.float32)
-            PocketBaseRememberStore._global_emb_ids = all_ids
-            PocketBaseRememberStore._global_emb_meta = all_meta
-            PocketBaseRememberStore._global_emb_dirty = False
+                uc["matrix"] = np.empty((0, 0), dtype=np.float32)
+            uc["ids"] = all_ids
+            uc["meta"] = all_meta
+            uc["dirty"] = False
             log(f"Embedding cache loaded: {len(all_ids)} vectors (user: {self.user_id})", level="info")
 
     def _vector_search(
         self, query_emb: list[float], top_k: int, min_score: float
     ) -> list[tuple[float, str, dict]]:
-        """Fast numpy vector search against cached embeddings."""
-        if PocketBaseRememberStore._global_emb_dirty or PocketBaseRememberStore._global_emb_matrix is None:
+        """Fast numpy vector search against per-user cached embeddings."""
+        uc = self._get_user_cache()
+        if uc["dirty"] or uc["matrix"] is None:
             self._load_embedding_cache()
+            uc = self._get_user_cache()
 
-        if PocketBaseRememberStore._global_emb_matrix.size == 0:
+        if uc["matrix"].size == 0:
             return []
 
         q = np.array(query_emb, dtype=np.float32)
@@ -171,7 +182,7 @@ class PocketBaseRememberStore(BaseRememberStore):
             return []
         q = q / q_norm
 
-        scores = PocketBaseRememberStore._global_emb_matrix @ q  # (N,)
+        scores = uc["matrix"] @ q  # (N,)
         mask = scores >= min_score
         if not np.any(mask):
             return []
@@ -189,7 +200,7 @@ class PocketBaseRememberStore(BaseRememberStore):
         results = []
         for i in order:
             row = int(idxs[i])
-            results.append((float(scores_valid[i]), PocketBaseRememberStore._global_emb_ids[row], PocketBaseRememberStore._global_emb_meta[row]))
+            results.append((float(scores_valid[i]), uc["ids"][row], uc["meta"][row]))
         return results
 
     def rebuild_embeddings(self) -> int:
@@ -370,10 +381,28 @@ class PocketBaseRememberStore(BaseRememberStore):
         return json.dumps({"results": final_results}, ensure_ascii=False)
 
     def delete(self, *, memory_id: str) -> None:
+        # Verify the record belongs to the current user before deleting
+        res = self.client.get(
+            f"/collections/remember_entries/records/{memory_id}",
+            params={"fields": "id,user_id"},
+        )
+        res.raise_for_status()
+        record = res.json()
+        if record.get("user_id") != self.user_id:
+            raise ValueError(f"Record {memory_id} does not belong to user {self.user_id}")
         res = self.client.delete(f"/collections/remember_entries/records/{memory_id}")
         res.raise_for_status()
 
     def update(self, *, memory_id: str, memory: str, original_text: str = "", photo_path: str | None = None) -> RememberItemRecord:
+        # Verify ownership before update
+        check = self.client.get(
+            f"/collections/remember_entries/records/{memory_id}",
+            params={"fields": "id,user_id"},
+        )
+        check.raise_for_status()
+        if check.json().get("user_id") != self.user_id:
+            raise ValueError(f"Record {memory_id} does not belong to user {self.user_id}")
+
         data = {"memory": memory, "original_text": original_text}
         if photo_path:
             data["photo_path"] = photo_path
@@ -383,7 +412,7 @@ class PocketBaseRememberStore(BaseRememberStore):
         # 同样异步更新向量
         threading.Thread(target=self._sync_record_embedding, args=(record,), daemon=True).start()
         with self._cache_lock:
-            PocketBaseRememberStore._global_emb_dirty = True
+            self._get_user_cache()["dirty"] = True
         return RememberItemRecord(
             id=record.get("id"),
             user_id=record.get("user_id", "default"),
@@ -477,10 +506,10 @@ class PocketBaseHistoryStore(BaseHistoryStore):
         return results
 
     def delete(self, *, session_id: str) -> None:
-        # 先查 ID
+        # 先查 ID，限定当前用户
         res = self.client.get(
             "/collections/session_histories/records",
-            params={"filter": f"session_id = '{session_id}'"}
+            params={"filter": f"session_id = '{session_id}' && user_id = '{self.user_id}'"}
         )
         res.raise_for_status()
         items = res.json().get("items", [])

@@ -18,23 +18,20 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
             )
             data = res.json()
             items = data.get("items", [])
-            
+
             if items:
                 return items[0]["user_id"]
-            
-            # 自动创建逻辑
-            log(f"Token not found, auto-creating user for token: {token[:8]}...", level="info")
-            create_res = await client.post(
-                f"{PB_API_URL}/collections/api_tokens/records",
-                json={
-                    "token": token,
-                    "user_id": token,
-                    "description": f"Auto-generated for agent uid: {token[:8]}..."
-                }
+
+            # Token 未注册，拒绝访问
+            log(f"Token not registered: {token[:8]}...", level="warning")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid API key",
+                headers={"WWW-Authenticate": "Bearer"},
             )
-            create_res.raise_for_status()
-            return token
-            
+
+    except HTTPException:
+        raise
     except Exception as e:
         log(f"Authentication system error: {e}", level="error")
         raise HTTPException(

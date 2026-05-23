@@ -16,7 +16,7 @@ from .models import (
     KeywordRewriter,
     StorageConfig,
 )
-from .pocketbase_store import PocketBaseHistoryStore, PocketBaseRememberStore
+from .pocketbase_store import PocketBaseHistoryStore, PocketBaseRememberStore, _escape_pb_string
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
@@ -261,17 +261,16 @@ def ensure_storage_database(config: StorageConfig | None = None) -> None:
 def resolve_user_id_from_api_key(api_key: str) -> str | None:
     token_str = str(api_key or "").strip()
     if not token_str:
-        return "default"
-    
-    # 优先尝试从 PocketBase 查询 token 对应的 user_id
+        return None
+
+    # 从 PocketBase 查询 token 对应的 user_id
     pb_url = os.environ.get("PTT_PB_URL", "http://127.0.0.1:18090")
     try:
         import httpx
-        # 使用同步请求，因为 service.py 大部分是同步调用的
         with httpx.Client(timeout=2.0) as client:
             res = client.get(
                 f"{pb_url.rstrip('/')}/api/collections/api_tokens/records",
-                params={"filter": f"token = '{token_str}'"}
+                params={"filter": f"token = '{_escape_pb_string(token_str)}'"}
             )
             if res.status_code == 200:
                 items = res.json().get("items", [])
@@ -279,9 +278,10 @@ def resolve_user_id_from_api_key(api_key: str) -> str | None:
                     return str(items[0]["user_id"])
     except Exception as e:
         log(f"Warning: failed to resolve user_id from PocketBase: {e}", level="warning")
-    
-    # 如果没查到，说明可能就是 user_id 本身（或者是测试用的 token），直接返回
-    return token_str
+
+    # token 未注册，拒绝访问
+    log(f"API key not registered: {token_str[:8]}...", level="warning")
+    return None
 
 
 class LLMKeywordRewriter:
@@ -622,7 +622,7 @@ class StorageService:
             if env_id and env_id != "default":
                 normalized.mem0_user_id = env_id
         h_path = str(normalized.history_db_path or "").strip()
-        self.config = config
+        self.config = normalized
 
         self._remember_provider: BaseRememberStore | None = None
         self._remember_store: BaseRememberStore | None = None
