@@ -268,20 +268,48 @@ def resolve_user_id_from_api_key(api_key: str) -> str | None:
     try:
         import httpx
         with httpx.Client(timeout=2.0) as client:
+            safe_token = _escape_pb_string(token_str)
             res = client.get(
                 f"{pb_url.rstrip('/')}/api/collections/api_tokens/records",
-                params={"filter": f"token = '{_escape_pb_string(token_str)}'"}
+                params={"filter": f"token = '{safe_token}'"}
             )
             if res.status_code == 200:
                 items = res.json().get("items", [])
                 if items:
                     return str(items[0]["user_id"])
+
+            # 自动创建（适配豆包智能体等场景）
+            log(f"Token not found in PB, auto-creating: {token_str[:8]}...", level="info")
+            create_res = client.post(
+                f"{pb_url.rstrip('/')}/api/collections/api_tokens/records",
+                json={
+                    "token": token_str,
+                    "user_id": token_str,
+                    "description": f"Auto-generated for agent uid: {token_str[:8]}..."
+                }
+            )
+            create_res.raise_for_status()
+
+            # 同步创建 user 记录（默认 nickname 为"大人"）
+            try:
+                user_check = client.get(
+                    f"{pb_url.rstrip('/')}/api/collections/users/records",
+                    params={"filter": f"user_id = '{_escape_pb_string(token_str)}'", "fields": "id"}
+                )
+                if user_check.status_code == 200 and not user_check.json().get("items"):
+                    client.post(
+                        f"{pb_url.rstrip('/')}/api/collections/users/records",
+                        json={"user_id": token_str, "nickname": "大人"}
+                    )
+                    log(f"Created user record for {token_str[:8]} with default nickname", level="info")
+            except Exception as e:
+                log(f"Warning: failed to create user record: {e}", level="warn")
+
+            return token_str
     except Exception as e:
         log(f"Warning: failed to resolve user_id from PocketBase: {e}", level="warning")
 
-    # token 未注册，拒绝访问
-    log(f"API key not registered: {token_str[:8]}...", level="warning")
-    return None
+    return token_str
 
 
 class LLMKeywordRewriter:

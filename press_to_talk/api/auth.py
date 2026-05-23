@@ -22,16 +22,36 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
             if items:
                 return items[0]["user_id"]
 
-            # Token 未注册，拒绝访问
-            log(f"Token not registered: {token[:8]}...", level="warning")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid API key",
-                headers={"WWW-Authenticate": "Bearer"},
+            # 自动创建逻辑（适配豆包智能体等场景）
+            user_id = token
+            log(f"Token not found, auto-creating user for token: {token[:8]}...", level="info")
+            create_res = await client.post(
+                f"{PB_API_URL}/collections/api_tokens/records",
+                json={
+                    "token": token,
+                    "user_id": user_id,
+                    "description": f"Auto-generated for agent uid: {token[:8]}..."
+                }
             )
+            create_res.raise_for_status()
 
-    except HTTPException:
-        raise
+            # 同步创建 user 记录（默认 nickname 为"大人"）
+            try:
+                user_check = await client.get(
+                    f"{PB_API_URL}/collections/users/records",
+                    params={"filter": f"user_id = '{user_id}'", "fields": "id"}
+                )
+                if user_check.status_code == 200 and not user_check.json().get("items"):
+                    await client.post(
+                        f"{PB_API_URL}/collections/users/records",
+                        json={"user_id": user_id, "nickname": "大人"}
+                    )
+                    log(f"Created user record for {user_id} with default nickname", level="info")
+            except Exception as e:
+                log(f"Warning: failed to create user record: {e}", level="warn")
+
+            return user_id
+
     except Exception as e:
         log(f"Authentication system error: {e}", level="error")
         raise HTTPException(
