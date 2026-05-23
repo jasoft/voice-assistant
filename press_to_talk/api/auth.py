@@ -42,6 +42,7 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
                     f"{PB_API_URL}/collections/users/records",
                     params={"filter": f"user_id = '{user_id}'", "fields": "id"}
                 )
+                log(f"User check status: {user_check.status_code}, items: {user_check.json().get('items', [])}", level="debug")
                 if user_check.status_code == 200 and not user_check.json().get("items"):
                     random_pw = secrets.token_urlsafe(16)
                     user_res = await client.post(
@@ -54,6 +55,7 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
                             "passwordConfirm": random_pw,
                         }
                     )
+                    log(f"User creation response: {user_res.status_code} {user_res.text}", level="info")
                     if user_res.status_code in (200, 201):
                         log(f"Created user record for {user_id} with default nickname", level="info")
                     else:
