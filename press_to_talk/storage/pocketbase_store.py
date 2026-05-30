@@ -353,6 +353,11 @@ class PocketBaseRememberStore(BaseRememberStore):
 
         # 5. Pre-sort & Rerank
         items = sorted(candidates.values(), key=lambda x: x["score"], reverse=True)[:50]
+        
+        # 针对总结任务，最新的记忆往往更重要。虽然 RAG 依赖相关性评分，
+        # 但我们可以在这里对 items 做一个预处理，或者在最终返回前对 final_results 做排序。
+        # 用户的要求是“最新的在前面”，这在列出记录时很明确，在搜索总结时我们也遵循此逻辑。
+        
         log_multiline(f"RRF Combined Candidates (top {len(items)})", json.dumps(items, indent=2, ensure_ascii=False), level="debug")
 
         if hasattr(self.config, "reranker_enabled") and self.config.reranker_enabled:
@@ -377,6 +382,10 @@ class PocketBaseRememberStore(BaseRememberStore):
         items.sort(key=lambda x: x["score"], reverse=True)
         limit = getattr(self.config, "embedding_max_results", 10)
         final_results = items[:limit]
+        
+        # 核心逻辑：确保返回给 LLM 总结的结果按时间倒序排列（最新的在前）
+        final_results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        
         log(f"Final search returned {len(final_results)} items after limit", level="info")
         return json.dumps({"results": final_results}, ensure_ascii=False)
 
@@ -454,6 +463,9 @@ class PocketBaseRememberStore(BaseRememberStore):
                 updated_at=item.get("updated", ""),
                 embedding=json.loads(item["embedding_json"]) if item.get("embedding_json") else None
             ))
+        
+        # 显式按创建时间倒序排列
+        results.sort(key=lambda x: x.created_at, reverse=True)
         return results
 
 class PocketBaseHistoryStore(BaseHistoryStore):
