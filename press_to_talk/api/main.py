@@ -270,7 +270,6 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
         cfg = dataclasses.replace(base_config)
         cfg.user_id = user_id
         
-        # ... (此处省略中间的照片处理和执行逻辑，保持原有逻辑) ...
         # 核心修复：确保执行层的 LLM API Key 使用的是服务器配置的密钥
         cfg.llm_api_key = os.environ.get("OPENAI_API_KEY", cfg.llm_api_key)
         cfg.llm_base_url = os.environ.get("OPENAI_BASE_URL", cfg.llm_base_url)

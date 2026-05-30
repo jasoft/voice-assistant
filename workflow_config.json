@@ -12,11 +12,6 @@
         "find": {
             "description": "查询数据库中可能已保存的信息。范围覆盖个人生活的方方面面，包括人物、宠物、物品、事件、地点、日期、偏好、状态、关系、安排、备注与记忆内容。凡是个人场景下的 What、When、Which、Who、Where 等提问，默认优先本地查询。",
             "keywords": [
-                "记住",
-                "帮我记一下",
-                "记一下",
-                "保存",
-                "更新",
                 "找",
                 "在哪",
                 "位置",
@@ -188,7 +183,7 @@
     },
     "storage": {
         "provider": "pocketbase",
-        "max_results": 50,
+        "max_results": 20,
         "query_rewrite": {
             "enabled": true
         },
@@ -197,7 +192,7 @@
             "base_url": "https://api.jina.ai/v1/embeddings",
             "api_key": "${JINA_API_KEY}",
             "model": "jina-embeddings-v5-text-small",
-            "max_results": 20,
+            "max_results": 10,
             "min_score": 0.35,
             "context_min_score": 0.45
         },
