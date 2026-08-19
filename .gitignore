@@ -21,3 +21,10 @@ deepseek-harness/.dsh/
 deepseek-harness/.sessions/
 deepseek-harness/**/dist/
 deepseek-harness/**/lib/
+
+# Project-local Harness runtime state; the versioned preset remains tracked.
+config/deepseek-harness/profiles/
+config/deepseek-harness/sessions/
+config/deepseek-harness/storages/
+config/deepseek-harness/.credentials.yaml
+config/deepseek-harness/.env
