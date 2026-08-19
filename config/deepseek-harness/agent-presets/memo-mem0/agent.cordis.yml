@@ -26,6 +26,12 @@
     complete: true
     includeRuntimeContext: false
 
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
+    searchTimeoutMs: 60000
+
 - id: memory-mem0
   name: '@deepseek-ai/dsh-mcp-client'
   config:
