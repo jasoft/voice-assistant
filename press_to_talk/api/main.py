@@ -22,6 +22,7 @@ from ..execution import execute_transcript_async
 from ..storage.service import StorageService, load_storage_config, ensure_storage_database
 from ..utils.logging import log, log_multiline
 from ..utils.photo import get_photo_url
+from ..harness import DeepSeekHarnessClient, HarnessError
 
 
 
@@ -33,6 +34,44 @@ def mask_auth_header(auth_str: str) -> str:
 
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
+_harness_clients: dict[str, DeepSeekHarnessClient] = {}
+
+
+def _uses_harness_backend() -> bool:
+    backend = os.environ.get("PTT_QUERY_BACKEND", "legacy").strip().lower()
+    return backend in {"harness", "deepseek-harness"}
+
+
+def _harness_client_for(user_id: str) -> DeepSeekHarnessClient:
+    client = _harness_clients.get(user_id)
+    if client is None:
+        client = DeepSeekHarnessClient.from_env()
+        _harness_clients[user_id] = client
+    return client
+
+
+async def _close_harness_clients() -> None:
+    clients = list(_harness_clients.values())
+    _harness_clients.clear()
+    for client in clients:
+        await client.close()
+
+
+async def _harness_photo_payload(photo: PhotoAttachment | None) -> dict[str, Any] | None:
+    if photo is None:
+        return None
+    payload = photo.model_dump()
+    if photo.type == "base64":
+        return payload
+    if photo.type == "url" and photo.url:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(photo.url)
+            response.raise_for_status()
+        payload["data"] = base64.b64encode(response.content).decode("ascii")
+        return payload
+    return None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,11 +81,7 @@ async def lifespan(app: FastAPI):
     log_path = init_session_log(Path("logs"), session_id="api-server")
     log(f"API Server started. Detailed logs at: {log_path}", level="info")
 
-    # Initialize database on startup
     global base_config
-    storage_cfg = load_storage_config()
-    ensure_storage_database(storage_cfg)
-    
     # Load base config once (don't overwrite if already set by tests)
     if base_config is None:
         try:
@@ -54,10 +89,17 @@ async def lifespan(app: FastAPI):
             base_config = parse_args(["--user-id", "api-server", "--no-tts"], load_env=True)
         except SystemExit:
             base_config = None
+
+    # Harness owns memory and tool orchestration. Do not initialize the legacy
+    # PocketBase storage path when the query backend is explicitly Harness.
+    if not _uses_harness_backend():
+        storage_cfg = load_storage_config()
+        ensure_storage_database(storage_cfg)
         
     yield
     # Cleanup on shutdown
     log("API Server shutting down.", level="info")
+    await _close_harness_clients()
     close_session_log()
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -257,6 +299,20 @@ class QueryResponse(BaseModel):
 async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_user_id)):
     if base_config is None:
         raise HTTPException(status_code=500, detail="Server configuration error")
+
+    if _uses_harness_backend():
+        try:
+            harness_result = await _harness_client_for(user_id).query(
+                req.query,
+                photo=await _harness_photo_payload(req.photo),
+            )
+            return QueryResponse(**harness_result)
+        except HarnessError as exc:
+            log(f"DeepSeek Harness query failed: {exc}", level="error")
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            log(f"DeepSeek Harness query setup failed: {exc}", level="error")
+            raise HTTPException(status_code=502, detail="无法连接 DeepSeek Harness") from exc
         
     # 获取基础 URL (例如 http://localhost:10031/ 或 https://va-dev.soj.myds.me:1443/)
     # 考虑反向代理情况，检查 X-Forwarded-Proto

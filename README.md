@@ -29,6 +29,16 @@ PTT_STT_TOKEN=your_stt_token
 PTT_API_KEY=your_default_user_token
 ```
 
+如果要让 DeepSeek Harness 作为唯一的个人助理后台，再加入：
+
+```dotenv
+PTT_QUERY_BACKEND=deepseek-harness
+PTT_HARNESS_API_URL=http://127.0.0.1:3080
+PTT_HARNESS_AGENT_PRESET=memo-mem0
+```
+
+此模式下由 Harness 的 `memo-mem0` preset 读取和写入 Mem0，语音助手不直接访问 Mem0。详见 [DeepSeek Harness 查询后端](docs/deepseek-harness-backend.md)。
+
 ### 2. 常用运行命令
 
 系统提供了一系列标准 CLI 工具：

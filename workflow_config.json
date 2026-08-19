@@ -183,7 +183,7 @@
         }
     },
     "storage": {
-        "provider": "mem0",
+        "provider": "pocketbase",
         "max_results": 20,
         "query_rewrite": {
             "enabled": true
@@ -206,7 +206,7 @@
     "mem0": {
         "user_id": "soj",
         "app_id": "voice-assistant",
-        "min_score": 0.0,
+        "min_score": 0.7,
         "max_items": 20
     }
 }
