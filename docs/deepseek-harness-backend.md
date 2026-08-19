@@ -50,7 +50,7 @@ Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` �
 ./scripts/start_memo_web.sh --host 0.0.0.0 --port 10032
 ```
 
-Docker Compose 会同时启动 `deepseek-harness`（内部端口 3080）和 `memo-web`（局域网端口 10032）。生产运行时，`config/deepseek-harness/` 由服务器单独保存并只读挂载到 dsh 的 `/root/.dsh`，不要把凭据或该目录提交到 git。
+Docker Compose 会同时启动 `deepseek-harness`（内部端口 3080）和 `memo-web`（局域网端口 10032）。生产运行时，`config/deepseek-harness/` 由服务器单独保存并挂载到 dsh 的 `/root/.dsh`，供 Harness 保存 profile/session 运行状态；不要把凭据或该目录提交到 git。
 
 打开 `http://<这台电脑的局域网 IP>:10032/`，输入一条指令后，外壳会由服务器调用 `memo-mem0` Agent，等待 `session.history` 返回最终助手消息，再把纯文本结果显示在页面上。页面不直接加载 Harness 前端，也不依赖浏览器的 `crypto.randomUUID()`。
 

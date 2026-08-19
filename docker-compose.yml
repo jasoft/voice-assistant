@@ -31,7 +31,7 @@ services:
       - --port
       - "3080"
     volumes:
-      - ./config/deepseek-harness/runtime:/root/.dsh:ro
+      - ./config/deepseek-harness/runtime:/root/.dsh
     ports:
       - "3080:3080"
     restart: unless-stopped
