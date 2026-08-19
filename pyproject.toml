@@ -36,6 +36,7 @@ package = true
 
 [tool.setuptools.packages.find]
 include = ["press_to_talk*"]
+namespaces = false
 
 [dependency-groups]
 dev = [
