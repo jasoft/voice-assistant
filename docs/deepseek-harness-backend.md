@@ -23,6 +23,14 @@ pnpm run build
 
 `scripts/start_dsh.sh` 会从 `${DSH_HOME:-~/.dsh}/.credentials.yaml` 读取 `BRAVE_API_KEY`，只注入当前 DSH 进程，不会把密钥写入项目或输出到终端。也可以通过 `BRAVE_API_KEY` 环境变量覆盖，或用参数传给 DSH，例如 `../scripts/start_dsh.sh --port 3080`；局域网模式使用 `../scripts/start_dsh.sh --host 0.0.0.0 --port 3080`。
 
+macOS 上不要把 Node 版 dsh 直接作为 launchd 子进程运行：该上下文可能让 Node 访问局域网模型网关时得到 `EHOSTUNREACH`，而普通用户会话访问正常。需要持久运行时使用用户会话里的 tmux：
+
+```bash
+./scripts/start_dsh_tmux.sh
+```
+
+该脚本默认使用 `voice-assistant-dsh` 会话、`0.0.0.0:3080`，重复执行不会创建重复实例；可用 `tmux attach -t voice-assistant-dsh` 查看 dsh 输出。
+
 Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取；Mem0 凭据不写入本项目。
 
 如果启用了 Brave Web Search，Brave provider 应安装在 `web` profile 中；`memo-mem0` preset 另外挂载模型侧的 `@deepseek-ai/dsh-tool-web`，这样 Agent 才能看到 `web_search` 工具。Web 服务和 Brave provider 不要重复写入记忆 preset，否则会触发 `service "web" has been registered`。
