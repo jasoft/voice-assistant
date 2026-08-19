@@ -29,6 +29,8 @@ PTT_STT_TOKEN=your_stt_token
 PTT_API_KEY=your_default_user_token
 ```
 
+录音默认跟随 macOS 当前的系统输入设备。如果需要固定某个设备，可在 `.env` 中设置设备名称或 PortAudio 索引，例如 `PTT_INPUT_DEVICE=Wireless Mic Rx`；也可以启动时传入 `--input-device`。程序会在录音日志中报告实际使用的设备。
+
 如果要让 DeepSeek Harness 作为唯一的个人助理后台，再加入：
 
 ```dotenv

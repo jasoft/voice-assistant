@@ -46,6 +46,7 @@ class Config:
     semantic_search_enabled: bool = True
     photo_path: str | None = None
     stream: bool = False
+    input_device: str | None = None
 
 @dataclass
 class SessionHistory:
@@ -145,6 +146,11 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
     )
     parser.add_argument("--sample-rate", type=int, default=env_int("PTT_SAMPLE_RATE", 16000))
     parser.add_argument("--channels", type=int, default=env_int("PTT_CHANNELS", 1))
+    parser.add_argument(
+        "--input-device",
+        default=env_str("PTT_INPUT_DEVICE", "") or None,
+        help="录音输入设备名称或 PortAudio 索引；未设置时使用系统默认输入设备",
+    )
     parser.add_argument("--threshold", type=float, default=env_float("PTT_THRESHOLD", 0.018))
     parser.add_argument("--silence-seconds", type=float, default=env_float("PTT_SILENCE_SECONDS", 3.0))
     parser.add_argument("--stt-url", default=env_str("PTT_STT_URL", ""))
@@ -266,5 +272,6 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
         keyword_search_enabled=env_bool("PTT_ENABLE_KEYWORD_SEARCH", True),
         semantic_search_enabled=env_bool("PTT_ENABLE_SEMANTIC_SEARCH", True),
         photo_path=photo_path,
-        stream=args.stream
+        stream=args.stream,
+        input_device=args.input_device,
     )

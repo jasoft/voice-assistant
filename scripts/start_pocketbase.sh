@@ -21,6 +21,13 @@ PB_BIN="$PB_DIR/pocketbase"
 
 mkdir -p "$PB_DIR"
 
+# The repository may be built from macOS, while this image runs Linux. Never
+# reuse a host PocketBase binary when it cannot execute in the current image.
+if [ -f "$PB_BIN" ] && ! "$PB_BIN" --version >/dev/null 2>&1; then
+    echo "Existing PocketBase binary is not executable on this platform; downloading a compatible copy..."
+    rm -f "$PB_BIN"
+fi
+
 if [ ! -f "$PB_BIN" ]; then
     echo "Downloading PocketBase v$PB_VERSION for $OS $ARCH..."
     ZIP_NAME="pocketbase_${PB_VERSION}_${OS}_${ARCH}.zip"

@@ -40,6 +40,7 @@ def audio_visual_level(rms: float, threshold: float) -> float:
 def open_input_stream_with_retry(
     *,
     stream_factory: Any,
+    device: Any,
     samplerate: int,
     channels: int,
     dtype: str,
@@ -51,6 +52,7 @@ def open_input_stream_with_retry(
     for attempt in range(1, max_attempts + 1):
         try:
             return stream_factory(
+                device=device,
                 samplerate=samplerate,
                 channels=channels,
                 dtype=dtype,
@@ -356,6 +358,24 @@ class VisualRecorder:
     def record(self) -> Any:
         log("ptt-flow: Recording session started")
         log_timing("record() entered")
+        input_device = self.cfg.input_device
+        if input_device is None:
+            input_device = self.sd.default.device[0]
+        elif isinstance(input_device, str) and input_device.strip().isdigit():
+            input_device = int(input_device.strip())
+        try:
+            device_info = self.sd.query_devices(input_device, "input")
+            log(
+                "audio input device: %s (index=%s, channels=%s, default_rate=%s)"
+                % (
+                    device_info["name"],
+                    device_info["index"],
+                    device_info["max_input_channels"],
+                    device_info["default_samplerate"],
+                )
+            )
+        except Exception as exc:
+            raise RuntimeError(f"无法使用录音输入设备 {input_device!r}：{exc}") from exc
         self.events.emit("status", phase="recording")
         self._emit_diagnostic(
             "recording-started",
@@ -367,6 +387,7 @@ class VisualRecorder:
         try:
             with open_input_stream_with_retry(
                 stream_factory=self.sd.InputStream,
+                device=input_device,
                 samplerate=self.cfg.sample_rate,
                 channels=self.cfg.channels,
                 dtype="float32",
