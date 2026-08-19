@@ -105,6 +105,38 @@ class DeepSeekHarnessClient:
                 },
             }
 
+    async def list_history(self, limit: int = 20) -> list[dict[str, str]]:
+        """Return completed user/assistant turns from the current Harness session."""
+        async with self._lock:
+            session_id = await self._ensure_session()
+            entries = await self._history(session_id)
+
+        turns: list[dict[str, str]] = []
+        pending_user: tuple[str, str] | None = None
+        for entry in sorted(entries, key=self._event_seq):
+            event = self._event(entry)
+            data = event.get("data")
+            message = data.get("message") if isinstance(data, dict) else None
+            if not isinstance(message, dict):
+                continue
+            role = message.get("role")
+            text = self._message_text(message)
+            if role == "user" and text:
+                pending_user = (text, self._event_time(entry))
+            elif role == "assistant" and text and pending_user is not None:
+                transcript, created_at = pending_user
+                turns.append(
+                    {
+                        "session_id": f"{session_id}:{self._event_seq(entry)}",
+                        "transcript": transcript,
+                        "reply": text,
+                        "created_at": created_at,
+                    }
+                )
+                pending_user = None
+
+        return list(reversed(turns[-max(1, limit):]))
+
     async def _ensure_session(self) -> str:
         if self._session_id:
             return self._session_id
@@ -214,6 +246,10 @@ class DeepSeekHarnessClient:
         message = data.get("message")
         if not isinstance(message, dict) or message.get("role") != "assistant":
             return ""
+        return cls._message_text(message)
+
+    @staticmethod
+    def _message_text(message: dict[str, Any]) -> str:
         content = message.get("content")
         if not isinstance(content, list):
             return ""
@@ -223,6 +259,11 @@ class DeepSeekHarnessClient:
             if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
         ]
         return "".join(parts).strip()
+
+    @classmethod
+    def _event_time(cls, entry: dict[str, Any]) -> str:
+        value = cls._event(entry).get("time", "")
+        return str(value) if value is not None else ""
 
     @classmethod
     def _turn_failure(cls, entries: list[dict[str, Any]], baseline_seq: int) -> str:

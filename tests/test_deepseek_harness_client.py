@@ -170,3 +170,35 @@ def test_harness_client_surfaces_terminal_turn_errors_without_waiting_for_timeou
         assert str(exc) == "DeepSeek Harness Agent 执行失败：Connection error."
     else:
         raise AssertionError("expected HarnessError")
+
+
+def test_harness_client_lists_completed_history_turns() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = body["method"]
+        if method == "session.create":
+            return _response(body["rpcId"], {"sessionId": "session-history"})
+        if method == "session.history":
+            return _response(body["rpcId"], {"events": [
+                {"event": {"seq": 2, "time": "2026-08-20T10:00:00+08:00", "type": "user/message", "data": {
+                    "message": {"role": "user", "content": [{"type": "text", "text": "我把钥匙放哪里了"}]},
+                }}},
+                {"event": {"seq": 3, "time": "2026-08-20T10:00:01+08:00", "type": "assistant/message", "data": {
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": "钥匙在抽屉里。"}]},
+                }}},
+            ]})
+        raise AssertionError(method)
+
+    async def run() -> list[dict[str, str]]:
+        client = DeepSeekHarnessClient("http://harness.test", transport=httpx.MockTransport(handler))
+        try:
+            return await client.list_history()
+        finally:
+            await client.close()
+
+    assert asyncio.run(run()) == [{
+        "session_id": "session-history:3",
+        "transcript": "我把钥匙放哪里了",
+        "reply": "钥匙在抽屉里。",
+        "created_at": "2026-08-20T10:00:00+08:00",
+    }]

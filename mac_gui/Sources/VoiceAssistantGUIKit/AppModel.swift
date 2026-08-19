@@ -37,7 +37,12 @@ public final class AppModel: ObservableObject {
         let config = VAConfig.load(workingDirectory: workingDirectory)
         if let config = config {
             self.vaClient = VAClient(config: config)
-            self.serviceManager = ServiceManager(workingDirectory: workingDirectory, serverURL: config.serverURL, pbURL: config.pbURL)
+            self.serviceManager = ServiceManager(
+                workingDirectory: workingDirectory,
+                serverURL: config.serverURL,
+                pbURL: config.pbURL,
+                queryBackend: config.queryBackend
+            )
         } else {
             self.vaClient = nil
             self.serviceManager = nil

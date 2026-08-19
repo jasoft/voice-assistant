@@ -4,6 +4,7 @@ public struct VAConfig: Sendable {
     public let serverURL: URL
     public let apiKey: String
     public let pbURL: URL
+    public let queryBackend: String
     
     public static func load(workingDirectory: URL) -> VAConfig? {
         let projectRoot = PathHelper.resolveProjectRoot(startingAt: workingDirectory)
@@ -14,6 +15,7 @@ public struct VAConfig: Sendable {
         var finalServerURL = env["VA_SERVER_URL"] ?? "http://127.0.0.1:10031/v1"
         var finalApiKey = env["PTT_API_KEY"] ?? ""
         var finalPbURL = env["PTT_PB_URL"] ?? "http://127.0.0.1:18090"
+        var finalQueryBackend = env["PTT_QUERY_BACKEND"] ?? "legacy"
         
         // 2. Load from .env if found
         if let dotEnvContent = try? String(contentsOf: dotEnvPath, encoding: .utf8) {
@@ -35,6 +37,8 @@ public struct VAConfig: Sendable {
                         finalApiKey = value
                     } else if key == "PTT_PB_URL" {
                         finalPbURL = value
+                    } else if key == "PTT_QUERY_BACKEND" {
+                        finalQueryBackend = value
                     }
                 }
             }
@@ -42,6 +46,11 @@ public struct VAConfig: Sendable {
         
         guard let url = URL(string: finalServerURL) else { return nil }
         guard let pbUrl = URL(string: finalPbURL) else { return nil }
-        return VAConfig(serverURL: url, apiKey: finalApiKey, pbURL: pbUrl)
+        return VAConfig(
+            serverURL: url,
+            apiKey: finalApiKey,
+            pbURL: pbUrl,
+            queryBackend: finalQueryBackend
+        )
     }
 }

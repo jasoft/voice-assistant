@@ -5,18 +5,36 @@ public final class ServiceManager {
     private let workingDirectory: URL
     private let serverURL: URL
     private let pbURL: URL
+    private let queryBackend: String
     private var apiProcess: Process?
     private var pbProcess: Process?
 
-    public init(workingDirectory: URL, serverURL: URL, pbURL: URL = URL(string: "http://127.0.0.1:18090")!) {
+    public init(
+        workingDirectory: URL,
+        serverURL: URL,
+        pbURL: URL = URL(string: "http://127.0.0.1:18090")!,
+        queryBackend: String = "legacy"
+    ) {
         self.workingDirectory = PathHelper.resolveProjectRoot(startingAt: workingDirectory)
         self.serverURL = serverURL
         self.pbURL = pbURL
+        self.queryBackend = queryBackend.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     public func ensureServicesRunning() async {
-        await ensurePocketBaseRunning()
+        if queryBackend == "harness" || queryBackend == "deepseek-harness" {
+            print("DeepSeek Harness backend selected; PocketBase is disabled.")
+        } else if !isLocalServer {
+            print("Remote API selected; local PocketBase is disabled.")
+        } else {
+            await ensurePocketBaseRunning()
+        }
         await ensureAPIServerRunning()
+    }
+
+    private var isLocalServer: Bool {
+        guard let host = serverURL.host?.lowercased() else { return false }
+        return host == "127.0.0.1" || host == "localhost" || host == "::1"
     }
 
     private func ensurePocketBaseRunning() async {

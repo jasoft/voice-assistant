@@ -37,6 +37,14 @@ def audio_visual_level(rms: float, threshold: float) -> float:
     level = (rms - floor) / (ceiling - floor)
     return max(0.0, min(level, 1.0)) ** 0.72
 
+
+def calibrated_speech_threshold(configured_threshold: float, ambient_rms: float) -> float:
+    """Adapt the VAD floor to microphones with different output gain."""
+
+    minimum_signal_floor = max(configured_threshold * 0.45, 0.003)
+    ambient_floor = ambient_rms * 3.2 + 0.003
+    return min(configured_threshold, max(minimum_signal_floor, ambient_floor))
+
 def open_input_stream_with_retry(
     *,
     stream_factory: Any,
@@ -121,8 +129,10 @@ class VisualRecorder:
         ambient_rms = 0.0
         if self.calibration_rms:
             ambient_rms = float(self.np.percentile(self.np.array(self.calibration_rms), 80))
-        # Increase threshold slightly to be less sensitive to background hum
-        self.effective_threshold = max(self.cfg.threshold, ambient_rms * 3.2 + 0.005)
+        self.effective_threshold = calibrated_speech_threshold(
+            self.cfg.threshold,
+            ambient_rms,
+        )
 
     def _emit_diagnostic(self, key: str, level: str, message: str) -> None:
         with self.lock:
@@ -150,8 +160,16 @@ class VisualRecorder:
                     "warning",
                     f"麦克风状态异常：{status_text}",
                 )
-        chunk = indata.copy()
-        rms = float(self.np.sqrt(self.np.mean(self.np.square(chunk), dtype=self.np.float64)))
+        raw_chunk = indata.copy()
+        chunk = raw_chunk
+        if self.cfg.channels == 1 and chunk.ndim == 2 and chunk.shape[1] > 1:
+            chunk = self.np.mean(chunk, axis=1, keepdims=True)
+        # Use all physical input channels for VAD. A wireless receiver may
+        # carry the live signal on only one side; averaging first would halve
+        # that signal and make the fixed speech floor miss it.
+        rms = float(
+            self.np.sqrt(self.np.mean(self.np.square(raw_chunk), dtype=self.np.float64))
+        )
         should_stop_stream = False
         audio_level = 0.0
         is_speech = False
@@ -365,12 +383,20 @@ class VisualRecorder:
             input_device = int(input_device.strip())
         try:
             device_info = self.sd.query_devices(input_device, "input")
+            max_input_channels = int(device_info["max_input_channels"])
+            stream_channels = self.cfg.channels
+            if self.cfg.channels == 1 and max_input_channels >= 2:
+                # Wireless receivers commonly expose the same microphone on
+                # both channels, or expose the live channel only on channel 2.
+                # Capture both and downmix below so either layout is usable.
+                stream_channels = 2
             log(
-                "audio input device: %s (index=%s, channels=%s, default_rate=%s)"
+                "audio input device: %s (index=%s, channels=%s, stream_channels=%s, default_rate=%s)"
                 % (
                     device_info["name"],
                     device_info["index"],
-                    device_info["max_input_channels"],
+                    max_input_channels,
+                    stream_channels,
                     device_info["default_samplerate"],
                 )
             )
@@ -389,7 +415,7 @@ class VisualRecorder:
                 stream_factory=self.sd.InputStream,
                 device=input_device,
                 samplerate=self.cfg.sample_rate,
-                channels=self.cfg.channels,
+                channels=stream_channels,
                 dtype="float32",
                 callback=self._callback,
             ) as stream:

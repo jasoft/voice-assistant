@@ -3,12 +3,17 @@ services:
     container_name: voice-assistant-1
     image: voice-assistant:local
     build: .
+    depends_on:
+      - deepseek-harness
     env_file: .env
     environment:
-      - TZ=Asia/Shanghai
+      TZ: Asia/Shanghai
+      PTT_QUERY_BACKEND: deepseek-harness
+      PTT_HARNESS_API_URL: http://deepseek-harness:3080
+      PTT_HARNESS_AGENT_PRESET: memo-mem0
+      PTT_HARNESS_TIMEOUT_SECONDS: "60"
     ports:
       - "10031:10031"
-      - "18090:18090"
     volumes:
       - ./data:/app/data
     restart: unless-stopped

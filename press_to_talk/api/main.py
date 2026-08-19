@@ -477,6 +477,13 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
 
 @app.post("/v1/history", response_model=List[HistoryItem], summary="获取会话历史记录", description="按时间倒序返回当前用户的最近 20 条会话历史记录（包含请求文本和助手回复）。")
 async def get_history(user_id: str = Depends(get_user_id)):
+    if _uses_harness_backend():
+        try:
+            records = await _harness_client_for(user_id).list_history(limit=20)
+            return [HistoryItem(**record) for record in records]
+        except HarnessError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     try:
         config = load_storage_config(user_id_override=user_id)
         service = StorageService(config, use_cli=False)
@@ -495,6 +502,12 @@ async def get_history(user_id: str = Depends(get_user_id)):
 
 @app.post("/v1/memories", response_model=List[MemoryItem], summary="获取长期记忆条目", description="按时间倒序返回当前用户的最近 50 条长期记忆记录。")
 async def get_memories(user_id: str = Depends(get_user_id)):
+    if _uses_harness_backend():
+        # Harness owns Mem0 and does not expose a PocketBase-compatible memory
+        # listing endpoint. Returning an empty list keeps the legacy GUI API
+        # contract without silently querying the retired storage service.
+        return []
+
     try:
         config = load_storage_config(user_id_override=user_id)
         service = StorageService(config, use_cli=False)
