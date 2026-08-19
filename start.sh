@@ -31,9 +31,9 @@ fi
 RELOAD_FLAG=""
 if [ "${PTT_API_RELOAD}" = "1" ]; then
     RELOAD_FLAG="--reload"
-    echo "Starting ptt-api with --reload (Development Mode)"
+    echo "Starting ptt-api with --reload (Development Mode)" >&2
 else
-    echo "Starting ptt-api without --reload (Production Mode)"
+    echo "Starting ptt-api without --reload (Production Mode)" >&2
 fi
 
 uv run ptt-api ${RELOAD_FLAG} -v
