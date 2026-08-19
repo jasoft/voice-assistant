@@ -21,7 +21,7 @@ pnpm run build
 ../scripts/start_dsh.sh
 ```
 
-`scripts/start_dsh.sh` 会从 `${DSH_HOME:-~/.dsh}/.credentials.yaml` 读取 `BRAVE_API_KEY`，只注入当前 DSH 进程，不会把密钥写入项目或输出到终端。也可以通过 `BRAVE_API_KEY` 环境变量覆盖，或用参数传给 DSH，例如 `../scripts/start_dsh.sh --port 3080`。
+`scripts/start_dsh.sh` 会从 `${DSH_HOME:-~/.dsh}/.credentials.yaml` 读取 `BRAVE_API_KEY`，只注入当前 DSH 进程，不会把密钥写入项目或输出到终端。也可以通过 `BRAVE_API_KEY` 环境变量覆盖，或用参数传给 DSH，例如 `../scripts/start_dsh.sh --port 3080`；局域网模式使用 `../scripts/start_dsh.sh --host 0.0.0.0 --port 3080`。
 
 Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取；Mem0 凭据不写入本项目。
 
