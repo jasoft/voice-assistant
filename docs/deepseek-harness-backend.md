@@ -12,6 +12,17 @@ PTT_HARNESS_API_URL=http://127.0.0.1:3080
 PTT_HARNESS_AGENT_PRESET=memo-mem0
 ```
 
+Harness 源码已随本项目保存在 `deepseek-harness/`。安装依赖和构建产物属于本地运行状态，不提交到 git：
+
+```bash
+cd deepseek-harness
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm dsh web --port 3080
+```
+
+Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取；Mem0 凭据不写入本项目。
+
 Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` 和 `POST /api/session.history`。语音助手会为每个认证用户保持一个 Harness 会话，并串行等待本轮最终助手消息。
 
 ## Mem0 用户隔离

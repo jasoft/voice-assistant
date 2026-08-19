@@ -14,3 +14,10 @@ tests/__pycache__/
 tmp/
 logs/
 data/
+
+# DeepSeek Harness is vendored as source; keep local dependencies and runtime state out of git.
+deepseek-harness/node_modules/
+deepseek-harness/.dsh/
+deepseek-harness/.sessions/
+deepseek-harness/**/dist/
+deepseek-harness/**/lib/

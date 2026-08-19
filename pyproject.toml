@@ -54,6 +54,9 @@ api = "scripts/start_pocketbase.sh & uv run ptt-api"
 test = "pytest"
 
 [tool.pytest.ini_options]
+# Keep the vendored DeepSeek Harness test suite under its own Python package
+# environment; the voice-assistant suite is the root project's contract.
+testpaths = ["tests"]
 # 任何单个测试超过 120 秒自动失败，防止卡死
 timeout = 120
 markers = [
