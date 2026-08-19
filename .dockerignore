@@ -13,6 +13,7 @@ logs/
 .vscode
 .git
 .DS_Store
+.env
 
 # Mac GUI client files
 mac_gui/
@@ -29,4 +30,13 @@ testdata/
 .gemini/
 .superpowers/
 tmp/
-mac_gui/
+
+# DeepSeek Harness local state and private runtime configuration
+config/deepseek-harness/
+deepseek-harness/node_modules/
+deepseek-harness/.dsh/
+deepseek-harness/.sessions/
+deepseek-harness/**/dist/
+deepseek-harness/**/lib/
+press_to_talk/**/__pycache__/
+tests/**/__pycache__/

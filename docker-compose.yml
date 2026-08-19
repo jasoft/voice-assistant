@@ -1,6 +1,7 @@
 services:
   voice-assistant:
     container_name: voice-assistant-1
+    image: voice-assistant:local
     build: .
     env_file: .env
     environment:
@@ -11,3 +12,51 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+
+  deepseek-harness:
+    container_name: deepseek-harness
+    image: deepseek-harness:local
+    build:
+      context: .
+      dockerfile: Dockerfile.dsh
+    environment:
+      DSH_HOME: /root/.dsh
+      DSH_WEB_PORT: 3080
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "3080"
+    volumes:
+      - ./config/deepseek-harness:/root/.dsh:ro
+    ports:
+      - "3080:3080"
+    restart: unless-stopped
+
+  memo-web:
+    container_name: memo-web
+    image: voice-assistant:local
+    depends_on:
+      - deepseek-harness
+    environment:
+      TZ: Asia/Shanghai
+      PTT_HARNESS_API_URL: http://deepseek-harness:3080
+      PTT_HARNESS_AGENT_PRESET: memo-mem0
+      PTT_HARNESS_TIMEOUT_SECONDS: "60"
+    command:
+      - uv
+      - run
+      - --no-sync
+      - ptt-memo-web
+      - --host
+      - 0.0.0.0
+      - --port
+      - "10032"
+    ports:
+      - "10032:10032"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:10032/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
