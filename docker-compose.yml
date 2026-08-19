@@ -19,6 +19,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dsh
+    env_file:
+      - ./config/deepseek-harness/runtime/.env
     environment:
       DSH_HOME: /root/.dsh
       DSH_WEB_PORT: 3080
@@ -28,7 +30,7 @@ services:
       - --port
       - "3080"
     volumes:
-      - ./config/deepseek-harness:/root/.dsh:ro
+      - ./config/deepseek-harness/runtime:/root/.dsh:ro
     ports:
       - "3080:3080"
     restart: unless-stopped
