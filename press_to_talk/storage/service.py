@@ -21,6 +21,7 @@ from .pocketbase_store import PocketBaseHistoryStore, PocketBaseRememberStore, _
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
+MEM0_USER_ID = "soj"
 
 
 def _sanitize_rewritten_keywords(keywords: list[str], original_query: str) -> list[str]:
@@ -156,10 +157,14 @@ def load_storage_config(
         or env_str("PTT_USER_API_KEY", "").strip()
         or None,
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
-        mem0_user_id=user_id_override
-        or str(
-            env_str("PTT_USER_ID", str(env_str("MEM0_USER_ID", mem0_config_user_id)))
-        ).strip(),
+        mem0_user_id=(
+            str(mem0_config_user_id or MEM0_USER_ID).strip()
+            if configured_backend == "mem0"
+            else user_id_override
+            or str(
+                env_str("PTT_USER_ID", str(env_str("MEM0_USER_ID", mem0_config_user_id)))
+            ).strip()
+        ),
         mem0_app_id=app_id,
         mem0_min_score=env_float(
             "MEM0_MIN_SCORE", float(mem0_cfg.get("min_score", 0.8))
@@ -653,7 +658,9 @@ class StorageService:
             if env_id and env_id != "default":
                 normalized.user_id = env_id
 
-        if normalized.mem0_user_id == "default":
+        if normalized.backend == "mem0":
+            normalized.mem0_user_id = MEM0_USER_ID
+        elif normalized.mem0_user_id == "default":
             env_id = os.environ.get("PTT_USER_ID", "").strip()
             if env_id and env_id != "default":
                 normalized.mem0_user_id = env_id

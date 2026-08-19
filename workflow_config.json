@@ -135,7 +135,7 @@
                         "intent": "record",
                         "tool": "remember_add",
                         "args": {
-                            "memory": "2026年5月16日，壮壮11岁，今天去打球还哭，用户觉得他都11岁了还这么幼稚",
+                            "memory": "2026年5月16日，壮壮11岁，今天去打球还哭，你觉得他都11岁了还这么幼稚",
                             "query": ""
                         },
                         "confidence": 0.99,
@@ -183,7 +183,7 @@
         }
     },
     "storage": {
-        "provider": "pocketbase",
+        "provider": "mem0",
         "max_results": 20,
         "query_rewrite": {
             "enabled": true
@@ -206,7 +206,7 @@
     "mem0": {
         "user_id": "soj",
         "app_id": "voice-assistant",
-        "min_score": 0.7,
+        "min_score": 0.0,
         "max_items": 20
     }
 }
