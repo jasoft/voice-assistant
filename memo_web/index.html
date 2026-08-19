@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101827">
+  <title>Memo Agent</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div class="badge">M</div>
+      <div>
+        <p class="eyebrow">DEEPSEEK HARNESS</p>
+        <h1>Memo Agent</h1>
+        <p class="subtitle">问它一件事，等它查完记忆后回答。</p>
+      </div>
+    </header>
+
+    <section class="composer" aria-labelledby="composer-title">
+      <label id="composer-title" for="instruction">发送指令</label>
+      <textarea id="instruction" rows="5" maxlength="10000" autofocus
+        placeholder="例如：我的护照放在哪里？"></textarea>
+      <div class="composer-footer">
+        <span id="hint">⌘/Ctrl + Enter 发送</span>
+        <button id="send" type="button">发送</button>
+      </div>
+    </section>
+
+    <section id="status" class="status" role="status" aria-live="polite">准备好了</section>
+
+    <section id="reply-card" class="reply-card" hidden aria-labelledby="reply-title">
+      <div class="reply-heading">
+        <span class="reply-dot"></span>
+        <h2 id="reply-title">Memo 回复</h2>
+      </div>
+      <div id="reply" class="reply" aria-live="polite"></div>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

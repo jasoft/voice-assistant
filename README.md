@@ -48,6 +48,7 @@ PTT_HARNESS_AGENT_PRESET=memo-mem0
 | **实时交互** | `uv run press-to-talk` | 启动语音交互链路 (或 `ptt-voice`) |
 | **文本测试** | `uv run press-to-talk --text-input "你好"` | 跳过录音进行逻辑测试 |
 | **API 服务** | `uv run ptt-api` | 启动 FastAPI 后端服务 (端口 10031) |
+| **Memo 手机页面** | `./scripts/start_memo_web.sh --host 0.0.0.0 --port 10032` | 启动只调用 `memo-mem0` Agent 的移动端 Web 外壳 |
 | **存储管理** | `uv run ptt-storage` | 管理历史记录与记忆 (物理隔离层) |
 | **令牌管理** | `uv run ptt-token` | 管理多用户 API Keys |
 

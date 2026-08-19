@@ -152,6 +152,10 @@ class DeepSeekHarnessClient:
                 # text message instead of mistaking that boundary for the
                 # completed answer.
 
+            failure = self._turn_failure(entries, baseline_seq)
+            if failure:
+                raise HarnessError(f"DeepSeek Harness Agent 执行失败：{failure}")
+
             await asyncio.sleep(self.poll_interval_seconds)
 
         raise HarnessError(f"等待 DeepSeek Harness 回复超时（{self.timeout_seconds:.1f} 秒）")
@@ -219,6 +223,28 @@ class DeepSeekHarnessClient:
             if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
         ]
         return "".join(parts).strip()
+
+    @classmethod
+    def _turn_failure(cls, entries: list[dict[str, Any]], baseline_seq: int) -> str:
+        """Return a terminal Harness turn error instead of waiting for a reply."""
+
+        for entry in entries:
+            if cls._event_seq(entry) <= baseline_seq:
+                continue
+            event = cls._event(entry)
+            if event.get("type") != "turn/end":
+                continue
+            data = event.get("data")
+            reason = data.get("reason") if isinstance(data, dict) else None
+            if not isinstance(reason, dict) or reason.get("kind") != "error":
+                continue
+            error = reason.get("error")
+            if isinstance(error, dict):
+                message = str(error.get("message", "未知错误")).strip()
+                if message:
+                    return message
+            return "未知错误"
+        return ""
 
     @staticmethod
     def _photo_content(photo: dict[str, Any] | None) -> dict[str, Any] | None:

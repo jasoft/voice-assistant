@@ -117,3 +117,56 @@ def test_harness_client_surfaces_business_errors() -> None:
         assert "agent-preset-not-found" in str(exc)
     else:
         raise AssertionError("expected HarnessError")
+
+
+def test_harness_client_surfaces_terminal_turn_errors_without_waiting_for_timeout() -> None:
+    history_calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal history_calls
+        body = json.loads(request.content)
+        method = body["method"]
+        rpc_id = body["rpcId"]
+        if method == "session.create":
+            return _response(rpc_id, {"sessionId": "session-error"})
+        if method == "session.history":
+            history_calls += 1
+            if history_calls == 1:
+                return _response(rpc_id, {"events": [], "hasMore": False})
+            return _response(rpc_id, {
+                "events": [{
+                    "event": {
+                        "seq": 1,
+                        "type": "turn/end",
+                        "data": {
+                            "reason": {
+                                "kind": "error",
+                                "error": {"message": "Connection error."},
+                            },
+                        },
+                    },
+                }],
+                "hasMore": False,
+            })
+        if method == "session.prompt":
+            return _response(rpc_id, {"accepted": True})
+        raise AssertionError(method)
+
+    async def run() -> None:
+        client = DeepSeekHarnessClient(
+            "http://harness.test",
+            transport=httpx.MockTransport(handler),
+            poll_interval_seconds=0.01,
+            timeout_seconds=60,
+        )
+        try:
+            await client.query("测试")
+        finally:
+            await client.close()
+
+    try:
+        asyncio.run(run())
+    except HarnessError as exc:
+        assert str(exc) == "DeepSeek Harness Agent 执行失败：Connection error."
+    else:
+        raise AssertionError("expected HarnessError")

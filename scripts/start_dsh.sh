@@ -9,6 +9,13 @@ credentials_file="$dsh_home/.credentials.yaml"
 # dsh-web-search-brave 0.2.2 checks the launch environment synchronously.
 # Keep the canonical key in DSH's credential store, but also inject it into
 # this one process so the provider is immediately usable after startup.
+if [[ -z "${CLIPROXYAPP_API_KEY:-}" && -f "$credentials_file" ]]; then
+  cliproxy_key="$(awk -F': ' '$1 == "CLIPROXYAPP_API_KEY" { print substr($0, index($0, ": ") + 2); exit }' "$credentials_file")"
+  if [[ -n "$cliproxy_key" ]]; then
+    export CLIPROXYAPP_API_KEY="$cliproxy_key"
+  fi
+fi
+
 if [[ -z "${BRAVE_API_KEY:-}" && -f "$credentials_file" ]]; then
   brave_key="$(awk -F': ' '$1 == "BRAVE_API_KEY" { print substr($0, index($0, ": ") + 2); exit }' "$credentials_file")"
   if [[ -n "$brave_key" ]]; then

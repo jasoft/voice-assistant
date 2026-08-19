@@ -34,6 +34,16 @@ Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取
 
 Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` 和 `POST /api/session.history`。语音助手会为每个认证用户保持一个 Harness 会话，并串行等待本轮最终助手消息。
 
+## Memo 手机 Web 外壳
+
+如果手机浏览器不能直接运行 Harness 网页，可以启动同源的移动端外壳：
+
+```bash
+./scripts/start_memo_web.sh --host 0.0.0.0 --port 10032
+```
+
+打开 `http://<这台电脑的局域网 IP>:10032/`，输入一条指令后，外壳会由服务器调用 `memo-mem0` Agent，等待 `session.history` 返回最终助手消息，再把纯文本结果显示在页面上。页面不直接加载 Harness 前端，也不依赖浏览器的 `crypto.randomUUID()`。
+
 ## Mem0 用户隔离
 
 `soj` 不放在语音助手的存储层里，而应放在 Harness 的 `memo-mem0` preset 指令及 Mem0 MCP 调用参数中。这样将来增加日历、邮件或其他工具时，所有能力仍由同一个 Harness Agent 统一编排。
