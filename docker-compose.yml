@@ -20,7 +20,8 @@ services:
       context: .
       dockerfile: Dockerfile.dsh
     env_file:
-      - ./config/deepseek-harness/runtime/.env
+      - path: ./config/deepseek-harness/runtime/.env
+        required: false
     environment:
       DSH_HOME: /root/.dsh
       DSH_WEB_PORT: 3080
