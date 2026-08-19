@@ -32,6 +32,8 @@ services:
       - "3080"
       - --trusted-host
       - deepseek-harness
+      - --trusted-host
+      - docker.home
     volumes:
       - ./config/deepseek-harness/runtime:/root/.dsh
     ports:
