@@ -4,7 +4,9 @@ import yaml
 
 ROOT = Path(__file__).parents[1]
 PRESET_ROOT = ROOT / "config" / "deepseek-harness" / "agent-presets"
-MINIMAL_PRESET = PRESET_ROOT / "memo-minimal" / "agent.cordis.yml"
+MINIMAL_DIR = PRESET_ROOT / "memo-minimal"
+MINIMAL_PRESET = MINIMAL_DIR / "agent.cordis.yml"
+MINIMAL_SKILL = MINIMAL_DIR / "skills" / "deepseek-harness" / "SKILL.md"
 FALLBACK_PRESET = PRESET_ROOT / "memo-mem0" / "agent.cordis.yml"
 
 
@@ -15,22 +17,35 @@ def test_project_harness_preset_requires_explicit_record_intent() -> None:
     assert "查询过去事实先 search" in text
 
 
-def test_minimal_preset_mounts_only_bash_without_mcp() -> None:
-    entries = yaml.safe_load(MINIMAL_PRESET.read_text(encoding="utf-8"))
+def test_minimal_preset_mounts_skill_support_and_bash_without_mcp() -> None:
+    preset_text = MINIMAL_PRESET.read_text(encoding="utf-8")
+    # PyYAML does not execute the Harness loader's intentional !!js expression.
+    entries = yaml.safe_load(preset_text.replace("!!js new URL('./skills', import.meta.url).pathname", "skills"))
 
     assert isinstance(entries, list)
-    assert [entry["id"] for entry in entries] == ["persona", "memory-shell"]
-    assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
-    assert entries[1]["config"]["enableRunInBackground"] is False
+    assert [entry["id"] for entry in entries] == ["persona", "skill-filesystem", "tool-skill", "memory-shell"]
+    assert entries[1]["name"] == "@deepseek-ai/dsh-skill-filesystem"
+    assert entries[2]["name"] == "@deepseek-ai/dsh-tool-skill"
+    assert entries[3]["name"] == "@deepseek-ai/dsh-tool-bash"
+    assert entries[3]["config"]["enableRunInBackground"] is False
     assert "mcp-client" not in MINIMAL_PRESET.read_text(encoding="utf-8")
+
+
+def test_minimal_preset_installs_and_invokes_the_deepseek_harness_skill() -> None:
+    text = MINIMAL_PRESET.read_text(encoding="utf-8")
+
+    assert MINIMAL_SKILL.read_text(encoding="utf-8") == (ROOT / ".agents" / "skills" / "deepseek-harness" / "SKILL.md").read_text(encoding="utf-8")
+    assert "先加载 deepseek-harness skill" in text
+    assert "new URL('./skills', import.meta.url).pathname" in text
+    assert "/app/scripts/memo_api.py" not in text
 
 
 def test_minimal_preset_pins_exact_mem0_wrapper_commands() -> None:
     text = MINIMAL_PRESET.read_text(encoding="utf-8")
 
-    assert "python3 /app/scripts/memo_api.py add --text <原文>" in text
-    assert "python3 /app/scripts/memo_api.py search --query <问题> --limit 5" in text
-    assert "python3 /app/scripts/memo_api.py list --page 1 --page-size 10" in text
+    assert "python3 scripts/memo_api.py add --text <原文>" in text
+    assert "python3 scripts/memo_api.py search --query <问题> --limit 5" in text
+    assert "python3 scripts/memo_api.py list --page 1 --page-size 10" in text
 
 
 def test_project_harness_preset_has_multi_pass_recall_rules() -> None:
