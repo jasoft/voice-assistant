@@ -207,12 +207,18 @@ def test_harness_client_returns_reply_from_a_concluding_tool_result() -> None:
                             "type": "tool/result",
                             "data": {
                                 "message": {
-                                    "role": "toolResult",
-                                    "isError": False,
+                                    "role": "user",
                                     "content": [
                                         {
-                                            "type": "text",
-                                            "text": '{"reply":"已记录。","results":[]}\\n[exit code: 0]',
+                                            "type": "tool-result",
+                                            "toolCallId": "call-1",
+                                            "isError": False,
+                                            "content": [
+                                                {
+                                                    "type": "text",
+                                                    "text": '{"reply":"已记录。","results":[]}\\n',
+                                                }
+                                            ],
                                         }
                                     ],
                                 },

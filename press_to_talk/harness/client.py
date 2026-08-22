@@ -278,15 +278,22 @@ class DeepSeekHarnessClient:
 
     @staticmethod
     def _message_text(message: dict[str, Any]) -> str:
-        content = message.get("content")
+        return DeepSeekHarnessClient._content_text(message.get("content")).strip()
+
+    @staticmethod
+    def _content_text(content: object) -> str:
         if not isinstance(content, list):
             return ""
-        parts = [
-            str(block.get("text", ""))
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
-        ]
-        return "".join(parts).strip()
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "text" and block.get("text"):
+                parts.append(str(block["text"]))
+            nested = block.get("content")
+            if isinstance(nested, list):
+                parts.append(DeepSeekHarnessClient._content_text(nested))
+        return "".join(parts)
 
     @classmethod
     def _event_time(cls, entry: dict[str, Any]) -> str:
