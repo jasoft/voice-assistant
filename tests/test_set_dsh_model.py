@@ -32,7 +32,7 @@ agent-default-model:
     set_model_fast(settings)
 
     text = settings.read_text(encoding="utf-8")
-    assert "- id: fast\n          maxTokens: 1536" in text
+    assert "- id: fast\n          maxTokens: 512" in text
     assert "model: fast" in text
 
 
@@ -54,4 +54,4 @@ agent-default-model:
     set_model_fast(settings)
 
     text = settings.read_text(encoding="utf-8")
-    assert "- id: fast\n          maxTokens: 1536" in text
+    assert "- id: fast\n          maxTokens: 512" in text

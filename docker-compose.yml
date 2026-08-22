@@ -11,8 +11,8 @@ services:
       PTT_QUERY_BACKEND: deepseek-harness
       PTT_HARNESS_API_URL: http://deepseek-harness:3080
       PTT_HARNESS_AGENT_PRESET: memo-minimal
-      PTT_HARNESS_TIMEOUT_SECONDS: "60"
-      PTT_HARNESS_ASYNC_TIMEOUT_SECONDS: "300"
+      PTT_HARNESS_TIMEOUT_SECONDS: "10"
+      PTT_HARNESS_ASYNC_TIMEOUT_SECONDS: "60"
       PTT_REMEMBER_BACKEND: mem0
     ports:
       - "10031:10031"
@@ -62,7 +62,7 @@ services:
       TZ: Asia/Shanghai
       PTT_HARNESS_API_URL: http://deepseek-harness:3080
       PTT_HARNESS_AGENT_PRESET: memo-minimal
-      PTT_HARNESS_TIMEOUT_SECONDS: "60"
+      PTT_HARNESS_TIMEOUT_SECONDS: "10"
     entrypoint: ["uv"]
     command:
       - run

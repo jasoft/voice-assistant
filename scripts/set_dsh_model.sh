@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-model="${1:-free}"
-fast_max_tokens="${DSH_FAST_MAX_TOKENS:-1536}"
+model="${1:-fast}"
+fast_max_tokens="${DSH_FAST_MAX_TOKENS:-512}"
 project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 settings="${DSH_SETTINGS:-$project_root/config/deepseek-harness/runtime/settings.yaml}"
 

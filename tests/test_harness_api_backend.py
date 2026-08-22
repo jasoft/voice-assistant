@@ -334,7 +334,7 @@ def test_set_dsh_model_updates_default_model_before_deployment(tmp_path) -> None
     import subprocess
 
     result = subprocess.run(
-        ["./scripts/set_dsh_model.sh", "free"],
+        ["./scripts/set_dsh_model.sh", "fast"],
         env={"DSH_SETTINGS": str(settings), "PATH": "/usr/bin:/bin"},
         capture_output=True,
         text=True,
@@ -343,10 +343,10 @@ def test_set_dsh_model_updates_default_model_before_deployment(tmp_path) -> None
 
     assert result.returncode == 0
     assert settings.read_text(encoding="utf-8") == (
-        'agent-default-model:\n  model: free\n  other: keep\nother:\n  model: untouched\n'
+        'agent-default-model:\n  model: fast\n  other: keep\nother:\n  model: untouched\n'
     )
     deploy_script = __import__("pathlib").Path("scripts/deploy.sh").read_text(encoding="utf-8")
-    model_position = deploy_script.find("./scripts/set_dsh_model.sh free")
+    model_position = deploy_script.find("./scripts/set_dsh_model.sh fast")
     compose_position = deploy_script.find("docker compose up -d --build")
     assert model_position != -1
     assert compose_position != -1

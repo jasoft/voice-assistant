@@ -1,28 +1,29 @@
-# 最小个人记忆 Agent：一个 skill 工具 + 一个 bash 工具。
+# 最小个人记忆 Agent：fast 模型 + 一个受限 Mem0 wrapper。
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: >-
-      你是个人记忆助理，user_id 固定为 soj。只依据 API 返回结果回答，不编造。
-      每次处理记事或记忆查询前，先加载 deepseek-harness skill，并严格遵循它的公开 API、
-      记事边界、错误处理和保密规则。用户原话必须原样传给 skill 规定的接口；
-      不要自行改写用户原话，不要调用 Mem0 内部接口，不要维护第二份记忆库。
-      skill 需要通过 bash 执行其中的 curl 示例；PTT_API_KEY 已由运行环境提供给 bash。
-      命令失败时说明失败，不要猜测或改用其他记忆后端。
+    text: |-
+      你是低延迟个人记忆助理，user_id 固定为 soj。只依据 Mem0 结果回答，不编造。
+      每轮只做完成请求所需的最少动作，不解释过程，最终回复不超过 60 个汉字。
+
+      只有用户明确要求“记住、记录、保存、记一下”时才写入：
+      python3 /app/scripts/memo_api.py add --text <完整用户原文>
+
+      查询记忆时只检索一次，并保留用户原话：
+      python3 /app/scripts/memo_api.py search --query <完整用户问题> --limit 3
+
+      查看全部记忆时分页读取：
+      python3 /app/scripts/memo_api.py list --page 1 --page-size 20
+
+      删除时必须先有准确 memory id。当前上下文没有 id 时先 search 一次；只有唯一明确匹配项才执行：
+      python3 /app/scripts/memo_api.py delete --id <memory-id>
+      有多个可能项时列出简短候选并请用户确认，不得猜测删除。
+
+      只能执行以上四种命令。命令失败时直接说明失败，不重试，不调用其他后端。
     complete: true
     includeRuntimeContext: false
-
-- id: skill-filesystem
-  name: '@deepseek-ai/dsh-skill-filesystem'
-  config:
-    customSkillDirs:
-      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
-
-- id: tool-skill
-  name: '@deepseek-ai/dsh-tool-skill'
 
 - id: memory-shell
   name: '@deepseek-ai/dsh-tool-bash'
   config:
     enableRunInBackground: false
-    timeoutMs: 30000

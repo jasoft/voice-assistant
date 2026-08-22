@@ -33,12 +33,12 @@ macOS 上不要把 Node 版 dsh 直接作为 launchd 子进程运行：该上下
 
 Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取；Mem0 凭据不写入本项目。
 
-默认的 `memo-minimal` preset 不挂载 MCP 和 Web 工具；它只保留 bash，并通过 `/app/scripts/memo_api.py` 直接调用 Mem0 REST API，显著减少工具 schema 占用的上下文。旧的多轮 MCP preset 仍保留在 `memo-mem0`，便于回退。
+默认的 `memo-minimal` preset 不挂载 MCP、Web 或 skill 工具；它只保留 bash，并通过 `/app/scripts/memo_api.py` 直接调用 Mem0 REST API，避免请求再次绕回语音助手 API。旧的多轮 MCP preset 仍保留在 `memo-mem0`，便于回退。
 
 项目内的记忆 preset 策略源文件是
 `config/deepseek-harness/agent-presets/memo-minimal/agent.cordis.yml`。它要求当前用户明确说出“记住/记录/保存”等意图才允许写入；普通陈述、关键词和查询只能读取。
 
-preset 还固定了唯一允许的三条 wrapper 命令（`add`、`search`、`list`）。这能避免模型猜出 `mem0 add ...` 这类不存在的命令，防止命令帮助文本进入会话并把后续请求撑爆 TPM 限额。
+preset 固定了唯一允许的四条 wrapper 命令（`add`、`search`、`list`、`delete`）。搜索使用 Mem0 v2 的 `top_k`，关闭额外 rerank，并只向模型返回 `id`、记忆正文、分数和创建时间，避免完整 Mem0 元数据撑大第二次模型调用。删除必须基于准确 memory id；自然语言不明确时先返回候选，不允许猜测删除。
 
 项目 preset 由 Compose 直接挂载到 `${DSH_HOME:-~/.dsh}/.agent-presets`。运行环境需要提供 `MEM0_MCP_TOKEN`（或兼容已有的 `MEM0_API_KEY`）。不要把 token 写入 git。
 
@@ -56,7 +56,7 @@ PTT API 默认只启动一个 uvicorn worker。异步任务表和 Harness 客户
 - PocketBase 是会话历史持久层。每次 `/v1/query` 成功返回后，语音助手会把用户问题和最终回复写入 `session_histories`，`/v1/history` 从这里读取最近 20 条。
 - `/v1/memories` 在 Harness 模式下直接读取当前用户的全部 Mem0 记录，不再返回空的兼容数组。
 - SQLite 不在当前查询链路中使用；旧 SQLite 文件只作为历史存档保留。
-- 默认模型由运行机 `config/deepseek-harness/runtime/settings.yaml` 的 `agent-default-model.model` 控制，部署脚本当前用 `./scripts/set_dsh_model.sh free` 设置。如果以后切回 `fast`，脚本会把它的 `maxTokens` 固定到 1536（可用 `DSH_FAST_MAX_TOKENS` 覆盖），避免“输入 + 最大输出”超过 Groq 免费 tier 的 8000 TPM 预算。
+- 默认模型由运行机 `config/deepseek-harness/runtime/settings.yaml` 的 `agent-default-model.model` 控制，部署脚本用 `./scripts/set_dsh_model.sh fast` 设置，并把 `fast.maxTokens` 固定到 512（可用 `DSH_FAST_MAX_TOKENS` 覆盖）。同步 Harness 等待上限为 10 秒，后台任务上限为 60 秒；这既压低 Groq TPM 消耗，也避免交互请求再次等待一分钟。
 
 ## Memo 手机 Web 外壳
 
