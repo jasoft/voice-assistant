@@ -327,9 +327,42 @@ class Mem0RememberStore(BaseRememberStore):
 
         return [
             self._record_from_item(item, preserve_timestamps=True)
-            for item in self.get_all()
+            for item in self._get_all_paginated()
         ]
 
+    def _get_all_paginated(self) -> list[dict[str, Any]]:
+        """Follow Mem0 v2 pagination until every scoped record has been read."""
+
+        items: list[dict[str, Any]] = []
+        page_size = 100
+        page = 1
+        while True:
+            response = self.client.get_all(
+                page=page,
+                page_size=page_size,
+                **self._read_scope_kwargs(),
+            )
+            page_items = _extract_mem0_results(response)
+            items.extend(page_items)
+
+            total: int | None = None
+            if isinstance(response, dict):
+                try:
+                    total = int(response.get("count"))
+                except (TypeError, ValueError):
+                    total = None
+
+            if not page_items:
+                break
+            if total is not None:
+                if len(items) >= total:
+                    break
+            elif len(page_items) < page_size:
+                break
+            page += 1
+            if page > 10_000:
+                raise RuntimeError("Mem0 记忆分页超过安全上限")
+        return items
+
     def get_all(self) -> list[dict[str, Any]]:
-        response = self.client.get_all(**self._read_scope_kwargs())
-        return _extract_mem0_results(response)
+        return self._get_all_paginated()

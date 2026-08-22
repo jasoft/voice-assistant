@@ -118,21 +118,75 @@ def test_harness_memories_read_all_mem0_records_in_time_order(monkeypatch) -> No
 
 
 def test_mem0_full_listing_preserves_original_iso_timestamps() -> None:
-    store = Mem0RememberStore(client=object(), user_id="test-user")
-    store.get_all = lambda: [  # type: ignore[method-assign]
+    client = SimpleNamespace(
+        get_all=lambda **_kwargs: [
         {
             "id": "memory-1",
             "memory": "原始时间记忆",
             "created_at": "2026-08-21T09:30:00.000Z",
             "updated_at": "2026-08-21T10:00:00.000Z",
         }
-    ]
+        ]
+    )
+    store = Mem0RememberStore(client=client, user_id="test-user")
 
     records = store.list_all_records()
 
     assert len(records) == 1
     assert records[0].created_at == "2026-08-21T09:30:00.000Z"
     assert records[0].updated_at == "2026-08-21T10:00:00.000Z"
+
+
+def test_mem0_full_listing_follows_v2_pagination(monkeypatch) -> None:
+    pages = [
+        {
+            "count": 128,
+            "results": [
+                {
+                    "id": f"memory-{number}",
+                    "memory": f"记忆 {number}",
+                    "created_at": "2026-08-21T09:30:00.000Z",
+                }
+                for number in range(100)
+            ],
+        },
+        {
+            "count": 128,
+            "results": [
+                {
+                    "id": f"memory-{number}",
+                    "memory": f"记忆 {number}",
+                    "created_at": "2026-08-21T10:30:00.000Z",
+                }
+                for number in range(28)
+            ],
+        },
+    ]
+    requested_pages: list[int] = []
+
+    def fake_get_all(**kwargs) -> dict[str, object]:
+        page = kwargs["page"]
+        requested_pages.append(page)
+        assert kwargs["page_size"] == 100
+        assert kwargs["filters"] == {
+            "OR": [
+                {"AND": [{"user_id": "test-user"}]},
+                {
+                    "AND": [
+                        {"user_id": "test-user"},
+                        {"OR": [{"app_id": "*"}, {"agent_id": "*"}]},
+                    ]
+                },
+            ]
+        }
+        return pages[page - 1]
+
+    client = SimpleNamespace(get_all=fake_get_all)
+    store = Mem0RememberStore(client=client, user_id="test-user")
+    records = store.list_all_records()
+
+    assert requested_pages == [1, 2]
+    assert len(records) == 128
 
 
 def test_harness_query_returns_500_when_history_persistence_fails(monkeypatch) -> None:
