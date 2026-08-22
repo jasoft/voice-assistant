@@ -56,3 +56,16 @@ def test_compose_uses_minimal_preset_and_mounts_presets() -> None:
     assert compose.count("PTT_HARNESS_AGENT_PRESET: memo-minimal") == 2
     assert "./config/deepseek-harness/agent-presets/memo-minimal:/root/.dsh/.agent-presets/memo-minimal" in compose
     assert "./config/deepseek-harness/agent-presets/memo-mem0:/root/.dsh/.agent-presets/memo-mem0" in compose
+
+
+def test_compose_allows_wrapper_execution_inside_disposable_harness_container() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "DSH_PERMISSION_MODE: danger-full-access" in compose
+
+
+def test_deploy_defaults_to_free_model() -> None:
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+
+    assert "./scripts/set_dsh_model.sh free" in deploy
+    assert "./scripts/set_dsh_model.sh fast" not in deploy

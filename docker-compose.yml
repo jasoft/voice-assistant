@@ -32,6 +32,10 @@ services:
     environment:
       DSH_HOME: /root/.dsh
       DSH_WEB_PORT: 3080
+      # The Harness container is disposable and the minimal agent needs one
+      # network-enabled shell command. Avoid requiring a sandbox runner inside
+      # this isolated container.
+      DSH_PERMISSION_MODE: danger-full-access
     command:
       - --host
       - 0.0.0.0

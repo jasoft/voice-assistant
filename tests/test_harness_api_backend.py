@@ -346,7 +346,7 @@ def test_set_dsh_model_updates_default_model_before_deployment(tmp_path) -> None
         'agent-default-model:\n  model: free\n  other: keep\nother:\n  model: untouched\n'
     )
     deploy_script = __import__("pathlib").Path("scripts/deploy.sh").read_text(encoding="utf-8")
-    model_position = deploy_script.find("./scripts/set_dsh_model.sh fast")
+    model_position = deploy_script.find("./scripts/set_dsh_model.sh free")
     compose_position = deploy_script.find("docker compose up -d --build")
     assert model_position != -1
     assert compose_position != -1

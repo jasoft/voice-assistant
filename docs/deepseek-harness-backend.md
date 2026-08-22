@@ -42,6 +42,8 @@ preset 还固定了唯一允许的三条 wrapper 命令（`add`、`search`、`li
 
 项目 preset 由 Compose 直接挂载到 `${DSH_HOME:-~/.dsh}/.agent-presets`。运行环境需要提供 `MEM0_MCP_TOKEN`（或兼容已有的 `MEM0_API_KEY`）。不要把 token 写入 git。
 
+Compose 给一次性 Harness 容器设置 `DSH_PERMISSION_MODE=danger-full-access`。这是容器内执行 Mem0 REST wrapper 所需的部署选择；不要把同一配置照搬到本机开发或非隔离环境。
+
 Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` 和 `POST /api/session.history`。语音助手会为每个认证用户保持一个 Harness 会话，并串行等待本轮最终助手消息。
 
 PTT API 默认只启动一个 uvicorn worker。异步任务表和 Harness 客户端会话都在进程内存里；多 worker 会让提交和轮询落到不同进程，表现为 `/v1/query/status/{job_id}` 间歇性 404。除非把这两类状态迁移到共享存储，否则不要调高 `--workers`。
@@ -52,7 +54,7 @@ PTT API 默认只启动一个 uvicorn worker。异步任务表和 Harness 客户
 - PocketBase 是会话历史持久层。每次 `/v1/query` 成功返回后，语音助手会把用户问题和最终回复写入 `session_histories`，`/v1/history` 从这里读取最近 20 条。
 - `/v1/memories` 在 Harness 模式下直接读取当前用户的全部 Mem0 记录，不再返回空的兼容数组。
 - SQLite 不在当前查询链路中使用；旧 SQLite 文件只作为历史存档保留。
-- 默认模型由运行机 `config/deepseek-harness/runtime/settings.yaml` 的 `agent-default-model.model` 控制，部署脚本当前用 `./scripts/set_dsh_model.sh fast` 设置。
+- 默认模型由运行机 `config/deepseek-harness/runtime/settings.yaml` 的 `agent-default-model.model` 控制，部署脚本当前用 `./scripts/set_dsh_model.sh free` 设置。如果以后切回 `fast`，脚本会把它的 `maxTokens` 固定到 1536（可用 `DSH_FAST_MAX_TOKENS` 覆盖），避免“输入 + 最大输出”超过 Groq 免费 tier 的 8000 TPM 预算。
 
 ## Memo 手机 Web 外壳
 
