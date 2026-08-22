@@ -95,6 +95,28 @@ def _persist_harness_history(
     _history_service_for(user_id).history_store().persist(record)
 
 
+class HarnessHistoryPersistenceError(RuntimeError):
+    """Raised after Harness succeeds but durable history cannot be written."""
+
+
+@dataclasses.dataclass
+class _QueryJob:
+    user_id: str
+    query: str
+    mode: ExecutionMode | None = None
+    photo: dict[str, Any] | None = None
+    status: str = "queued"
+    reply: str | None = None
+    error: str | None = None
+    created_at: str = ""
+    started_at: str | None = None
+    completed_at: str | None = None
+    task: asyncio.Task[Any] | None = None
+
+
+_query_jobs: dict[str, _QueryJob] = {}
+
+
 def _mem0_memory_items(user_id: str) -> list[MemoryItem]:
     records = _mem0_store_for(user_id).list_all_records()
 
@@ -164,6 +186,13 @@ async def lifespan(app: FastAPI):
     yield
     # Cleanup on shutdown
     log("API Server shutting down.", level="info")
+    for job in _query_jobs.values():
+        if job.task is not None and not job.task.done():
+            job.task.cancel()
+    await asyncio.gather(
+        *(job.task for job in _query_jobs.values() if job.task is not None),
+        return_exceptions=True,
+    )
     await _close_harness_clients()
     close_session_log()
 
@@ -348,6 +377,63 @@ class QueryResponse(BaseModel):
     query: Optional[str] = Field(None, description="本次查询实际执行时的标准化文本（可能与输入不同）。")
     debug_info: Optional[Dict[str, Any]] = Field(None, description="包含推理路径、意图分析等调试信息，供开发者或 Agent 自我排查。")
 
+class AsyncQueryResponse(BaseModel):
+    """Acknowledgement for a long-running query accepted for background work."""
+
+    job_id: str = Field(..., description="Opaque id used to poll this background query.")
+    status: str = Field(..., description="Initial background-job status.")
+    status_url: str = Field(..., description="Relative URL used to poll the job with the same Bearer token.")
+    created_at: str = Field(..., description="Job creation time in ISO 8601 format.")
+
+class QueryJobStatusResponse(BaseModel):
+    """Current state and result of a background query job."""
+
+    job_id: str = Field(..., description="Background job id.")
+    status: str = Field(..., description="queued, running, succeeded, failed, or cancelled.")
+    created_at: str = Field(..., description="Job creation time in ISO 8601 format.")
+    started_at: Optional[str] = Field(None, description="Processing start time, when available.")
+    completed_at: Optional[str] = Field(None, description="Processing completion time, when available.")
+    query: str = Field(..., description="Original query text submitted for this job.")
+    reply: Optional[str] = Field(None, description="Final assistant reply when status is succeeded.")
+    error: Optional[str] = Field(None, description="Failure reason when status is failed or cancelled.")
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+async def _execute_harness_query(
+    *,
+    user_id: str,
+    req: QueryRequest,
+    timeout_seconds: float | None = None,
+) -> QueryResponse:
+    kwargs: dict[str, Any] = {}
+    if timeout_seconds is not None:
+        kwargs["timeout_seconds"] = timeout_seconds
+    harness_result = await _harness_client_for(user_id).query(
+        req.query,
+        photo=await _harness_photo_payload(req.photo),
+        **kwargs,
+    )
+    debug_info = harness_result.get("debug_info")
+    harness_session_id = (
+        str(debug_info.get("session_id"))
+        if isinstance(debug_info, dict) and debug_info.get("session_id")
+        else None
+    )
+    try:
+        _persist_harness_history(
+            user_id=user_id,
+            query=str(harness_result.get("query") or req.query),
+            reply=str(harness_result.get("reply", "")),
+            mode=req.mode.value if req.mode else None,
+            harness_session_id=harness_session_id,
+        )
+    except Exception as exc:
+        raise HarnessHistoryPersistenceError("查询成功但写入会话历史失败") from exc
+    return QueryResponse(**harness_result)
+
 
 @app.post(
     "/v1/query", 
@@ -367,29 +453,18 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
 
     if _uses_harness_backend():
         try:
-            harness_result = await _harness_client_for(user_id).query(
-                req.query,
-                photo=await _harness_photo_payload(req.photo),
-            )
-            debug_info = harness_result.get("debug_info")
-            harness_session_id = (
-                str(debug_info.get("session_id"))
-                if isinstance(debug_info, dict) and debug_info.get("session_id")
-                else None
-            )
-            _persist_harness_history(
+            return await _execute_harness_query(
                 user_id=user_id,
-                query=str(harness_result.get("query") or req.query),
-                reply=str(harness_result.get("reply", "")),
-                mode=req.mode.value if req.mode else None,
-                harness_session_id=harness_session_id,
+                req=req,
             )
-            return QueryResponse(**harness_result)
         except HarnessError as exc:
             log(f"DeepSeek Harness query failed: {exc}", level="error")
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         except HTTPException:
             raise
+        except HarnessHistoryPersistenceError as exc:
+            log(f"DeepSeek Harness history persistence failed: {exc}", level="error")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
         except Exception as exc:
             log(
                 f"DeepSeek Harness result post-processing failed: {exc}",
@@ -399,7 +474,8 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
                 status_code=500,
                 detail="查询成功但写入会话历史失败",
             ) from exc
-        
+
+
     # 获取基础 URL (例如 http://localhost:10031/ 或 https://va-dev.soj.myds.me:1443/)
     # 考虑反向代理情况，检查 X-Forwarded-Proto
     proto = request.headers.get("x-forwarded-proto", request.url.scheme)
@@ -560,6 +636,108 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+def _prune_query_jobs() -> None:
+    """Bound the in-memory job table while preserving active results."""
+
+    finished = [
+        (job_id, job)
+        for job_id, job in _query_jobs.items()
+        if job.status in {"succeeded", "failed", "cancelled"}
+    ]
+    excess = max(0, len(finished) - 200)
+    for job_id, _job in sorted(finished, key=lambda item: item[1].created_at)[:excess]:
+        _query_jobs.pop(job_id, None)
+
+
+async def _run_query_job(job_id: str) -> None:
+    job = _query_jobs.get(job_id)
+    if job is None or job.status not in {"queued"}:
+        return
+
+    job.status = "running"
+    job.started_at = _utc_now()
+    try:
+        timeout_seconds = float(os.environ.get("PTT_HARNESS_ASYNC_TIMEOUT_SECONDS", "300"))
+        result = await _execute_harness_query(
+            user_id=job.user_id,
+            req=QueryRequest(query=job.query, mode=job.mode, photo=job.photo),
+            timeout_seconds=timeout_seconds,
+        )
+        job.reply = result.reply
+        job.status = "succeeded"
+    except HarnessError as exc:
+        job.error = str(exc)
+        job.status = "failed"
+    except HarnessHistoryPersistenceError as exc:
+        job.error = str(exc)
+        job.status = "failed"
+        log(f"Async query {job_id} history persistence failed: {exc}", level="error")
+    except asyncio.CancelledError:
+        job.status = "cancelled"
+        job.error = "查询已取消"
+        raise
+    except Exception as exc:
+        job.error = "后台查询执行失败"
+        job.status = "failed"
+        log(f"Async query {job_id} failed: {exc}", level="error")
+    finally:
+        if job.completed_at is None:
+            job.completed_at = _utc_now()
+
+
+@app.post(
+    "/v1/query/async",
+    response_model=AsyncQueryResponse,
+    status_code=202,
+    summary="[低延迟] 提交后台查询",
+    description="立即返回 job_id；调用方轮询状态接口，避免长连接等待模型生成。",
+)
+async def start_async_query(req: QueryRequest, user_id: str = Depends(get_user_id)):
+    if base_config is None:
+        raise HTTPException(status_code=500, detail="Server configuration error")
+    if not _uses_harness_backend():
+        raise HTTPException(status_code=404, detail="后台查询仅在 Harness 模式可用")
+
+    _prune_query_jobs()
+    job_id = uuid.uuid4().hex
+    job = _QueryJob(
+        user_id=user_id,
+        query=req.query,
+        mode=req.mode,
+        photo=await _harness_photo_payload(req.photo),
+        created_at=_utc_now(),
+    )
+    _query_jobs[job_id] = job
+    job.task = asyncio.create_task(_run_query_job(job_id))
+    return AsyncQueryResponse(
+        job_id=job_id,
+        status=job.status,
+        status_url=f"/v1/query/status/{job_id}",
+        created_at=job.created_at,
+    )
+
+
+@app.get(
+    "/v1/query/status/{job_id}",
+    response_model=QueryJobStatusResponse,
+    summary="查询后台任务结果",
+)
+async def get_query_job_status(job_id: str, user_id: str = Depends(get_user_id)):
+    job = _query_jobs.get(job_id)
+    if job is None or job.user_id != user_id:
+        raise HTTPException(status_code=404, detail="查询任务不存在")
+    return QueryJobStatusResponse(
+        job_id=job_id,
+        status=job.status,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        completed_at=job.completed_at,
+        query=job.query,
+        reply=job.reply,
+        error=job.error,
+    )
+
 
 @app.post("/v1/history", response_model=List[HistoryItem], summary="获取会话历史记录", description="按时间倒序返回当前用户的最近 20 条会话历史记录（包含请求文本和助手回复）。")
 async def get_history(user_id: str = Depends(get_user_id)):

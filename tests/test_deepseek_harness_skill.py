@@ -8,6 +8,7 @@ def test_skill_documents_only_the_public_note_and_query_contract() -> None:
     text = SKILL.read_text(encoding="utf-8")
 
     assert "$BASE/v1/query" in text
+    assert "$BASE/v1/query/async" in text
     assert "$BASE/v1/history" in text
     assert "$BASE/v1/memories" in text
     assert 'Authorization: Bearer <PTT_API_KEY>' in text
@@ -20,6 +21,7 @@ def test_skill_does_not_expose_internal_apis_or_configuration() -> None:
 
     forbidden_markers = (
         "/api/session.",
+        "session.create",
         "session.create",
         "session.prompt",
         "session.history",

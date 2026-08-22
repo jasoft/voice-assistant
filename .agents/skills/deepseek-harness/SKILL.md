@@ -52,6 +52,28 @@ curl -sS "$BASE/v1/query" \
 
 `memories` 和 `images` 是兼容字段，普通客户端应以 `reply` 为准。
 
+如果调用方不能长时间等待，可提交后台任务：
+
+```bash
+curl -sS -X POST "$BASE/v1/query/async" \
+  -H "Authorization: Bearer $PTT_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"<用户原话>"}'
+```
+
+立即返回：
+
+```json
+{
+  "job_id": "<job-id>",
+  "status": "queued",
+  "status_url": "/v1/query/status/<job-id>",
+  "created_at": "2026-08-22T12:00:00+00:00"
+}
+```
+
+每 1–2 秒轮询一次状态地址；成功后读取 `reply`，失败后读取 `error`。成功的后台任务也会进入 `/v1/history`。
+
 ### 2. 查看最近历史
 
 ```bash

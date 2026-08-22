@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -7,6 +9,7 @@ from fastapi.testclient import TestClient
 
 import press_to_talk.api.main as api_main
 from press_to_talk.api.auth import get_user_id
+from press_to_talk.harness import DeepSeekHarnessClient, HarnessError
 from press_to_talk.storage.models import RememberItemRecord, SessionHistoryRecord
 from press_to_talk.storage.providers.mem0 import Mem0RememberStore
 
@@ -19,6 +22,13 @@ def _fake_history_service(records: list[SessionHistoryRecord]):
     )
     service = SimpleNamespace(history_store=lambda: history_store)
     return service, calls
+
+
+def _clear_query_jobs() -> None:
+    for job in api_main._query_jobs.values():
+        if job.task is not None and not job.task.done():
+            job.task.cancel()
+    api_main._query_jobs.clear()
 
 
 def test_harness_query_persists_user_and_reply_to_pocketbase(monkeypatch) -> None:
@@ -210,6 +220,108 @@ def test_harness_query_returns_500_when_history_persistence_fails(monkeypatch) -
     assert response.status_code == 500
     assert response.json()["detail"] == "查询成功但写入会话历史失败"
     fake_client.query.assert_awaited_once()
+
+
+def test_async_query_returns_immediately_and_polls_to_success(monkeypatch) -> None:
+    monkeypatch.setenv("PTT_QUERY_BACKEND", "deepseek-harness")
+    monkeypatch.setenv("PTT_HARNESS_ASYNC_TIMEOUT_SECONDS", "300")
+    monkeypatch.setattr(api_main, "base_config", SimpleNamespace())
+    _clear_query_jobs()
+    api_main.app.dependency_overrides[get_user_id] = lambda: "test-user"
+
+    fake_client = AsyncMock()
+    fake_client.query.return_value = {
+        "reply": "后台回复",
+        "memories": [],
+        "images": [],
+        "query": "后台问题",
+        "debug_info": {"session_id": "session-async"},
+    }
+    history_service, persisted = _fake_history_service([])
+    monkeypatch.setattr(api_main, "_harness_client_for", lambda _user_id: fake_client)
+    monkeypatch.setattr(api_main, "_history_service_for", lambda _user_id: history_service)
+
+    try:
+        with TestClient(api_main.app) as client:
+            response = client.post("/v1/query/async", json={"query": "后台问题"})
+            assert response.status_code == 202
+            accepted = response.json()
+            job_id = accepted["job_id"]
+            assert accepted["status"] == "queued"
+            assert accepted["status_url"] == f"/v1/query/status/{job_id}"
+
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                status = client.get(f"/v1/query/status/{job_id}")
+                assert status.status_code == 200
+                if status.json()["status"] == "succeeded":
+                    break
+                time.sleep(0.01)
+            status = client.get(f"/v1/query/status/{job_id}")
+    finally:
+        api_main.app.dependency_overrides.clear()
+        _clear_query_jobs()
+
+    assert status.json()["status"] == "succeeded"
+    assert status.json()["reply"] == "后台回复"
+    fake_client.query.assert_awaited_once_with(
+        "后台问题", photo=None, timeout_seconds=300.0
+    )
+    assert len(persisted) == 1
+    assert persisted[0].reply == "后台回复"
+
+
+def test_async_query_reports_failure_without_history_write(monkeypatch) -> None:
+    monkeypatch.setenv("PTT_QUERY_BACKEND", "deepseek-harness")
+    monkeypatch.setattr(api_main, "base_config", SimpleNamespace())
+    _clear_query_jobs()
+    api_main.app.dependency_overrides[get_user_id] = lambda: "test-user"
+
+    fake_client = AsyncMock()
+    fake_client.query.side_effect = HarnessError("等待超时")
+    history_service, persisted = _fake_history_service([])
+    monkeypatch.setattr(api_main, "_harness_client_for", lambda _user_id: fake_client)
+    monkeypatch.setattr(api_main, "_history_service_for", lambda _user_id: history_service)
+
+    try:
+        with TestClient(api_main.app) as client:
+            response = client.post("/v1/query/async", json={"query": "失败问题"})
+            job_id = response.json()["job_id"]
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                status = client.get(f"/v1/query/status/{job_id}")
+                if status.json()["status"] == "failed":
+                    break
+                time.sleep(0.01)
+            unknown = client.get("/v1/query/status/not-a-job")
+    finally:
+        api_main.app.dependency_overrides.clear()
+        _clear_query_jobs()
+
+    assert response.status_code == 202
+    assert status.json()["status"] == "failed"
+    assert "等待超时" in status.json()["error"]
+    assert persisted == []
+    assert unknown.status_code == 404
+
+
+def test_harness_client_uses_async_timeout_override() -> None:
+    async def check() -> None:
+        client = DeepSeekHarnessClient("http://deepseek-harness.invalid")
+        client._ensure_session = AsyncMock(return_value="session-1")  # type: ignore[method-assign]
+        client._rpc = AsyncMock(return_value={})  # type: ignore[method-assign]
+        client._history = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        client._wait_for_reply = AsyncMock(return_value="OK")  # type: ignore[method-assign]
+
+        result = await client.query("测试", timeout_seconds=300)
+
+        assert result["reply"] == "OK"
+        client._wait_for_reply.assert_awaited_once_with(
+            "session-1", -1, timeout_seconds=300
+        )
+        await client.close()
+
+    asyncio.run(check())
 
 
 def test_set_dsh_model_updates_default_model_before_deployment(tmp_path) -> None:

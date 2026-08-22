@@ -68,7 +68,13 @@ class DeepSeekHarnessClient:
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def query(self, text: str, *, photo: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def query(
+        self,
+        text: str,
+        *,
+        photo: dict[str, Any] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
         """Send one user turn and wait for Harness to persist its final reply."""
         prompt = str(text or "").strip()
         if not prompt:
@@ -93,7 +99,11 @@ class DeepSeekHarnessClient:
                 },
             )
 
-            reply = await self._wait_for_reply(session_id, baseline_seq)
+            reply = await self._wait_for_reply(
+                session_id,
+                baseline_seq,
+                timeout_seconds=timeout_seconds,
+            )
             return {
                 "reply": reply,
                 "memories": [],
@@ -159,8 +169,16 @@ class DeepSeekHarnessClient:
         events = value.get("events", [])
         return [entry for entry in events if isinstance(entry, dict)]
 
-    async def _wait_for_reply(self, session_id: str, baseline_seq: int) -> str:
-        deadline = time.monotonic() + self.timeout_seconds
+    async def _wait_for_reply(
+        self,
+        session_id: str,
+        baseline_seq: int,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> str:
+        deadline = time.monotonic() + (
+            max(1.0, float(timeout_seconds)) if timeout_seconds is not None else self.timeout_seconds
+        )
         while time.monotonic() < deadline:
             try:
                 entries = await self._history(session_id)
@@ -190,7 +208,12 @@ class DeepSeekHarnessClient:
 
             await asyncio.sleep(self.poll_interval_seconds)
 
-        raise HarnessError(f"等待 DeepSeek Harness 回复超时（{self.timeout_seconds:.1f} 秒）")
+        effective_timeout = (
+            max(1.0, float(timeout_seconds))
+            if timeout_seconds is not None
+            else self.timeout_seconds
+        )
+        raise HarnessError(f"等待 DeepSeek Harness 回复超时（{effective_timeout:.1f} 秒）")
 
     async def _rpc(self, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         rpc_id = uuid.uuid4().hex
