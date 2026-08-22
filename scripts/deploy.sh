@@ -10,12 +10,12 @@
 set -e
 
 # 1. Local Sync
-echo "🚀 Step 1: Checking local changes..."
+echo "🚀 Step 1: Checking local workspace..."
 if [[ -n $(git status --porcelain) ]]; then
-    echo "📝 Committing and pushing local changes to main..."
-    git add .
-    git commit -m "chore: sync local changes before deployment"
-    git push origin main
+    echo "❌ Local workspace is dirty. Refusing to stage unrelated files."
+    echo "   Review the changes, then commit them or add intentional ignores."
+    git status --short
+    exit 1
 else
     echo "✅ Local workspace is clean, everything up-to-date."
 fi

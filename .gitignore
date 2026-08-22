@@ -29,3 +29,8 @@ config/deepseek-harness/storages/
 config/deepseek-harness/.credentials.yaml
 config/deepseek-harness/.env
 config/deepseek-harness/runtime/
+
+# Machine-local Harness maintenance scripts.
+deepseek-harness/.cron_add_allowlist.py
+deepseek-harness/.cron_run_update.py
+deepseek-harness/.cron_update_hermes.sh
