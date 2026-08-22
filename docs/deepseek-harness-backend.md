@@ -40,6 +40,8 @@ Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取
 
 preset 固定了唯一允许的四条 wrapper 命令（`add`、`search`、`list`、`delete`）。搜索使用 Mem0 v2 的 `top_k`，关闭额外 rerank，并只向模型返回 `id`、记忆正文、分数和创建时间，避免完整 Mem0 元数据撑大第二次模型调用。删除必须基于准确 memory id；自然语言不明确时先返回候选，不允许猜测删除。
 
+`add` 和 `delete` 成功后由 bash 工具的部署级命令前缀策略标记 `concludesTurn`，Harness 直接以 wrapper JSON 中的 `reply` 结束回合，不再额外调用模型生成“已记录/已删除”。`search` 仍保留第二次 fast 模型调用，把召回结果整理成自然语言答案。
+
 项目 preset 由 Compose 直接挂载到 `${DSH_HOME:-~/.dsh}/.agent-presets`。运行环境需要提供 `MEM0_MCP_TOKEN`（或兼容已有的 `MEM0_API_KEY`）。不要把 token 写入 git。
 
 Compose 给一次性 Harness 容器设置 `DSH_PERMISSION_MODE=danger-full-access`。这是容器内执行 Mem0 REST wrapper 所需的部署选择；不要把同一配置照搬到本机开发或非隔离环境。

@@ -27,3 +27,6 @@
   name: '@deepseek-ai/dsh-tool-bash'
   config:
     enableRunInBackground: false
+    concludeOnSuccessCommandPrefixes:
+      - "python3 /app/scripts/memo_api.py add "
+      - "python3 /app/scripts/memo_api.py delete "

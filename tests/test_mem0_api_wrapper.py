@@ -60,7 +60,9 @@ def test_add_uses_original_text_and_scoped_user(
     normalized_headers = {key.lower(): value for key, value in headers.items()}
     assert normalized_headers["authorization"] == "Token test-token"
     assert normalized_headers["mem0-user-id"] == hashlib.md5(b"test-token").hexdigest()
-    assert json.loads(capsys.readouterr().out)["results"] == []
+    output = json.loads(capsys.readouterr().out)
+    assert output["reply"] == "已记录。"
+    assert output["results"] == []
 
 
 def test_search_filters_by_fixed_user(
@@ -102,7 +104,9 @@ def test_delete_uses_memory_id_and_delete_method(
     assert url == "https://api.mem0.ai/v1/memories/memory-123/"
     assert payload is None
     assert method == "DELETE"
-    assert json.loads(capsys.readouterr().out)["deleted"] == "memory-123"
+    output = json.loads(capsys.readouterr().out)
+    assert output["reply"] == "已删除。"
+    assert output["deleted"] == "memory-123"
 
 
 def test_search_compacts_mem0_payload(

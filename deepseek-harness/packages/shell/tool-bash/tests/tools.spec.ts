@@ -29,7 +29,7 @@ const testToolSignal = new AbortController().signal
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-tool-bash-spec-'))
 
 /** Foreground-only harness: no job runtime (backgrounding fails loud here). */
-async function setup() {
+async function setup(config: ToolBash.Config = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
@@ -38,9 +38,29 @@ async function setup() {
   ;(ctx.subprocess as LocalSubprocessRuntime).internals = { spillDir }
   await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
-  await ctx.plugin(ToolBash)
+  await ctx.plugin(ToolBash, config)
   return ctx
 }
+
+it('can conclude the turn after a configured command succeeds', async () => {
+  const ctx = await setup({
+    concludeOnSuccessCommandPrefixes: ['printf terminal'],
+  })
+
+  const concluded = await call(ctx, 'bash', {
+    command: 'printf terminal-result',
+    description: 'Print terminal result',
+  })
+  const ordinary = await call(ctx, 'bash', {
+    command: 'printf ordinary-result',
+    description: 'Print ordinary result',
+  })
+
+  expect(concluded.isError).toBe(false)
+  expect(concluded.concludesTurn).toBe(true)
+  expect(ordinary.isError).toBe(false)
+  expect(ordinary.concludesTurn).toBeUndefined()
+})
 
 /** Full harness: the generic job runtime + its controller, then the bash tool. */
 async function setupWithTasks() {

@@ -70,6 +70,7 @@ def test_harness_client_creates_prompts_and_reads_final_history() -> None:
             "http://harness.test",
             transport=httpx.MockTransport(handler),
             poll_interval_seconds=0.01,
+            timeout_seconds=1,
         )
         try:
             return await client.query(
@@ -170,6 +171,80 @@ def test_harness_client_surfaces_terminal_turn_errors_without_waiting_for_timeou
         assert str(exc) == "DeepSeek Harness Agent 执行失败：Connection error."
     else:
         raise AssertionError("expected HarnessError")
+
+
+def test_harness_client_returns_reply_from_a_concluding_tool_result() -> None:
+    history_calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal history_calls
+        body = json.loads(request.content)
+        method = body["method"]
+        rpc_id = body["rpcId"]
+        if method == "session.create":
+            return _response(rpc_id, {"sessionId": "session-tool-reply"})
+        if method == "session.history":
+            history_calls += 1
+            if history_calls == 1:
+                return _response(rpc_id, {"events": [], "hasMore": False})
+            return _response(rpc_id, {
+                "events": [
+                    {
+                        "event": {
+                            "seq": 1,
+                            "type": "assistant/message",
+                            "data": {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [{"type": "tool-call", "name": "bash"}],
+                                },
+                            },
+                        },
+                    },
+                    {
+                        "event": {
+                            "seq": 2,
+                            "type": "tool/result",
+                            "data": {
+                                "message": {
+                                    "role": "toolResult",
+                                    "isError": False,
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": '{"reply":"已记录。","results":[]}\\n[exit code: 0]',
+                                        }
+                                    ],
+                                },
+                            },
+                        },
+                    },
+                    {
+                        "event": {
+                            "seq": 3,
+                            "type": "turn/end",
+                            "data": {"reason": {"kind": "completed"}},
+                        },
+                    },
+                ],
+                "hasMore": False,
+            })
+        if method == "session.prompt":
+            return _response(rpc_id, {"accepted": True})
+        raise AssertionError(method)
+
+    async def run() -> dict:
+        client = DeepSeekHarnessClient(
+            "http://harness.test",
+            transport=httpx.MockTransport(handler),
+            poll_interval_seconds=0.01,
+        )
+        try:
+            return await client.query("记住测试内容")
+        finally:
+            await client.close()
+
+    assert asyncio.run(run())["reply"] == "已记录。"
 
 
 def test_harness_client_lists_completed_history_turns() -> None:

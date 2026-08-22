@@ -24,6 +24,10 @@ def test_minimal_preset_mounts_only_bash_without_mcp_or_skill_loading() -> None:
     assert [entry["id"] for entry in entries] == ["persona", "memory-shell"]
     assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
     assert entries[1]["config"]["enableRunInBackground"] is False
+    assert entries[1]["config"]["concludeOnSuccessCommandPrefixes"] == [
+        "python3 /app/scripts/memo_api.py add ",
+        "python3 /app/scripts/memo_api.py delete ",
+    ]
     assert "mcp-client" not in preset_text
     assert "tool-skill" not in preset_text
 

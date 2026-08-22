@@ -34,11 +34,14 @@ export const inject = ['tools', 'shell', 'systemPrompt', 'shellEnv']
 export interface Config {
   /** Expose `run_in_background` (default true); disabled calls are also rejected. */
   enableRunInBackground?: boolean
+  /** Successful foreground commands with one of these prefixes conclude the current agent turn. */
+  concludeOnSuccessCommandPrefixes?: string[]
 }
 
 /** Runtime configuration schema for the bash tool plugin. */
 export const Config: z<Config> = z.object({
   enableRunInBackground: z.boolean().default(true),
+  concludeOnSuccessCommandPrefixes: z.array(z.string()).default([]),
 })
 
 /** Parsed tool args; execute validates value constraints absent from ParameterSchemaSpec. */
@@ -189,6 +192,10 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
 
 export function apply(ctx: Context, config: Config = {}): void {
   const backgroundEnabled = config.enableRunInBackground ?? true
+  const concludingCommandPrefixes = config.concludeOnSuccessCommandPrefixes ?? []
+  if (concludingCommandPrefixes.some(prefix => prefix.trim().length === 0)) {
+    throw new Error('tool-bash: concludeOnSuccessCommandPrefixes must contain only non-empty strings')
+  }
   const defaultMode = ctx.shell.sandboxMode
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
   const sandboxPolicy: SandboxPolicyService | undefined = defaultMode === undefined ? undefined : ctx.get('sandboxPolicy')
@@ -385,6 +392,10 @@ export function apply(ctx: Context, config: Config = {}): void {
         const error = new HarnessError('tool call aborted', TOOL_ABORTED)
         error.name = 'AbortError'
         throw error
+      }
+      if (result.exitCode === 0
+        && concludingCommandPrefixes.some(prefix => args.command.startsWith(prefix))) {
+        exec.concludeTurn()
       }
       return { kind: 'foreground' as const, ...canonicalBashResult(result) }
     },

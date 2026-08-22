@@ -170,7 +170,10 @@ def _main(argv: list[str] | None = None) -> None:
             "async_mode": False,
             "output_format": "v1.1",
         }
-        result = _compact_result(_request("/v1/memories/", payload))
+        result = {
+            "reply": "已记录。",
+            **_compact_result(_request("/v1/memories/", payload)),
+        }
     elif args.command == "search":
         result = _compact_result(
             _request(
@@ -203,6 +206,7 @@ def _main(argv: list[str] | None = None) -> None:
             method="DELETE",
         )
         result = {
+            "reply": "已删除。",
             "deleted": memory_id,
             "message": (
                 response.get("message", "Memory deleted successfully")

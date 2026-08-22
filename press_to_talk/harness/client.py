@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import os
 import time
 import uuid
@@ -202,6 +203,10 @@ class DeepSeekHarnessClient:
                 # text message instead of mistaking that boundary for the
                 # completed answer.
 
+            tool_reply = self._completed_tool_reply(entries, baseline_seq)
+            if tool_reply:
+                return tool_reply
+
             failure = self._turn_failure(entries, baseline_seq)
             if failure:
                 raise HarnessError(f"DeepSeek Harness Agent 执行失败：{failure}")
@@ -308,6 +313,53 @@ class DeepSeekHarnessClient:
                 if message:
                     return message
             return "未知错误"
+        return ""
+
+    @classmethod
+    def _completed_tool_reply(cls, entries: list[dict[str, Any]], baseline_seq: int) -> str:
+        """Return a direct tool reply only after Harness closes the turn successfully."""
+
+        completed = any(
+            cls._event_seq(entry) > baseline_seq
+            and cls._event(entry).get("type") == "turn/end"
+            and isinstance(cls._event(entry).get("data"), dict)
+            and isinstance(cls._event(entry)["data"].get("reason"), dict)
+            and cls._event(entry)["data"]["reason"].get("kind") == "completed"
+            for entry in entries
+        )
+        if not completed:
+            return ""
+
+        for entry in reversed(entries):
+            if cls._event_seq(entry) <= baseline_seq:
+                continue
+            event = cls._event(entry)
+            if event.get("type") != "tool/result":
+                continue
+            data = event.get("data")
+            message = data.get("message") if isinstance(data, dict) else None
+            if not isinstance(message, dict) or message.get("isError") is True:
+                continue
+            reply = cls._reply_from_tool_output(cls._message_text(message))
+            if reply:
+                return reply
+        return ""
+
+    @staticmethod
+    def _reply_from_tool_output(text: str) -> str:
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                payload, _end = decoder.raw_decode(text[index:])
+            except ValueError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            reply = str(payload.get("reply", "")).strip()
+            if reply:
+                return reply
         return ""
 
     @staticmethod
