@@ -42,6 +42,14 @@ Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取
 
 Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` 和 `POST /api/session.history`。语音助手会为每个认证用户保持一个 Harness 会话，并串行等待本轮最终助手消息。
 
+## 持久化分工
+
+- DeepSeek Harness 负责自然语言编排、工具调用和 Mem0 写入。
+- PocketBase 是会话历史持久层。每次 `/v1/query` 成功返回后，语音助手会把用户问题和最终回复写入 `session_histories`，`/v1/history` 从这里读取最近 20 条。
+- `/v1/memories` 在 Harness 模式下直接读取当前用户的全部 Mem0 记录，不再返回空的兼容数组。
+- SQLite 不在当前查询链路中使用；旧 SQLite 文件只作为历史存档保留。
+- 默认模型由运行机 `config/deepseek-harness/runtime/settings.yaml` 的 `agent-default-model.model` 控制，可用 `./scripts/set_dsh_model.sh free` 设置。
+
 ## Memo 手机 Web 外壳
 
 如果手机浏览器不能直接运行 Harness 网页，可以启动同源的移动端外壳：

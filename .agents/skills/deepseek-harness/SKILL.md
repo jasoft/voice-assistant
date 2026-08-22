@@ -15,7 +15,7 @@ description: 调用 DeepSeek Harness Web API 或语音助手封装接口，完�
 | 直接驱动 Harness 会话 | `POST /api/session.*` | Harness Web RPC，可控制会话创建、提问和读取历史 |
 | 手机或局域网演示外壳 | `POST /api/query`（Memo Web） | 无多用户鉴权，只用于可信局域网 |
 
-不要把 `/v1/memories` 当成 Mem0 浏览器。Harness 后拥有 Mem0，该端点为了兼容旧 GUI 固定返回空数组。要读写记忆，仍应发送自然语言请求。
+`/v1/history` 在每次成功 `/v1/query` 后从 PocketBase 读取持久化的 user/assistant 成对记录。`/v1/memories` 在 Harness 模式下直读 Mem0，返回当前用户作用域内的全部记忆记录。要写入或语义修改记忆，仍应发送自然语言请求，并由 `memo-mem0` preset 决定是否调用写工具。
 
 ## 环境变量
 
@@ -92,7 +92,7 @@ curl -sS "$BASE/v1/query" \
 
 `type=url` 时服务端会先下载 URL 并转换成 Base64。支持 PNG、JPEG、WebP 和 GIF。图片只是随本轮问题传给 Agent；是否写入长期记忆仍由 `memo-mem0` preset 的“明确记录请求”规则决定。
 
-读取最近已完成对话：
+读取最近已完成对话（PocketBase 持久化）：
 
 ```bash
 curl -sS "$BASE/v1/history" \
@@ -307,7 +307,8 @@ finally:
 | `agent-preset-not-found` | 目标 DSH_HOME 没有 preset | 同步 `memo-mem0` 目录到运行机器 `${DSH_HOME:-~/.dsh}/.agent-presets/` |
 | 长时间无最终文本 | 中间工具调用正常但未结束 | 继续按 seq 轮询，不要把空 assistant 事件当答案 |
 | 新会话没有新策略 | preset 在会话创建时固化 | 结束旧会话，让下一次 `session.create` 加载新策略 |
-| `/v1/memories` 为空 | Harness 模式的兼容行为 | 通过 `/v1/query` 用自然语言查询记忆 |
+| `/v1/memories` 为空 | 当前用户在 Mem0 作用域内确实没有记录 | 先用明确写入请求创建一条测试记忆，再重新读取 |
+| `/v1/memories` 502 | Mem0 key、网络或 SDK 调用失败 | 检查服务端日志和 `MEM0_API_KEY`，不要打印密钥 |
 
 ## 安全边界
 
@@ -323,5 +324,6 @@ finally:
 2. 只读召回：问一个已知存在的记忆事实，确认 `reply` 引用真实内容。
 3. 明确写入：说“记住……”后再次查询，确认能找回。
 4. 写入门禁：只陈述事实而不说记录动词，随后确认没有新增记忆。
-5. 历史：调用 `/v1/history`，确认最新 user/assistant 成对记录可见。
-6. 失败路径：临时指向不可达端口，确认得到 502 且不静默回退 PocketBase。
+5. 历史：调用 `/v1/history`，确认最新 user/assistant 成对记录可见，且来自 PocketBase。
+6. 全量记忆：调用 `/v1/memories`，确认能返回当前用户的 Mem0 记录集合。
+7. 失败路径：临时指向不可达端口，确认得到 502 且不静默回退 PocketBase。

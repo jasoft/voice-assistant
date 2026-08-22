@@ -8,7 +8,7 @@ import os
 import asyncio
 import base64
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import dataclasses
 from contextlib import asynccontextmanager
 
@@ -23,6 +23,8 @@ from ..storage.service import StorageService, load_storage_config, ensure_storag
 from ..utils.logging import log, log_multiline
 from ..utils.photo import get_photo_url
 from ..harness import DeepSeekHarnessClient, HarnessError
+from ..storage.models import SessionHistoryRecord
+from ..storage.providers.mem0 import Mem0RememberStore
 
 
 
@@ -55,6 +57,69 @@ async def _close_harness_clients() -> None:
     _harness_clients.clear()
     for client in clients:
         await client.close()
+
+
+def _history_service_for(user_id: str) -> StorageService:
+    return StorageService(
+        load_storage_config(user_id_override=user_id),
+        use_cli=False,
+    )
+
+
+def _mem0_store_for(user_id: str) -> Mem0RememberStore:
+    config = load_storage_config(user_id_override=user_id)
+    config.backend = "mem0"
+    store = StorageService(config, use_cli=False).remember_store()
+    if not isinstance(store, Mem0RememberStore):
+        raise RuntimeError("Mem0 记忆后端未启用：请配置 MEM0_API_KEY")
+    return store
+
+
+def _persist_harness_history(
+    *,
+    user_id: str,
+    query: str,
+    reply: str,
+    mode: str | None,
+    harness_session_id: str | None,
+) -> None:
+    """Persist one completed Harness turn to the durable PocketBase history."""
+
+    record = SessionHistoryRecord(
+        session_id=f"{harness_session_id or 'harness'}:{uuid.uuid4().hex}",
+        started_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+        transcript=query,
+        reply=reply,
+        mode=mode or ExecutionMode.MEMORY_CHAT.value,
+    )
+    _history_service_for(user_id).history_store().persist(record)
+
+
+def _mem0_memory_items(user_id: str) -> list[MemoryItem]:
+    records = _mem0_store_for(user_id).list_all_records()
+
+    def created_key(record: Any) -> datetime:
+        value = str(record.created_at or "").strip()
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            return datetime.min.replace(tzinfo=timezone.utc)
+
+    records.sort(key=created_key, reverse=True)
+    return [
+        MemoryItem(
+            id=record.id,
+            memory=record.memory,
+            created_at=record.created_at,
+            photo_path=None,
+            photo_url=None,
+            score=0.0,
+        )
+        for record in records
+    ]
 
 
 async def _harness_photo_payload(photo: PhotoAttachment | None) -> dict[str, Any] | None:
@@ -306,13 +371,34 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
                 req.query,
                 photo=await _harness_photo_payload(req.photo),
             )
+            debug_info = harness_result.get("debug_info")
+            harness_session_id = (
+                str(debug_info.get("session_id"))
+                if isinstance(debug_info, dict) and debug_info.get("session_id")
+                else None
+            )
+            _persist_harness_history(
+                user_id=user_id,
+                query=str(harness_result.get("query") or req.query),
+                reply=str(harness_result.get("reply", "")),
+                mode=req.mode.value if req.mode else None,
+                harness_session_id=harness_session_id,
+            )
             return QueryResponse(**harness_result)
         except HarnessError as exc:
             log(f"DeepSeek Harness query failed: {exc}", level="error")
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except HTTPException:
+            raise
         except Exception as exc:
-            log(f"DeepSeek Harness query setup failed: {exc}", level="error")
-            raise HTTPException(status_code=502, detail="无法连接 DeepSeek Harness") from exc
+            log(
+                f"DeepSeek Harness result post-processing failed: {exc}",
+                level="error",
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="查询成功但写入会话历史失败",
+            ) from exc
         
     # 获取基础 URL (例如 http://localhost:10031/ 或 https://va-dev.soj.myds.me:1443/)
     # 考虑反向代理情况，检查 X-Forwarded-Proto
@@ -477,16 +563,8 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
 
 @app.post("/v1/history", response_model=List[HistoryItem], summary="获取会话历史记录", description="按时间倒序返回当前用户的最近 20 条会话历史记录（包含请求文本和助手回复）。")
 async def get_history(user_id: str = Depends(get_user_id)):
-    if _uses_harness_backend():
-        try:
-            records = await _harness_client_for(user_id).list_history(limit=20)
-            return [HistoryItem(**record) for record in records]
-        except HarnessError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-
     try:
-        config = load_storage_config(user_id_override=user_id)
-        service = StorageService(config, use_cli=False)
+        service = _history_service_for(user_id)
         records = service.history_store().list_recent(limit=20)
         return [
             HistoryItem(
@@ -503,10 +581,14 @@ async def get_history(user_id: str = Depends(get_user_id)):
 @app.post("/v1/memories", response_model=List[MemoryItem], summary="获取长期记忆条目", description="按时间倒序返回当前用户的最近 50 条长期记忆记录。")
 async def get_memories(user_id: str = Depends(get_user_id)):
     if _uses_harness_backend():
-        # Harness owns Mem0 and does not expose a PocketBase-compatible memory
-        # listing endpoint. Returning an empty list keeps the legacy GUI API
-        # contract without silently querying the retired storage service.
-        return []
+        try:
+            return _mem0_memory_items(user_id)
+        except Exception as exc:
+            log(f"Mem0 memory listing failed: {exc}", level="error")
+            raise HTTPException(
+                status_code=502,
+                detail=f"无法读取 Mem0 记忆：{exc}",
+            ) from exc
 
     try:
         config = load_storage_config(user_id_override=user_id)

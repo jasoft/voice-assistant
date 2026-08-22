@@ -236,19 +236,25 @@ class Mem0RememberStore(BaseRememberStore):
     def delete(self, *, memory_id: str) -> None:
         self.client.delete(memory_id)
 
-    def _record_from_item(self, item: dict[str, Any]) -> RememberItemRecord:
+    def _record_from_item(
+        self, item: dict[str, Any], *, preserve_timestamps: bool = False
+    ) -> RememberItemRecord:
         metadata = item.get("metadata", {})
         if not isinstance(metadata, dict):
             metadata = {}
         created_at = str(item.get("created_at") or item.get("createdAt") or "")
         updated_at = str(item.get("updated_at") or item.get("updatedAt") or created_at)
+        if preserve_timestamps:
+            format_time = lambda value: value
+        else:
+            format_time = lambda value: format_local_datetime(value) if value else ""
         return RememberItemRecord(
             id=str(item.get("id", "")),
             user_id=str(item.get("user_id") or self.user_id),
             memory=str(item.get("memory") or item.get("text") or ""),
             original_text=str(metadata.get("original_text") or ""),
-            created_at=format_local_datetime(created_at) if created_at else "",
-            updated_at=format_local_datetime(updated_at) if updated_at else "",
+            created_at=format_time(created_at),
+            updated_at=format_time(updated_at),
             source_memory_id=str(item.get("id", "")),
         )
 
@@ -315,6 +321,14 @@ class Mem0RememberStore(BaseRememberStore):
         response = self.client.get_all(**self._read_scope_kwargs())
         items = _extract_mem0_results(response)
         return [self._record_from_item(item) for item in items[offset : offset + limit]]
+
+    def list_all_records(self) -> list[RememberItemRecord]:
+        """Return every memory in the current Mem0 user scope without paging limits."""
+
+        return [
+            self._record_from_item(item, preserve_timestamps=True)
+            for item in self.get_all()
+        ]
 
     def get_all(self) -> list[dict[str, Any]]:
         response = self.client.get_all(**self._read_scope_kwargs())
