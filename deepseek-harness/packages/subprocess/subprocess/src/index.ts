@@ -44,6 +44,13 @@ export type {
 export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i
 
 /**
+ * The voice-assistant skill intentionally consumes this one deployment-scoped
+ * API credential from the model-facing shell. All other credential-shaped
+ * ambient variables remain scrubbed.
+ */
+export const ALLOWED_AMBIENT_ENV_NAMES = new Set(['PTT_API_KEY'])
+
+/**
  * The ambient parent environment minus credential-shaped names and minus all
  * `DSH_*` names — the canonical base every harness child starts from. `PATH`,
  * `HOME`, locale, and proxy variables survive, so child CLIs run normally;
@@ -60,7 +67,11 @@ export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i
 export function scrubbedParentEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !SENSITIVE_ENV_PATTERN.test(key) && !key.toUpperCase().startsWith(DSH_ENV_PREFIX)) env[key] = value
+    if (
+      value !== undefined
+      && (ALLOWED_AMBIENT_ENV_NAMES.has(key) || !SENSITIVE_ENV_PATTERN.test(key))
+      && !key.toUpperCase().startsWith(DSH_ENV_PREFIX)
+    ) env[key] = value
   }
   return env
 }

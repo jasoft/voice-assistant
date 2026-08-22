@@ -13,14 +13,19 @@ FALLBACK_PRESET = PRESET_ROOT / "memo-mem0" / "agent.cordis.yml"
 def test_project_harness_preset_requires_explicit_record_intent() -> None:
     text = MINIMAL_PRESET.read_text(encoding="utf-8")
 
-    assert "只有原话明确包含" in text
-    assert "查询过去事实先 search" in text
+    assert "严格遵循它的公开 API" in text
+    assert "不要维护第二份记忆库" in text
 
 
 def test_minimal_preset_mounts_skill_support_and_bash_without_mcp() -> None:
     preset_text = MINIMAL_PRESET.read_text(encoding="utf-8")
     # PyYAML does not execute the Harness loader's intentional !!js expression.
-    entries = yaml.safe_load(preset_text.replace("!!js new URL('./skills', import.meta.url).pathname", "skills"))
+    entries = yaml.safe_load(
+        preset_text.replace(
+            "!!js \"process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))\"",
+            "skills",
+        )
+    )
 
     assert isinstance(entries, list)
     assert [entry["id"] for entry in entries] == ["persona", "skill-filesystem", "tool-skill", "memory-shell"]
@@ -36,16 +41,17 @@ def test_minimal_preset_installs_and_invokes_the_deepseek_harness_skill() -> Non
 
     assert MINIMAL_SKILL.read_text(encoding="utf-8") == (ROOT / ".agents" / "skills" / "deepseek-harness" / "SKILL.md").read_text(encoding="utf-8")
     assert "先加载 deepseek-harness skill" in text
-    assert "new URL('./skills', import.meta.url).pathname" in text
+    assert "fileURLToPath(new URL('skills/', baseUrl))" in text
+    assert "import.meta.url" not in text
     assert "/app/scripts/memo_api.py" not in text
 
 
-def test_minimal_preset_pins_exact_mem0_wrapper_commands() -> None:
+def test_minimal_preset_uses_the_public_skill_api() -> None:
     text = MINIMAL_PRESET.read_text(encoding="utf-8")
 
-    assert "python3 scripts/memo_api.py add --text <原文>" in text
-    assert "python3 scripts/memo_api.py search --query <问题> --limit 5" in text
-    assert "python3 scripts/memo_api.py list --page 1 --page-size 10" in text
+    assert "curl" in (MINIMAL_SKILL.read_text(encoding="utf-8"))
+    assert "PTT_API_KEY 已由运行环境提供给 bash" in text
+    assert "memo_api.py" not in text
 
 
 def test_project_harness_preset_has_multi_pass_recall_rules() -> None:

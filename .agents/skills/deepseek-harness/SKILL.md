@@ -27,6 +27,7 @@ Content-Type: application/json
 ### 1. 记事或提问
 
 ```bash
+BASE="${BASE:-http://docker.home:10031}"
 curl -sS "$BASE/v1/query" \
   -X POST \
   -H "Authorization: Bearer $PTT_API_KEY" \
@@ -55,6 +56,7 @@ curl -sS "$BASE/v1/query" \
 如果调用方不能长时间等待，可提交后台任务：
 
 ```bash
+BASE="${BASE:-http://docker.home:10031}"
 curl -sS -X POST "$BASE/v1/query/async" \
   -H "Authorization: Bearer $PTT_API_KEY" \
   -H 'Content-Type: application/json' \
@@ -77,6 +79,7 @@ curl -sS -X POST "$BASE/v1/query/async" \
 ### 2. 查看最近历史
 
 ```bash
+BASE="${BASE:-http://docker.home:10031}"
 curl -sS "$BASE/v1/history" \
   -X POST \
   -H "Authorization: Bearer $PTT_API_KEY" \
@@ -99,6 +102,7 @@ curl -sS "$BASE/v1/history" \
 ### 3. 查看全部长期记忆
 
 ```bash
+BASE="${BASE:-http://docker.home:10031}"
 curl -sS "$BASE/v1/memories" \
   -X POST \
   -H "Authorization: Bearer $PTT_API_KEY" \
