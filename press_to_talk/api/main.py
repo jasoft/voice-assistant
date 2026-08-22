@@ -795,7 +795,9 @@ def run_server():
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind the server to.")
     parser.add_argument("--port", type=int, default=10031, help="Port to bind the server to.")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload.")
-    parser.add_argument("--workers", type=int, default=4, help="Number of worker processes.")
+    # Query jobs and Harness client sessions are process-local. Keep one worker
+    # so status polling always reaches the same state as submission.
+    parser.add_argument("--workers", type=int, default=1, help="Number of worker processes.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging.")
     
     args = parser.parse_args()

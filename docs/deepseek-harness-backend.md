@@ -38,9 +38,13 @@ Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取
 项目内的记忆 preset 策略源文件是
 `config/deepseek-harness/agent-presets/memo-minimal/agent.cordis.yml`。它要求当前用户明确说出“记住/记录/保存”等意图才允许写入；普通陈述、关键词和查询只能读取。
 
+preset 还固定了唯一允许的三条 wrapper 命令（`add`、`search`、`list`）。这能避免模型猜出 `mem0 add ...` 这类不存在的命令，防止命令帮助文本进入会话并把后续请求撑爆 TPM 限额。
+
 项目 preset 由 Compose 直接挂载到 `${DSH_HOME:-~/.dsh}/.agent-presets`。运行环境需要提供 `MEM0_MCP_TOKEN`（或兼容已有的 `MEM0_API_KEY`）。不要把 token 写入 git。
 
 Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` 和 `POST /api/session.history`。语音助手会为每个认证用户保持一个 Harness 会话，并串行等待本轮最终助手消息。
+
+PTT API 默认只启动一个 uvicorn worker。异步任务表和 Harness 客户端会话都在进程内存里；多 worker 会让提交和轮询落到不同进程，表现为 `/v1/query/status/{job_id}` 间歇性 404。除非把这两类状态迁移到共享存储，否则不要调高 `--workers`。
 
 ## 持久化分工
 
@@ -58,9 +62,9 @@ Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` �
 ./scripts/start_memo_web.sh --host 0.0.0.0 --port 10032
 ```
 
-Docker Compose 会同时启动 `deepseek-harness`（内部端口 3080）和 `memo-web`（局域网端口 10032）。生产运行时，`config/deepseek-harness/` 由服务器单独保存并挂载到 dsh 的 `/root/.dsh`，供 Harness 保存 profile/session 运行状态；不要把凭据或该目录提交到 git。
+Docker Compose 会同时启动 `deepseek-harness`（内部端口 3080）和 `memo-web`（局域网端口 10032），两者都使用 `memo-minimal` preset。生产运行时，`config/deepseek-harness/` 由服务器单独保存并挂载到 dsh 的 `/root/.dsh`，供 Harness 保存 profile/session 运行状态；不要把凭据或该目录提交到 git。
 
-打开 `http://<这台电脑的局域网 IP>:10032/`，输入一条指令后，外壳会由服务器调用 `memo-mem0` Agent，等待 `session.history` 返回最终助手消息，再把纯文本结果显示在页面上。页面不直接加载 Harness 前端，也不依赖浏览器的 `crypto.randomUUID()`。
+打开 `http://<这台电脑的局域网 IP>:10032/`，输入一条指令后，外壳会由服务器调用当前配置的 Harness Agent，等待 `session.history` 返回最终助手消息，再把纯文本结果显示在页面上。页面不直接加载 Harness 前端，也不依赖浏览器的 `crypto.randomUUID()`。
 
 ## Mem0 用户隔离
 

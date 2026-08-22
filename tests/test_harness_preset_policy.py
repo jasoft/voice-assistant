@@ -25,6 +25,14 @@ def test_minimal_preset_mounts_only_bash_without_mcp() -> None:
     assert "mcp-client" not in MINIMAL_PRESET.read_text(encoding="utf-8")
 
 
+def test_minimal_preset_pins_exact_mem0_wrapper_commands() -> None:
+    text = MINIMAL_PRESET.read_text(encoding="utf-8")
+
+    assert "python3 /app/scripts/memo_api.py add --text <原文>" in text
+    assert "python3 /app/scripts/memo_api.py search --query <问题> --limit 5" in text
+    assert "python3 /app/scripts/memo_api.py list --page 1 --page-size 10" in text
+
+
 def test_project_harness_preset_has_multi_pass_recall_rules() -> None:
     text = FALLBACK_PRESET.read_text(encoding="utf-8")
 
