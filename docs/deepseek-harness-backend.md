@@ -44,6 +44,8 @@ preset 还固定了唯一允许的三条 wrapper 命令（`add`、`search`、`li
 
 Compose 给一次性 Harness 容器设置 `DSH_PERMISSION_MODE=danger-full-access`。这是容器内执行 Mem0 REST wrapper 所需的部署选择；不要把同一配置照搬到本机开发或非隔离环境。
 
+Harness 会主动清洗子进程里凭据形状的环境变量，所以 wrapper 在环境变量缺失时会从 `$DSH_HOME/.env` 读取 `MEM0_API_KEY` 或 `MEM0_MCP_TOKEN`。这样 token 仍留在机器本地凭据文件中，不会进入模型 shell 的进程环境。
+
 Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` 和 `POST /api/session.history`。语音助手会为每个认证用户保持一个 Harness 会话，并串行等待本轮最终助手消息。
 
 PTT API 默认只启动一个 uvicorn worker。异步任务表和 Harness 客户端会话都在进程内存里；多 worker 会让提交和轮询落到不同进程，表现为 `/v1/query/status/{job_id}` 间歇性 404。除非把这两类状态迁移到共享存储，否则不要调高 `--workers`。

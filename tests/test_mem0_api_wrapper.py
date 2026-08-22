@@ -82,3 +82,26 @@ def test_list_pages_within_scope(captured_request: list[tuple[str, dict[str, Any
     assert "page=2" in url
     assert "page_size=50" in url
     assert payload == {"filters": {"AND": [{"user_id": "soj"}]}}
+
+
+def test_token_falls_back_to_harness_env_file(
+    captured_request: list[tuple[str, dict[str, Any], dict[str, str]]],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.delenv("MEM0_API_KEY", raising=False)
+    monkeypatch.delenv("MEM0_MCP_TOKEN", raising=False)
+    monkeypatch.setenv("DSH_HOME", str(tmp_path))
+    (tmp_path / ".env").write_text(
+        "# machine credentials\n"
+        "OTHER_TOKEN=do-not-use\n"
+        'MEM0_API_KEY="file-token"\n',
+        encoding="utf-8",
+    )
+
+    _main(["list", "--page", "1", "--page-size", "1"])
+
+    headers = captured_request[0][2]
+    normalized_headers = {key.lower(): value for key, value in headers.items()}
+    assert normalized_headers["authorization"] == "Token file-token"
+    assert normalized_headers["mem0-user-id"] == hashlib.md5(b"file-token").hexdigest()
