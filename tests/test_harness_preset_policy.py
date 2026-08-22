@@ -1,20 +1,32 @@
 from pathlib import Path
 
+import yaml
 
-PRESET = Path(__file__).parents[1] / "config" / "deepseek-harness" / "agent-presets" / "memo-mem0" / "agent.cordis.yml"
+ROOT = Path(__file__).parents[1]
+PRESET_ROOT = ROOT / "config" / "deepseek-harness" / "agent-presets"
+MINIMAL_PRESET = PRESET_ROOT / "memo-minimal" / "agent.cordis.yml"
+FALLBACK_PRESET = PRESET_ROOT / "memo-mem0" / "agent.cordis.yml"
 
 
 def test_project_harness_preset_requires_explicit_record_intent() -> None:
-    text = PRESET.read_text(encoding="utf-8")
+    text = MINIMAL_PRESET.read_text(encoding="utf-8")
 
-    assert "只有用户在当前消息中明确说" in text
-    assert "绝不能自行记录" in text
-    assert "如果意图不清楚" in text
-    assert "不要因为信息看起来有价值就推断用户想保存" in text
+    assert "只有原话明确包含" in text
+    assert "查询过去事实先 search" in text
+
+
+def test_minimal_preset_mounts_only_bash_without_mcp() -> None:
+    entries = yaml.safe_load(MINIMAL_PRESET.read_text(encoding="utf-8"))
+
+    assert isinstance(entries, list)
+    assert [entry["id"] for entry in entries] == ["persona", "memory-shell"]
+    assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
+    assert entries[1]["config"]["enableRunInBackground"] is False
+    assert "mcp-client" not in MINIMAL_PRESET.read_text(encoding="utf-8")
 
 
 def test_project_harness_preset_has_multi_pass_recall_rules() -> None:
-    text = PRESET.read_text(encoding="utf-8")
+    text = FALLBACK_PRESET.read_text(encoding="utf-8")
 
     assert "第一次用完整用户问题检索" in text
     assert "最多两轮" in text
@@ -23,8 +35,16 @@ def test_project_harness_preset_has_multi_pass_recall_rules() -> None:
 
 
 def test_project_harness_preset_does_not_contain_a_literal_mem0_token() -> None:
-    text = PRESET.read_text(encoding="utf-8")
+    text = FALLBACK_PRESET.read_text(encoding="utf-8")
 
     assert "MEM0_MCP_TOKEN" in text
     assert "Authorization: !!js" in text
     assert "Token <" not in text
+
+
+def test_compose_uses_minimal_preset_and_mounts_presets() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert compose.count("PTT_HARNESS_AGENT_PRESET: memo-minimal") == 2
+    assert "./config/deepseek-harness/agent-presets/memo-minimal:/root/.dsh/.agent-presets/memo-minimal" in compose
+    assert "./config/deepseek-harness/agent-presets/memo-mem0:/root/.dsh/.agent-presets/memo-mem0" in compose

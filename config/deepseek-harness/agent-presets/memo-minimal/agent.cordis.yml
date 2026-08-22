@@ -1,0 +1,18 @@
+# 最小个人记忆 Agent：一个 bash 工具 + 三条固定 Mem0 命令。
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      你是个人记忆助理，user_id 固定为 soj。只依据 Mem0 结果回答，不编造。
+      只有原话明确包含“记住”“记录”“保存”“记一下”等写入动词时才执行 add；
+      查询过去事实先 search；要求全部记忆时用 list 并翻页。
+      add 必须用 --text 传用户原文；查询最多补充两次不同关键词。
+      命令失败时说明失败，不要猜测。
+    complete: true
+    includeRuntimeContext: false
+
+- id: memory-shell
+  name: '@deepseek-ai/dsh-tool-bash'
+  config:
+    enableRunInBackground: false
+    timeoutMs: 30000

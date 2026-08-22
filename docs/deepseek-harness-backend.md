@@ -9,7 +9,7 @@
 ```dotenv
 PTT_QUERY_BACKEND=deepseek-harness
 PTT_HARNESS_API_URL=http://127.0.0.1:3080
-PTT_HARNESS_AGENT_PRESET=memo-mem0
+PTT_HARNESS_AGENT_PRESET=memo-minimal
 ```
 
 Harness 源码已随本项目保存在 `deepseek-harness/`。安装依赖和构建产物属于本地运行状态，不提交到 git：
@@ -33,12 +33,12 @@ macOS 上不要把 Node 版 dsh 直接作为 launchd 子进程运行：该上下
 
 Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取；Mem0 凭据不写入本项目。
 
-如果启用了 Brave Web Search，Brave provider 应安装在 `web` profile 中；`memo-mem0` preset 另外挂载模型侧的 `@deepseek-ai/dsh-tool-web`，这样 Agent 才能看到 `web_search` 工具。Web 服务和 Brave provider 不要重复写入记忆 preset，否则会触发 `service "web" has been registered`。
+默认的 `memo-minimal` preset 不挂载 MCP 和 Web 工具；它只保留 bash，并通过 `/app/scripts/memo_api.py` 直接调用 Mem0 REST API，显著减少工具 schema 占用的上下文。旧的多轮 MCP preset 仍保留在 `memo-mem0`，便于回退。
 
 项目内的记忆 preset 策略源文件是
-`config/deepseek-harness/agent-presets/memo-mem0/agent.cordis.yml`。它要求当前用户明确说出“记住/记录/保存”等意图才允许写入；普通陈述、关键词和查询只能读取。查询会在完整问题、实体组合和同义短语之间做有限的多轮召回。
+`config/deepseek-harness/agent-presets/memo-minimal/agent.cordis.yml`。它要求当前用户明确说出“记住/记录/保存”等意图才允许写入；普通陈述、关键词和查询只能读取。
 
-要让另一台机器使用项目策略，将该 preset 目录同步到 `${DSH_HOME:-~/.dsh}/.agent-presets/memo-mem0`，并通过环境变量提供 `MEM0_MCP_TOKEN`（或兼容已有的 `MEM0_API_KEY`）。不要把 token 写入 git。
+项目 preset 由 Compose 直接挂载到 `${DSH_HOME:-~/.dsh}/.agent-presets`。运行环境需要提供 `MEM0_MCP_TOKEN`（或兼容已有的 `MEM0_API_KEY`）。不要把 token 写入 git。
 
 Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` 和 `POST /api/session.history`。语音助手会为每个认证用户保持一个 Harness 会话，并串行等待本轮最终助手消息。
 
@@ -48,7 +48,7 @@ Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` �
 - PocketBase 是会话历史持久层。每次 `/v1/query` 成功返回后，语音助手会把用户问题和最终回复写入 `session_histories`，`/v1/history` 从这里读取最近 20 条。
 - `/v1/memories` 在 Harness 模式下直接读取当前用户的全部 Mem0 记录，不再返回空的兼容数组。
 - SQLite 不在当前查询链路中使用；旧 SQLite 文件只作为历史存档保留。
-- 默认模型由运行机 `config/deepseek-harness/runtime/settings.yaml` 的 `agent-default-model.model` 控制，可用 `./scripts/set_dsh_model.sh free` 设置。
+- 默认模型由运行机 `config/deepseek-harness/runtime/settings.yaml` 的 `agent-default-model.model` 控制，部署脚本当前用 `./scripts/set_dsh_model.sh fast` 设置。
 
 ## Memo 手机 Web 外壳
 
@@ -64,7 +64,7 @@ Docker Compose 会同时启动 `deepseek-harness`（内部端口 3080）和 `mem
 
 ## Mem0 用户隔离
 
-`soj` 不放在语音助手的存储层里，而应放在 Harness 的 `memo-mem0` preset 指令及 Mem0 MCP 调用参数中。这样将来增加日历、邮件或其他工具时，所有能力仍由同一个 Harness Agent 统一编排。
+`soj` 固定在极简 Agent 提示词和 `scripts/memo_api.py` 中，避免模型每轮选择错误作用域。
 
 当前机器使用的 `~/.dsh/.agent-presets/memo-mem0` 已同步到上述策略；新会话才会加载更新后的 preset，已经打开的 Harness 会话仍沿用创建时的旧策略。
 

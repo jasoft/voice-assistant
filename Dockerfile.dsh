@@ -14,6 +14,8 @@ RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
 
 COPY deepseek-harness/ ./deepseek-harness/
 COPY scripts/start_dsh.sh ./scripts/start_dsh.sh
+COPY scripts/memo_api.py /app/scripts/memo_api.py
+RUN chmod +x /app/scripts/memo_api.py
 
 RUN pnpm --dir /app/deepseek-harness install --frozen-lockfile
 RUN pnpm --dir /app/deepseek-harness run build

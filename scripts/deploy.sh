@@ -25,7 +25,7 @@ echo "🌐 Step 2: Triggering remote deployment on 'docker' host..."
 # DSH runtime settings are ignored because they hold machine-local state. Patch
 # only the non-secret default-model line before recreating containers, so the
 # new process starts with the selected model.
-ssh docker "cd ~/voice-assistant && git reset --hard && git clean -fd && git pull && ./scripts/set_dsh_model.sh free && docker compose down && docker compose up -d --build"
+ssh docker "cd ~/voice-assistant && git reset --hard && git clean -fd && git pull && ./scripts/set_dsh_model.sh fast && docker compose down && docker compose up -d --build"
 
 # 3. Verification
 echo "🔍 Step 3: Verifying service status..."
