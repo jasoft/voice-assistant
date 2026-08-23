@@ -62,7 +62,7 @@ def test_minimal_preset_uses_direct_compact_mem0_wrapper() -> None:
     assert "`python3 ${memoApi} list --page 1 --page-size 20`" in text
     assert "`python3 ${memoApi} delete --id <memory-id>`" in text
     assert "--limit 3" in text
-    assert "最终回复不超过 60 个汉字" in text
+    assert "完整保留 Mem0 返回的记忆内容" in text
 
 
 def test_local_dsh_startup_pins_wrapper_and_refreshes_presets() -> None:

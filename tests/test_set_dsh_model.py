@@ -14,7 +14,7 @@ def set_model_fast(settings: Path) -> None:
 
 
 EXPECTED_FAST_PROFILE = """- id: fast
-          maxTokens: 256
+          maxTokens: 1024
           reasoningEfforts:
             off: "none"
             high: high
@@ -143,7 +143,7 @@ agent-default-model:
     assert "- id: slow\n          maxTokens: 6000" in text
     assert (
         "- id: fast\n"
-        "          maxTokens: 256\n"
+        "          maxTokens: 1024\n"
         "          reasoningEfforts:\n"
         "            off: \"none\"\n"
         "            high: high\n"
