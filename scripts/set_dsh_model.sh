@@ -40,31 +40,54 @@ mv "$tmp" "$settings"
 # Groq's free TPM budget counts input plus requested max output. The minimal
 # memory agent only needs short tool calls/replies, so keep fast safely below
 # the 8k limit instead of inheriting a coding-agent-sized 6000-token ceiling.
+# The OpenAI-compatible pi-ai route must also describe fast as non-reasoning;
+# otherwise an installed catalog entry can expose a reasoning default.
 if [[ "$model" == "fast" ]]; then
   awk -v max_tokens="$fast_max_tokens" '
     /^[[:space:]]*- id:[[:space:]]*fast[[:space:]]*$/ {
       match($0, /^[[:space:]]*/)
       fast_indent = substr($0, RSTART, RLENGTH)
+      fast_indent_length = RLENGTH
       print
+      print fast_indent "  maxTokens: " max_tokens
+      print fast_indent "  reasoningEfforts: false"
       in_fast = 1
       next
     }
-    in_fast && $1 == "maxTokens:" {
-      match($0, /^[[:space:]]*/)
-      print substr($0, RSTART, RLENGTH) "maxTokens: " max_tokens
-      replaced = 1
-      in_fast = 0
-      next
-    }
     in_fast {
-      print fast_indent "  maxTokens: " max_tokens
-      in_fast = 0
+      match($0, /^[[:space:]]*/)
+      lead_length = RLENGTH
+      if ($0 ~ /^[[:space:]]*- / || ($0 !~ /^[[:space:]]*$/ && lead_length <= fast_indent_length)) {
+        in_fast = 0
+        print
+        next
+      }
+      if (removing_reasoning) {
+        if ($0 ~ /^[[:space:]]*$/) {
+          next
+        }
+        if (lead_length <= reasoning_indent_length) {
+          removing_reasoning = 0
+        } else {
+          next
+        }
+      }
+      if ($1 == "maxTokens:") {
+        next
+      }
+      if ($1 == "reasoningEfforts:") {
+        removing_reasoning = 1
+        reasoning_indent_length = lead_length
+        next
+      }
+      print
+      next
     }
     { print }
   ' "$settings" > "$tmp"
 
   mv "$tmp" "$settings"
-  printf 'DeepSeek Harness fast maxTokens set to %s in %s\n' "$fast_max_tokens" "$settings" >&2
+  printf 'DeepSeek Harness fast maxTokens set to %s and reasoning disabled in %s\n' "$fast_max_tokens" "$settings" >&2
 fi
 
 printf 'DeepSeek Harness default model set to %s in %s\n' "$model" "$settings" >&2
