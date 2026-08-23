@@ -1,5 +1,5 @@
 ---
-name: deepseek-harness
+name: remember
 description: 通过语音助手外部 API 完成个人记事、记忆问答、历史查看和记忆列表读取。
 ---
 

@@ -16,20 +16,32 @@ def test_project_harness_preset_requires_explicit_record_intent() -> None:
     assert "完整用户原文" in text
 
 
-def test_minimal_preset_mounts_only_bash_without_mcp_or_skill_loading() -> None:
+def test_minimal_preset_loads_only_preset_directory_skills() -> None:
     preset_text = MINIMAL_PRESET.read_text(encoding="utf-8")
     entries = yaml.safe_load(preset_text)
 
     assert isinstance(entries, list)
-    assert [entry["id"] for entry in entries] == ["persona", "memory-shell"]
+    assert [entry["id"] for entry in entries] == [
+        "persona",
+        "memory-shell",
+        "skill-filesystem",
+        "tool-skill",
+    ]
     assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
     assert entries[1]["config"]["enableRunInBackground"] is False
     assert entries[1]["config"]["concludeOnSuccessCommandPrefixes"] == [
         "python3 /app/scripts/memo_api.py add ",
         "python3 /app/scripts/memo_api.py delete ",
     ]
+    assert entries[2]["name"] == "@deepseek-ai/dsh-skill-filesystem"
+    assert entries[2]["config"]["includeDefaultRoots"] is False
+    assert entries[2]["config"]["customSkillDirs"] == [
+        "skills",
+    ]
+    assert entries[3]["name"] == "@deepseek-ai/dsh-tool-skill"
     assert "mcp-client" not in preset_text
-    assert "tool-skill" not in preset_text
+    skill = MINIMAL_DIR / "skills" / "remember" / "SKILL.md"
+    assert skill.read_text(encoding="utf-8").startswith("---\nname: remember\n")
 
 
 def test_minimal_preset_uses_direct_compact_mem0_wrapper() -> None:

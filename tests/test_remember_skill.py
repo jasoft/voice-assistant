@@ -1,12 +1,13 @@
 from pathlib import Path
 
 
-SKILL = Path(__file__).parents[1] / ".agents" / "skills" / "deepseek-harness" / "SKILL.md"
+SKILL = Path(__file__).parents[1] / ".agents" / "skills" / "remember" / "SKILL.md"
 
 
 def test_skill_documents_only_the_public_note_and_query_contract() -> None:
     text = SKILL.read_text(encoding="utf-8")
 
+    assert "name: remember" in text
     assert "$BASE/v1/query" in text
     assert "$BASE/v1/query/async" in text
     assert "$BASE/v1/history" in text
