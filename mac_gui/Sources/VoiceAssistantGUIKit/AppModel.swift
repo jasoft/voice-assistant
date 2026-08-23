@@ -25,6 +25,7 @@ public final class AppModel: ObservableObject {
     private var historySearchTask: Task<Void, Never>?
     private let vaClient: VAClient?
     private var ttsProcess: Process?
+    private(set) var isShuttingDown = false
 
     public init(forwardedArgs: [String], workingDirectory: URL) {
         let session = SessionViewModel()
@@ -95,6 +96,7 @@ public final class AppModel: ObservableObject {
             do {
                 guard let client = vaClient else { return }
                 let response = try await client.query(text: text)
+                guard !isShuttingDown else { return }
                 session.apply(jsonLine: "{\"type\": \"reply\", \"text\": \"\(response.reply.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n"))\"}")
                 session.apply(jsonLine: "{\"type\": \"status\", \"phase\": \"done\", \"auto_close_seconds\": 5}")
 
@@ -121,19 +123,41 @@ public final class AppModel: ObservableObject {
         try? process.run()
     }
 
+    private func stopLocalSpeech() {
+        guard let process = ttsProcess, process.isRunning else {
+            ttsProcess = nil
+            return
+        }
+
+        ttsProcess = nil
+        process.terminate()
+
+        let processIdentifier = process.processIdentifier
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 750_000_000)
+            if process.isRunning, processIdentifier > 0 {
+                kill(processIdentifier, SIGKILL)
+            }
+        }
+    }
+
+    private func stopSpeechPlaybackNow() {
+        bridge.stopSpeechPlayback()
+        stopLocalSpeech()
+    }
+
     public func startRecording() {
         session.stopCountdown()
         session.resetForNewSession()
         screenMode = .live
         bridge.stop()
+        stopLocalSpeech()
         bridge.start(additionalArgs: forwardedArgs, workingDirectory: workingDirectory)
     }
 
     public func startNewConversation() {
         keepWindowOpen()
-        if case .speaking = session.state.status {
-            bridge.stopSpeechPlayback()
-        }
+        stopSpeechPlaybackNow()
         startRecording()
     }
 
@@ -151,6 +175,7 @@ public final class AppModel: ObservableObject {
         session.resetForNewSession()
         screenMode = .live
         bridge.stop()
+        stopLocalSpeech()
 
         if vaClient != nil {
             session.apply(jsonLine: "{\"type\": \"transcript\", \"text\": \"\(prompt.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n"))\"}")
@@ -171,12 +196,7 @@ public final class AppModel: ObservableObject {
 
     public func stopSpeaking() {
         keepWindowOpen()
-        bridge.stopSpeechPlayback()
-        
-        if let ttsProcess, ttsProcess.isRunning {
-            ttsProcess.terminate()
-        }
-        ttsProcess = nil
+        stopSpeechPlaybackNow()
     }
 
     public func stopServices() {
@@ -228,14 +248,31 @@ public final class AppModel: ObservableObject {
         keepWindowOpen()
         screenMode = .live
         switch session.state.status {
-        case .recording, .transcribing, .thinking, .speaking:
+        case .recording, .transcribing, .thinking:
             bridge.stop()
+            session.resetForNewSession()
+        case .speaking:
+            stopSpeaking()
             session.resetForNewSession()
         case .done, .error, .cancelled:
             session.resetForNewSession()
         case .idle:
             break
         }
+    }
+
+    public func prepareForTermination() {
+        guard !isShuttingDown else {
+            return
+        }
+
+        isShuttingDown = true
+        historySearchTask?.cancel()
+
+        // Stop the launcher first so a run cannot start another TTS child.
+        bridge.stop()
+        stopSpeechPlaybackNow()
+        stopServices()
     }
 
     public func toggleHistory() {

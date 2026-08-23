@@ -1,5 +1,7 @@
 import Foundation
 
+import Darwin
+
 @MainActor
 public final class PTTProcessBridge {
     struct TerminationDisposition: Equatable {
@@ -66,10 +68,10 @@ public final class PTTProcessBridge {
         self.controlDirectory = controlDirectory
 
         let resolvedWorkingDirectory = PathHelper.resolveProjectRoot(startingAt: workingDirectory)
+        let launchCommand = Self.processLaunchCommand(arguments: arguments)
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-
-        process.arguments = arguments
+        process.executableURL = launchCommand.executable
+        process.arguments = launchCommand.arguments
         process.currentDirectoryURL = resolvedWorkingDirectory
         var environment = ProcessInfo.processInfo.environment
         environment["PTT_GUI_CONTROL_DIR"] = controlDirectory.path
@@ -124,8 +126,9 @@ public final class PTTProcessBridge {
         stderrHandle?.readabilityHandler = nil
         if let process, process.isRunning {
             stoppedGenerations.insert(generation)
-            process.terminate()
+            Self.sendTerminationSignals(to: process)
         }
+        controlDirectory = nil
         process = nil
     }
 
@@ -234,5 +237,44 @@ public final class PTTProcessBridge {
             emitDone = true
         }
         return TerminationDisposition(errorMessage: errorMessage, emitDone: emitDone)
+    }
+
+    nonisolated static func processLaunchCommand(arguments: [String]) -> (executable: URL, arguments: [String]) {
+        let bootstrap = """
+        import os, sys
+
+        try:
+            os.setpgid(0, 0)
+        except OSError:
+            pass
+        os.execvp(sys.argv[1], sys.argv[1:])
+        """
+
+        return (
+            executable: URL(fileURLWithPath: "/usr/bin/python3"),
+            arguments: ["-c", bootstrap] + arguments
+        )
+    }
+
+    nonisolated static func terminationTargets(processIdentifier: pid_t) -> [pid_t] {
+        guard processIdentifier > 0 else {
+            return []
+        }
+        return [-processIdentifier, processIdentifier]
+    }
+
+    nonisolated static func sendTerminationSignals(to process: Process) {
+        let targets = terminationTargets(processIdentifier: process.processIdentifier)
+        if targets.isEmpty {
+            process.terminate()
+            return
+        }
+
+        targets.forEach { kill($0, SIGTERM) }
+    }
+
+    nonisolated static func sendForceKillSignals(to process: Process) {
+        terminationTargets(processIdentifier: process.processIdentifier)
+            .forEach { kill($0, SIGKILL) }
     }
 }

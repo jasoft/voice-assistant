@@ -108,9 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let escMonitor {
             NSEvent.removeMonitor(escMonitor)
         }
-        model.stopSpeaking()
-        model.stopRecording()
-        model.stopServices()
+        model.prepareForTermination()
     }
 
     func applicationDidResignActive(_ notification: Notification) {
