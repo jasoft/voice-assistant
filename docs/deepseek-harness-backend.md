@@ -22,6 +22,7 @@ pnpm run build
 ```
 
 `scripts/start_dsh.sh` 会从 `${DSH_HOME:-~/.dsh}/.credentials.yaml` 读取 `BRAVE_API_KEY`，只注入当前 DSH 进程，不会把密钥写入项目或输出到终端。也可以通过 `BRAVE_API_KEY` 环境变量覆盖，或用参数传给 DSH，例如 `../scripts/start_dsh.sh --port 3080`；局域网模式使用 `../scripts/start_dsh.sh --host 0.0.0.0 --port 3080`。
+通过局域网 HTTPS 反向代理访问网页时，使用 `https://deepseek-harness.docker.home`；该域名已加入 Harness 的 trusted-host，后端仍通过容器内的 `http://deepseek-harness:3080` 通信。
 
 macOS 上不要把 Node 版 dsh 直接作为 launchd 子进程运行：该上下文可能让 Node 访问局域网模型网关时得到 `EHOSTUNREACH`，而普通用户会话访问正常。需要持久运行时使用用户会话里的 tmux：
 

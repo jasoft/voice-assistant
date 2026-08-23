@@ -45,6 +45,8 @@ services:
       - deepseek-harness
       - --trusted-host
       - docker.home
+      - --trusted-host
+      - deepseek-harness.docker.home
     volumes:
       - ./config/deepseek-harness/runtime:/root/.dsh
       - ./config/deepseek-harness/agent-presets/memo-minimal:/root/.dsh/.agent-presets/memo-minimal
