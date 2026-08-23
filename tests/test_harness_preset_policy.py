@@ -24,6 +24,8 @@ def test_project_harness_preset_requires_explicit_record_intent() -> None:
 
     assert "只有用户明确要求“记住、记录、保存、记一下”时才写入" in text
     assert "完整用户原文" in text
+    assert "必须通过 bash 工具执行" in text
+    assert "不要把命令文本作为最终回复" in text
 
 
 def test_minimal_preset_discovers_only_preset_directory_skills() -> None:
