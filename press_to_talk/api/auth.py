@@ -4,10 +4,13 @@ import hmac
 import httpx
 from typing import Optional
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from ..utils.logging import log
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+# HTTPBearer renders a simple "paste token" Authorize button in Swagger UI,
+# unlike OAuth2PasswordBearer which expects a /token endpoint we don't have.
+bearer_scheme = HTTPBearer()
+
 def _uses_harness_backend() -> bool:
     backend = os.environ.get("PTT_QUERY_BACKEND", "legacy").strip().lower()
     return backend in {"harness", "deepseek-harness"}
@@ -27,7 +30,8 @@ def _harness_user_id(token: str) -> str:
         )
     return os.environ.get("PTT_USER_ID", "soj").strip() or "soj"
 
-async def get_user_id(token: str = Depends(oauth2_scheme)):
+async def get_user_id(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
+    token = credentials.credentials
     if _uses_harness_backend():
         return _harness_user_id(token)
 
@@ -78,7 +82,7 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
                     if user_res.status_code in (200, 201):
                         log(f"Created user record for {user_id} with default nickname", level="info")
                     else:
-                        log(f"Failed to create user record: {user_res.status_code}", level="warn")
+                        log(f"Failed to create user record for {user_id}", level="warn")
             except Exception as e:
                 log(f"Warning: failed to create user record: {e}", level="warn")
 
@@ -92,7 +96,12 @@ async def get_user_id(token: str = Depends(oauth2_scheme)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-def get_optional_user_id(token: Optional[str] = Depends(oauth2_scheme)) -> Optional[str]:
-    # 这是一个同步方法，但在 FastAPI 依赖中通常建议用 async
-    # 为了保持原有签名暂不改动，但内部需处理异步或改为 async
-    return None # 暂时返回 None，核心逻辑已迁往 async get_user_id
+async def get_optional_user_id(credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)) -> Optional[str]:
+    """Extract the bearer token without enforcing authentication.
+
+    Returns None when no credentials are provided; callers decide whether
+    that is acceptable. Core validation lives in ``get_user_id``.
+    """
+    if credentials is None:
+        return None
+    return credentials.credentials
