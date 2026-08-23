@@ -1,4 +1,6 @@
 # 最小个人记忆 Agent：fast 模型 + 一个受限 Mem0 wrapper。
+# 不加载任何 skill：persona 已包含全部指令，且 remember skill 会引导模型
+# 回调 /v1/query 造成递归。外部调用者请使用 .agents/skills/remember/。
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
@@ -12,7 +14,7 @@
           "每轮只做完成请求所需的最少动作，不解释过程，最终回复不超过 60 个汉字。",
           "上述 wrapper 命令必须通过 bash 工具执行；不要把命令文本作为最终回复。",
           "",
-          "只有用户明确要求“记住、记录、保存、记一下”时才写入：",
+          "只有用户明确要求"记住、记录、保存、记一下"时才写入：",
           `python3 ${memoApi} add --text <完整用户原文>`,
           "",
           "查询记忆时只检索一次，并保留用户原话：",
@@ -26,6 +28,7 @@
           "有多个可能项时列出简短候选并请用户确认，不得猜测删除。",
           "",
           "只能执行以上四种命令。命令失败时直接说明失败，不重试，不调用其他后端。",
+          "不要读取或加载任何 skill 文件。",
         ].join("\n");
       })()
     complete: true
@@ -41,12 +44,9 @@
         return [`python3 ${memoApi} add `, `python3 ${memoApi} delete `];
       })()
 
-# Skills are isolated to this preset directory. `includeDefaultRoots: false`
-# keeps project, DSH-home, agents-home, and bundled skill roots out of the
-# model catalog; the only filesystem source is this preset's own skills/.
+# Block all skill loading. The persona is self-contained; loading any skill
+# risks the model following remember/SKILL.md and calling /v1/query on itself.
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
   config:
     includeDefaultRoots: false
-    customSkillDirs:
-      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"

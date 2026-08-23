@@ -22,13 +22,13 @@ PresetYamlLoader.add_constructor(
 def test_project_harness_preset_requires_explicit_record_intent() -> None:
     text = MINIMAL_PRESET.read_text(encoding="utf-8")
 
-    assert "只有用户明确要求“记住、记录、保存、记一下”时才写入" in text
+    assert "只有用户明确要求" in text
     assert "完整用户原文" in text
     assert "必须通过 bash 工具执行" in text
     assert "不要把命令文本作为最终回复" in text
 
 
-def test_minimal_preset_discovers_only_preset_directory_skills() -> None:
+def test_minimal_preset_blocks_all_skill_loading() -> None:
     preset_text = MINIMAL_PRESET.read_text(encoding="utf-8")
     entries = yaml.load(preset_text, Loader=PresetYamlLoader)
 
@@ -40,21 +40,16 @@ def test_minimal_preset_discovers_only_preset_directory_skills() -> None:
     ]
     assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
     assert entries[1]["config"]["enableRunInBackground"] is False
-    assert entries[1]["config"]["concludeOnSuccessCommandPrefixes"] == (
-        "(() => {\n"
-        "  const memoApi = process.env.MEMO_API_SCRIPT || \"/app/scripts/memo_api.py\";\n"
-        "  return [`python3 ${memoApi} add `, `python3 ${memoApi} delete `];\n"
-        "})()\n"
-    )
     assert entries[2]["name"] == "@deepseek-ai/dsh-skill-filesystem"
     assert entries[2]["config"]["includeDefaultRoots"] is False
-    assert entries[2]["config"]["customSkillDirs"] == [
-        "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))",
-    ]
+    # No customSkillDirs: loading any skill risks the model following
+    # remember/SKILL.md and calling /v1/query on itself.
+    assert "customSkillDirs" not in preset_text
     assert "mcp-client" not in preset_text
     assert "- id: tool-skill" not in preset_text
-    skill = MINIMAL_DIR / "skills" / "remember" / "SKILL.md"
-    assert skill.read_text(encoding="utf-8").startswith("---\nname: remember\n")
+    # The remember skill must not ship inside this preset; external callers
+    # should use .agents/skills/remember/SKILL.md instead.
+    assert not (MINIMAL_DIR / "skills").exists()
 
 
 def test_minimal_preset_uses_direct_compact_mem0_wrapper() -> None:
