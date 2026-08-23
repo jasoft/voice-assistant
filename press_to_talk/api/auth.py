@@ -11,9 +11,13 @@ from ..utils.logging import log
 # unlike OAuth2PasswordBearer which expects a /token endpoint we don't have.
 bearer_scheme = HTTPBearer()
 
-def _uses_harness_backend() -> bool:
+def uses_harness_backend() -> bool:
     backend = os.environ.get("PTT_QUERY_BACKEND", "legacy").strip().lower()
     return backend in {"harness", "deepseek-harness"}
+
+
+# Kept as a module-local alias for existing API callers/tests.
+_uses_harness_backend = uses_harness_backend
 
 
 def _pb_api_url() -> str:

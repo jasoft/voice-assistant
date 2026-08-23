@@ -12,24 +12,18 @@ class StorageConfig:
     mem0_app_id: str = "voice-assistant"
     mem0_min_score: float = 0.8
     mem0_max_items: int = 20
-    history_db_path: str = ""
-    remember_db_path: str = ""
     remember_max_results: int = 20
-    keyword_search_enabled: bool = True
     semantic_search_enabled: bool = True
     query_rewrite_enabled: bool = False
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = "qwen/qwen3-32b"
-    groq_rewrite_enabled: bool = False
-    groq_rewrite_model: str = ""
     embedding_search_enabled: bool = False
     embedding_base_url: str = ""
     embedding_api_key: str = ""
     embedding_model: str = ""
     embedding_max_results: int = 5
     embedding_min_score: float = 0.45
-    embedding_context_min_score: float = 0.55
     reranker_enabled: bool = False
     reranker_api_key: str = ""
     reranker_base_url: str = "https://api.jina.ai/v1/rerank"
@@ -49,8 +43,8 @@ class RememberItemRecord:
     photo_path: str = ""
     created_at: str = ""
     updated_at: str = ""
-    source_memory_id: str = ""
     embedding: list[float] | None = None
+    source_memory_id: str = ""
 
 
 @dataclass
@@ -71,10 +65,6 @@ class SessionHistoryRecord:
 
 class KeywordRewriter(Protocol):
     def rewrite(self, query: str) -> str: ...
-
-
-class MemoryTranslator(Protocol):
-    def translate(self, text: str) -> str: ...
 
 
 class EmbeddingClient(Protocol):
@@ -110,8 +100,6 @@ class BaseRememberStore:
     def list_all(self, *, limit: int = 100, offset: int = 0) -> list[RememberItemRecord]:
         raise NotImplementedError
 
-    def rebuild_fts(self) -> int:
-        raise NotImplementedError
 
     def update(
         self,

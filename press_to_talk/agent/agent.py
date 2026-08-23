@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any
 
@@ -10,12 +9,12 @@ from press_to_talk.storage import StorageService
 from ..models.config import Config
 from ..models.history import build_storage_config
 from ..utils.env import (
-    WORKFLOW_CONFIG_PATH,
-    expand_env_placeholders,
-    load_json_file,
+    load_workflow_config,
+    render_prompt_template,
+    require_mapping,
 )
 from ..utils.logging import log, log_llm_prompt, log_multiline
-from ..utils.llm_streaming import stream_chat_completion_text
+from ..utils.llm_streaming import build_async_openai_client, stream_chat_completion_text
 from ..utils.shell import parse_json_output
 from ..utils.text import (
     current_time_text,
@@ -27,55 +26,6 @@ from .intent import (
 )
 
 
-def _runtime_current_time_text() -> str:
-    return current_time_text()
-
-
-def _format_structured_mem0_summary(items: list[dict[str, Any]]) -> str:
-    if not items:
-        return "<none>"
-
-    lines: list[str] = []
-    for index, item in enumerate(items, start=1):
-        lines.append(f"第{index}条:")
-        memory = str(item.get("memory", "")).strip()
-        if memory:
-            lines.append(f"记忆: {memory}")
-        score = item.get("score")
-        if score not in (None, ""):
-            lines.append(f"分数: {score}")
-        created_at = str(item.get("created_at") or item.get("createdAt") or "").strip()
-        if created_at:
-            lines.append(f"记录时间: {format_local_datetime(created_at)}")
-        updated_at = str(item.get("updated_at") or item.get("updatedAt") or "").strip()
-        if updated_at:
-            lines.append(f"更新时间: {format_local_datetime(updated_at)}")
-        metadata = item.get("metadata")
-        if isinstance(metadata, dict) and metadata:
-            metadata_text = ", ".join(
-                f"{key}={value}"
-                for key, value in metadata.items()
-                if value not in (None, "")
-            )
-            if metadata_text:
-                lines.append(f"元数据: {metadata_text}")
-        categories = item.get("categories")
-        if isinstance(categories, list) and categories:
-            lines.append(f"分类: {', '.join(str(category) for category in categories)}")
-    return "\n".join(lines)
-
-
-def _require_mapping(value: Any, path: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise RuntimeError(f"workflow config missing required section: {path}")
-    return value
-
-
-def _render_prompt_template(template: str, values: dict[str, str]) -> str:
-    rendered = str(template or "")
-    for key, value in values.items():
-        rendered = rendered.replace(f"${{{key}}}", value)
-    return rendered
 
 
 def _memory_date_prefix(timestamp: str) -> str:
@@ -99,54 +49,46 @@ def _memory_date_prefix(timestamp: str) -> str:
 
 class OpenAICompatibleAgent:
     def __init__(self, cfg: Config) -> None:
-        from openai import AsyncOpenAI
-
         self.cfg = cfg
-        client_kwargs: dict[str, Any] = {
-            "api_key": cfg.llm_api_key,
-            "timeout": float(os.environ.get("PTT_LLM_TIMEOUT_SECONDS", "12"))
-        }
-        raw_url = str(cfg.llm_base_url or "").strip()
-        if raw_url:
-            # Strip trailing slash to avoid double-slash issues with proxies
-            client_kwargs["base_url"] = raw_url.rstrip("/")
-        self.client = AsyncOpenAI(**client_kwargs)
+        self.client = build_async_openai_client(
+            api_key=cfg.llm_api_key,
+            base_url=cfg.llm_base_url,
+        )
         self.model = cfg.llm_model
         self.summary_model = getattr(cfg, "llm_summarize_model", cfg.llm_model)
         log(f"DEBUG OpenAICompatibleAgent: initialized with base_url={self.client.base_url} model={self.model}", level="debug")
         self.remember_script = cfg.remember_script
-        self.storage = StorageService(build_storage_config(cfg), use_cli=cfg.use_cli)
+        self.storage = StorageService(build_storage_config(cfg))
         self.messages: list[Any] = []
         self._load_workflow_config()
 
     def _load_workflow_config(self) -> None:
-        workflow_data = load_json_file(WORKFLOW_CONFIG_PATH)
-        workflow_data = expand_env_placeholders(workflow_data)
+        workflow_data = load_workflow_config()
         self.workflow = self._validate_workflow_config(workflow_data)
-        log(f"workflow config loaded: {WORKFLOW_CONFIG_PATH}", level="debug")
+        log("workflow config loaded", level="debug")
 
     def _validate_workflow_config(self, workflow: Any) -> dict[str, Any]:
-        workflow_cfg = _require_mapping(workflow, "workflow")
-        intents = _require_mapping(workflow_cfg.get("intents"), "intents")
-        prompts = _require_mapping(workflow_cfg.get("prompts"), "prompts")
+        workflow_cfg = require_mapping(workflow, "workflow")
+        intents = require_mapping(workflow_cfg.get("intents"), "intents")
+        prompts = require_mapping(workflow_cfg.get("prompts"), "prompts")
         mcp_servers = workflow_cfg.get("mcp_servers")
         if not isinstance(mcp_servers, dict):
             workflow_cfg["mcp_servers"] = {}
         for key in ("record", "find"):
-            _require_mapping(intents.get(key), f"intents.{key}")
-            _require_mapping(prompts.get(key), f"prompts.{key}")
-        _require_mapping(prompts.get("intent_extractor"), "prompts.intent_extractor")
-        _require_mapping(prompts.get("query_normalize"), "prompts.query_normalize")
+            require_mapping(intents.get(key), f"intents.{key}")
+            require_mapping(prompts.get(key), f"prompts.{key}")
+        require_mapping(prompts.get("intent_extractor"), "prompts.intent_extractor")
+        require_mapping(prompts.get("query_normalize"), "prompts.query_normalize")
         # 统一从 prompts.query_rewrite 读取
-        _require_mapping(prompts.get("query_rewrite"), "prompts.query_rewrite")
-        _require_mapping(prompts.get("memory_translate"), "prompts.memory_translate")
-        _require_mapping(prompts.get("distill_memory"), "prompts.distill_memory")
-        _require_mapping(prompts.get("remember_summary"), "prompts.remember_summary")
+        require_mapping(prompts.get("query_rewrite"), "prompts.query_rewrite")
+        require_mapping(prompts.get("memory_translate"), "prompts.memory_translate")
+        require_mapping(prompts.get("distill_memory"), "prompts.distill_memory")
+        require_mapping(prompts.get("remember_summary"), "prompts.remember_summary")
         return workflow_cfg
 
     def _build_intent_extractor_messages(self, user_input: str) -> list[dict[str, str]]:
-        prompts = _require_mapping(self.workflow.get("prompts"), "prompts")
-        extractor_cfg = _require_mapping(
+        prompts = require_mapping(self.workflow.get("prompts"), "prompts")
+        extractor_cfg = require_mapping(
             prompts.get("intent_extractor"), "prompts.intent_extractor"
         )
         intent_desc = "\n".join(
@@ -163,9 +105,9 @@ class OpenAICompatibleAgent:
             for index, item in enumerate(extractor_cfg["instructions"], start=1)
         )
         # 注入真实的时间基准
-        instructions = instructions.replace("${PTT_CURRENT_TIME}", _runtime_current_time_text())
+        instructions = instructions.replace("${PTT_CURRENT_TIME}", current_time_text())
         
-        system_prompt = _render_prompt_template(
+        system_prompt = render_prompt_template(
             str(extractor_cfg["system_prompt"]),
             {
                 "INTENT_DESCRIPTIONS": intent_desc,
@@ -317,47 +259,6 @@ class OpenAICompatibleAgent:
             return intent
         return "find"
 
-    def _get_remember_tools(self) -> dict[str, dict[str, Any]]:
-        return {
-            "remember_add": {
-                "type": "function",
-                "function": {
-                    "name": "remember_add",
-                    "description": "Save a polished, concise memory entry. Distill messy speech into a clean fact-based statement.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "memory": {
-                                "type": "string",
-                                "description": "One polished Chinese memory sentence. Remove all conversational filler (e.g. 'help me remember', 'um', 'uh'), correct transcription errors, and resolve self-corrections. Keep ONLY the core fact.",
-                            },
-                            "original_text": {
-                                "type": "string",
-                                "description": "The user's original utterance before polishing",
-                            },
-                        },
-                        "required": ["memory"],
-                    },
-                },
-            },
-            "remember_find": {
-                "type": "function",
-                "function": {
-                    "name": "remember_find",
-                    "description": "Find a remembered fact about an item.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "Search query for the remembered fact",
-                            }
-                        },
-                        "required": ["query"],
-                    },
-                },
-            },
-        }
 
     async def _execute_remember_tool(self, name: str, args: dict, photo_path: str | None = None) -> str:
         log(
@@ -446,8 +347,8 @@ class OpenAICompatibleAgent:
 
         memories_summary = "\n".join(extracted_memories)
 
-        prompts = _require_mapping(self.workflow.get("prompts"), "prompts")
-        remember_summary_cfg = _require_mapping(
+        prompts = require_mapping(self.workflow.get("prompts"), "prompts")
+        remember_summary_cfg = require_mapping(
             prompts.get("remember_summary"), "prompts.remember_summary"
         )
         system_prompt = str(remember_summary_cfg.get("system_prompt", "")).strip()
@@ -456,7 +357,7 @@ class OpenAICompatibleAgent:
                 "workflow config missing required section: remember_summary.system_prompt"
             )
         system_prompt = system_prompt.replace(
-            "${PTT_CURRENT_TIME}", _runtime_current_time_text()
+            "${PTT_CURRENT_TIME}", current_time_text()
         )
         # Inject user nickname
         nickname = self.storage.get_user_nickname()

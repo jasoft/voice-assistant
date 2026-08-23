@@ -8,8 +8,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from ..utils.env import (
-    load_env_files, env_int, env_float, env_str, env_bool,
-    PROJECT_ROOT, WORKFLOW_CONFIG_PATH, load_json_file
+    load_env_files, env_int, env_float, env_str,
+    PROJECT_ROOT
 )
 
 @dataclass
@@ -41,9 +41,6 @@ class Config:
     force_record: bool = False
     user_id: str = "default"
     user_token: str | None = None
-    use_cli: bool = True
-    keyword_search_enabled: bool = True
-    semantic_search_enabled: bool = True
     photo_path: str | None = None
     stream: bool = False
     input_device: str | None = None
@@ -101,22 +98,10 @@ def load_intent_samples(path: Path) -> list[dict[str, str]]:
     return samples
 
 
-def _workflow_default_execution_mode() -> str:
-    try:
-        workflow = load_json_file(WORKFLOW_CONFIG_PATH)
-    except Exception:
-        return "memory-chat"
+def workflow_default_execution_mode() -> str:
+    from ..utils.env import workflow_default_execution_mode as default_mode
 
-    execution = workflow.get("execution") if isinstance(workflow, dict) else None
-    if not isinstance(execution, dict):
-        return "memory-chat"
-
-    mode = str(execution.get("default_mode", "")).strip().lower()
-    if mode == "intent":
-        return "database"
-    if mode in {"database", "hermes", "memory-chat"}:
-        return mode
-    return "memory-chat"
+    return default_mode()
 
 
 def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Config:
@@ -202,7 +187,7 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
              # 对齐测试用例中的旧文案
              parser.error("the following arguments are required: --api-key")
 
-    execution_mode = str(args.execution_mode or _workflow_default_execution_mode()).strip().lower()
+    execution_mode = str(args.execution_mode or workflow_default_execution_mode()).strip().lower()
     if execution_mode == "intent":
         execution_mode = "database"
     if execution_mode not in {"database", "hermes", "memory-chat"}:
@@ -269,8 +254,6 @@ def parse_args(argv: list[str] | None = None, *, load_env: bool = True) -> Confi
         user_token=api_key,
         force_ask=args.ask,
         force_record=force_record,
-        keyword_search_enabled=env_bool("PTT_ENABLE_KEYWORD_SEARCH", True),
-        semantic_search_enabled=env_bool("PTT_ENABLE_SEMANTIC_SEARCH", True),
         photo_path=photo_path,
         stream=args.stream,
         input_device=args.input_device,

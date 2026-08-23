@@ -78,14 +78,13 @@ async def test_record_intent_uses_dedicated_distillation_to_preserve_subjective_
         llm_model="fast",
         llm_summarize_model="fast",
         remember_script=Path("/tmp/remember.py"),
-        use_cli=False,
     )
 
     with (
         patch("openai.AsyncOpenAI", return_value=fake_client),
         patch("press_to_talk.agent.agent.StorageService"),
         patch("press_to_talk.agent.agent.build_storage_config", return_value=SimpleNamespace()),
-        patch("press_to_talk.agent.agent.load_json_file", return_value=_workflow()),
+        patch("press_to_talk.agent.agent.load_workflow_config", return_value=_workflow()),
     ):
         agent = OpenAICompatibleAgent(cfg)
         payload = await agent._extract_intent_payload(

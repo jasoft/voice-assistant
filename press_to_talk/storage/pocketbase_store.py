@@ -117,7 +117,6 @@ class PocketBaseRememberStore(BaseRememberStore):
             all_meta: list[dict] = []
             all_vecs: list[list[float]] = []
 
-            t0 = time.monotonic()
             page = 1
             # Use a dedicated longer-timeout client for cache loading
             cache_client = httpx.Client(

@@ -37,7 +37,7 @@ def _setup_base_config():
                 llm_api_key="test_key", llm_base_url="http://localhost:8000",
                 llm_model="test_model", llm_summarize_model="test_model",
                 workspace_root=Path("."), remember_script=Path("manage_items.py"),
-                execution_mode="memory-chat", user_id="test_user", use_cli=False
+                execution_mode="memory-chat", user_id="test_user"
             )
 
 

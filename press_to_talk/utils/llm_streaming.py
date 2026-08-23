@@ -9,6 +9,29 @@ def llm_idle_timeout_seconds() -> float:
     return float(os.environ.get("PTT_LLM_IDLE_TIMEOUT_SECONDS", "8"))
 
 
+def build_async_openai_client(
+    *,
+    api_key: str,
+    base_url: str = "",
+    timeout_seconds: float | None = None,
+) -> Any:
+    """Build the one async OpenAI-compatible client used by assistant runners."""
+    from openai import AsyncOpenAI
+
+    if timeout_seconds is None:
+        timeout_seconds = float(os.environ.get("PTT_LLM_TIMEOUT_SECONDS", "12"))
+
+    client_kwargs: dict[str, Any] = {
+        "api_key": api_key,
+        "timeout": timeout_seconds,
+    }
+    raw_url = str(base_url or "").strip()
+    if raw_url:
+        # Strip the trailing slash to avoid double-slash issues with proxies.
+        client_kwargs["base_url"] = raw_url.rstrip("/")
+    return AsyncOpenAI(**client_kwargs)
+
+
 async def stream_chat_completion_text(
     client: Any,
     *,

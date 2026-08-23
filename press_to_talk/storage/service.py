@@ -4,10 +4,16 @@ import json
 import os
 import re
 import secrets
-from pathlib import Path
 from typing import Any
 
-from press_to_talk.utils.env import expand_env_placeholders
+from press_to_talk.utils.env import (
+    env_bool,
+    env_float,
+    env_int,
+    env_str,
+    load_workflow_config,
+    require_mapping,
+)
 from press_to_talk.utils.logging import log, log_llm_prompt, log_multiline
 
 from .models import (
@@ -19,24 +25,16 @@ from .models import (
 )
 from .pocketbase_store import PocketBaseHistoryStore, PocketBaseRememberStore, _escape_pb_string
 
-APP_ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW_CONFIG_PATH = APP_ROOT / "workflow_config.json"
 
-
-def _sanitize_rewritten_keywords(keywords: list[str], original_query: str) -> list[str]:
+def _sanitize_rewritten_keywords(keywords: list[str]) -> list[str]:
     """Remove noise and irrelevant tokens from LLM-generated keywords."""
-    sanitized = []
     noise = {"的", "了", "和", "与", "或", "在", "是", "我", "你", "他", "她", "它"}
-    for kw in keywords:
-        kw = kw.strip().strip("\"'").strip()
-        if not kw:
-            continue
-        if kw in noise:
-            continue
-        if len(kw) < 1:
-            continue
-        sanitized.append(kw)
-    return sanitized
+    return [
+        keyword
+        for raw_keyword in keywords
+        if (keyword := raw_keyword.strip().strip("\"'").strip())
+        and keyword not in noise
+    ]
 
 
 def _quote_match_token(token: str) -> str:
@@ -44,61 +42,6 @@ def _quote_match_token(token: str) -> str:
     # Escape quotes and wrap in quotes for phrase matching
     cleaned = str(token).replace('"', '""')
     return f'"{cleaned}"'
-
-
-def _require_mapping(data: Any, path: str) -> dict[str, Any]:
-    if not isinstance(data, dict):
-        raise RuntimeError(f"workflow config missing required mapping: {path}")
-    return data
-
-
-def env_str(name: str, default: str) -> str:
-    return os.environ.get(name, default)
-
-
-def env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    return int(raw)
-
-
-def env_float(name: str, default: float) -> float:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    return float(raw)
-
-
-def env_bool(name: str, default: bool) -> bool:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def load_workflow_config() -> dict[str, Any]:
-    try:
-        with WORKFLOW_CONFIG_PATH.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        if isinstance(data, dict):
-            return expand_env_placeholders(data)
-    except Exception:
-        pass
-    return {}
-
-
-def _render_prompt_template(template: str, values: dict[str, str]) -> str:
-    rendered = str(template or "")
-    for key, value in values.items():
-        rendered = rendered.replace(f"${{{key}}}", value)
-    return rendered
-
-
-def _workflow_storage_config() -> dict[str, Any]:
-    workflow = load_workflow_config()
-    storage = workflow.get("storage", {}) if isinstance(workflow, dict) else {}
-    return storage if isinstance(storage, dict) else {}
 
 
 _storage_config_logged = False
@@ -170,8 +113,6 @@ def load_storage_config(
                 "MEM0_MAX_ITEMS", int(mem0_cfg.get("max_items", global_max_results))
             ),
         ),
-        history_db_path="",
-        remember_db_path="",
         remember_max_results=max(
             1,
             env_int(
@@ -179,22 +120,13 @@ def load_storage_config(
                 int(storage_cfg.get("max_results", global_max_results)),
             ),
         ),
-        keyword_search_enabled=env_bool("PTT_ENABLE_KEYWORD_SEARCH", True),
         semantic_search_enabled=env_bool("PTT_ENABLE_SEMANTIC_SEARCH", True),
         query_rewrite_enabled=env_bool(
-            "PTT_QUERY_REWRITE_ENABLED",
-            env_bool(
-                "PTT_GROQ_REWRITE_ENABLED", bool(rewrite_cfg.get("enabled", False))
-            ),
+            "PTT_QUERY_REWRITE_ENABLED", bool(rewrite_cfg.get("enabled", False))
         ),
         llm_api_key=env_str("OPENAI_API_KEY", "").strip(),
         llm_base_url=env_str("OPENAI_BASE_URL", "").strip(),
         llm_model=default_model,
-        groq_rewrite_enabled=env_bool(
-            "PTT_GROQ_REWRITE_ENABLED",
-            bool(rewrite_cfg.get("enabled", False)),
-        ),
-        groq_rewrite_model=str(rewrite_cfg.get("model", "")).strip(),
         embedding_search_enabled=env_bool(
             "PTT_EMBEDDING_SEARCH_ENABLED",
             bool(embedding_cfg.get("enabled", False)),
@@ -220,10 +152,6 @@ def load_storage_config(
         embedding_min_score=env_float(
             "PTT_EMBEDDING_MIN_SCORE",
             float(embedding_cfg.get("min_score", 0.45)),
-        ),
-        embedding_context_min_score=env_float(
-            "PTT_EMBEDDING_CONTEXT_MIN_SCORE",
-            float(embedding_cfg.get("context_min_score", 0.55)),
         ),
         reranker_enabled=env_bool(
             "PTT_RERANKER_ENABLED",
@@ -255,9 +183,6 @@ def load_storage_config(
 
     return config
 
-
-def ensure_storage_database(config: StorageConfig | None = None) -> None:
-    pass  # Handled by PocketBase
 
 def resolve_user_id_from_api_key(api_key: str) -> str | None:
     token_str = str(api_key or "").strip()
@@ -320,10 +245,12 @@ def resolve_user_id_from_api_key(api_key: str) -> str | None:
     return token_str
 
 
-class LLMKeywordRewriter:
-    def __init__(self, *, api_key: str, llm_model: str, base_url: str = "") -> None:
+class OpenAIClientBase:
+    """Shared lazy initialization for synchronous OpenAI-compatible clients."""
+
+    def __init__(self, *, api_key: str, model: str, base_url: str = "") -> None:
         self.api_key = api_key.strip()
-        self.model = llm_model.strip()
+        self.model = model.strip()
         self.base_url = base_url.strip()
         self._client: Any | None = None
 
@@ -333,18 +260,23 @@ class LLMKeywordRewriter:
 
             client_kwargs: dict[str, Any] = {"api_key": self.api_key}
             if self.base_url:
-                # Strip trailing slash to avoid double-slash issues with proxies
+                # Strip trailing slash to avoid double-slash issues with proxies.
                 client_kwargs["base_url"] = self.base_url.rstrip("/")
             self._client = OpenAI(**client_kwargs)
         return self._client
+
+
+class LLMKeywordRewriter(OpenAIClientBase):
+    def __init__(self, *, api_key: str, llm_model: str, base_url: str = "") -> None:
+        super().__init__(api_key=api_key, model=llm_model, base_url=base_url)
 
     def rewrite(self, query: str) -> str:
         cleaned_query = str(query or "").strip()
         if not cleaned_query:
             return ""
-        workflow = _require_mapping(load_workflow_config(), "workflow")
-        prompts = _require_mapping(workflow.get("prompts"), "prompts")
-        rewrite_cfg = _require_mapping(
+        workflow = require_mapping(load_workflow_config(), "workflow")
+        prompts = require_mapping(workflow.get("prompts"), "prompts")
+        rewrite_cfg = require_mapping(
             prompts.get("query_rewrite"), "prompts.query_rewrite"
         )
         system_prompt = str(rewrite_cfg.get("system_prompt", "")).strip()
@@ -391,7 +323,7 @@ class LLMKeywordRewriter:
             + json.dumps(cleaned_keywords, ensure_ascii=False),
             level="debug",
         )
-        cleaned_keywords = _sanitize_rewritten_keywords(cleaned_keywords, cleaned_query)
+        cleaned_keywords = _sanitize_rewritten_keywords(cleaned_keywords)
         if not cleaned_keywords:
             return _quote_match_token(cleaned_query)
         rewritten_query = " OR ".join(
@@ -401,179 +333,9 @@ class LLMKeywordRewriter:
         return rewritten_query
 
 
-class GroqKeywordRewriter(LLMKeywordRewriter):
-    def __init__(self, *, api_key: str, model: str, base_url: str = "") -> None:
-        super().__init__(api_key=api_key, llm_model=model, base_url=base_url)
-
-    def rewrite(self, query: str) -> str:
-        cleaned_query = str(query or "").strip()
-        if not cleaned_query:
-            return ""
-
-        workflow = _require_mapping(load_workflow_config(), "workflow")
-        prompts = _require_mapping(workflow.get("prompts"), "prompts")
-
-        # 1. Normalize
-        normalize_cfg = _require_mapping(
-            prompts.get("query_normalize"), "prompts.query_normalize"
-        )
-        normalize_prompt = str(normalize_cfg.get("system_prompt", "")).strip()
-        if not normalize_prompt:
-            raise RuntimeError(
-                "workflow config missing: prompts.query_normalize.system_prompt"
-            )
-
-        normalize_messages = [
-            {"role": "system", "content": normalize_prompt},
-            {"role": "user", "content": cleaned_query},
-        ]
-        log_llm_prompt("query normalize", normalize_messages)
-        normalize_response = self._client_instance().chat.completions.create(
-            model=self.model,
-            temperature=0,
-            messages=normalize_messages,
-        )
-        normalize_content = str(
-            normalize_response.choices[0].message.content or ""
-        ).strip()
-        log_multiline("query normalize raw", normalize_content)
-        normalized_query = cleaned_query
-        try:
-            # Strip think tags if any
-            text_result = re.sub(
-                r"(?is)<think>.*?</think>", "", normalize_content
-            ).strip()
-            if "{" in text_result and "}" in text_result:
-                json_start = text_result.find("{")
-                json_end = text_result.rfind("}") + 1
-                payload = json.loads(text_result[json_start:json_end])
-                normalized_query = (
-                    str(payload.get("query") or cleaned_query).strip() or cleaned_query
-                )
-        except Exception:
-            pass
-
-        # 2. Rewrite
-        rewrite_cfg = _require_mapping(
-            prompts.get("query_rewrite"), "prompts.query_rewrite"
-        )
-        keyword_prompt = str(rewrite_cfg.get("system_prompt", "")).strip()
-        if not keyword_prompt:
-            raise RuntimeError(
-                "workflow config missing: prompts.query_rewrite.system_prompt"
-            )
-
-        rewrite_messages = [
-            {"role": "system", "content": keyword_prompt},
-            {"role": "user", "content": normalized_query},
-        ]
-        log_llm_prompt("keyword rewrite", rewrite_messages)
-        rewrite_response = self._client_instance().chat.completions.create(
-            model=self.model,
-            temperature=0,
-            messages=rewrite_messages,
-        )
-        rewrite_content = str(rewrite_response.choices[0].message.content or "").strip()
-        log_multiline("keyword rewrite raw", rewrite_content)
-        keywords: list[str] = []
-        try:
-            text_result = re.sub(
-                r"(?is)<think>.*?</think>", "", rewrite_content
-            ).strip()
-            if "{" in text_result and "}" in text_result:
-                json_start = text_result.find("{")
-                json_end = text_result.rfind("}") + 1
-                payload = json.loads(text_result[json_start:json_end])
-                raw_keywords = (
-                    payload.get("keywords", []) if isinstance(payload, dict) else []
-                )
-                keywords = [
-                    str(item).strip() for item in raw_keywords if str(item).strip()
-                ]
-        except Exception:
-            pass
-        log(
-            "keyword rewrite parsed: " + json.dumps(keywords, ensure_ascii=False),
-            level="debug",
-        )
-        cleaned_keywords = _sanitize_rewritten_keywords(keywords, normalized_query)
-        if not cleaned_keywords:
-            return _quote_match_token(normalized_query)
-        rewritten_query = " OR ".join(
-            _quote_match_token(keyword) for keyword in cleaned_keywords if keyword
-        )
-        log(f"keyword rewrite match_query: {rewritten_query}")
-        return rewritten_query
-
-
-class LLMMemoryTranslator:
-    def __init__(self, *, api_key: str, llm_model: str, base_url: str = "") -> None:
-        self.api_key = api_key.strip()
-        self.model = llm_model.strip()
-        self.base_url = base_url.strip()
-        self._client: Any | None = None
-
-    def _client_instance(self) -> Any:
-        if self._client is None:
-            from openai import OpenAI
-
-            client_kwargs: dict[str, Any] = {"api_key": self.api_key}
-            if self.base_url:
-                # Strip trailing slash to avoid double-slash issues with proxies
-                client_kwargs["base_url"] = self.base_url.rstrip("/")
-            self._client = OpenAI(**client_kwargs)
-        return self._client
-
-    def translate(self, text: str) -> str:
-        cleaned_text = str(text or "").strip()
-        if not cleaned_text:
-            return ""
-        workflow = _require_mapping(load_workflow_config(), "workflow")
-        prompts = _require_mapping(workflow.get("prompts"), "prompts")
-        translate_cfg = _require_mapping(
-            prompts.get("memory_translate"), "prompts.memory_translate"
-        )
-        system_prompt = str(translate_cfg.get("system_prompt", "")).strip()
-        if not system_prompt:
-            raise RuntimeError(
-                "workflow config missing required section: prompts.memory_translate.system_prompt"
-            )
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": cleaned_text},
-        ]
-        log_llm_prompt("memory translate", messages)
-        response = self._client_instance().chat.completions.create(
-            model=self.model,
-            temperature=0,
-            messages=messages,
-        )
-        content = str(response.choices[0].message.content or "").strip()
-        log_multiline("memory translate raw", content)
-        translated_text = (
-            re.sub(r"(?is)<think>.*?</think>", "", content).strip() or cleaned_text
-        )
-        log(f"memory translate parsed: {translated_text}")
-        return translated_text
-
-
-class OpenAIEmbeddingClient:
+class OpenAIEmbeddingClient(OpenAIClientBase):
     def __init__(self, *, api_key: str, model: str, base_url: str) -> None:
-        self.api_key = api_key.strip() or "lm-studio"
-        self.model = model.strip()
-        self.base_url = base_url.strip()
-        self._client: Any | None = None
-
-    def _client_instance(self) -> Any:
-        if self._client is None:
-            from openai import OpenAI
-
-            client_kwargs: dict[str, Any] = {"api_key": self.api_key}
-            if self.base_url:
-                # Strip trailing slash to avoid double-slash issues with proxies
-                client_kwargs["base_url"] = self.base_url.rstrip("/")
-            self._client = OpenAI(**client_kwargs)
-        return self._client
+        super().__init__(api_key=api_key or "lm-studio", model=model, base_url=base_url)
 
     def embed_many(self, texts: list[str]) -> list[list[float]]:
         cleaned_texts = [
@@ -643,7 +405,7 @@ class JinaEmbeddingClient:
 
 
 class StorageService:
-    def __init__(self, config: StorageConfig, use_cli: bool = True) -> None:
+    def __init__(self, config: StorageConfig) -> None:
         normalized = StorageConfig(**config.__dict__)
 
         # Final fail-safe: if identity is 'default', try to pull from global environment
@@ -657,15 +419,11 @@ class StorageService:
             env_id = os.environ.get("PTT_USER_ID", "").strip()
             if env_id and env_id != "default":
                 normalized.mem0_user_id = env_id
-        h_path = str(normalized.history_db_path or "").strip()
         self.config = normalized
 
-        self._remember_provider: BaseRememberStore | None = None
         self._remember_store: BaseRememberStore | None = None
         self._history_store: BaseHistoryStore | None = None
 
-    def _initialize_users(self) -> None:
-        pass
 
     def _get_or_build_remember_provider(self) -> BaseRememberStore:
         if self._remember_store is None:
@@ -686,11 +444,59 @@ class StorageService:
         return self._history_store
 
     @classmethod
-    def from_env(cls, use_cli: bool = True) -> "StorageService":
-        return cls(load_storage_config(), use_cli=use_cli)
+    def from_env(cls) -> "StorageService":
+        return cls(load_storage_config())
 
     def close(self) -> None:
         return None
+
+    def diagnose(self) -> dict[str, Any]:
+        """Run read-only checks for the storage dependencies used by the CLI."""
+        import httpx
+
+        pocketbase_url = os.getenv("PTT_PB_URL", "http://127.0.0.1:18090").rstrip("/")
+        report: dict[str, Any] = {
+            "status": "ok",
+            "backend": self.config.backend,
+            "user_id": self.config.user_id,
+            "pocketbase": {"url": pocketbase_url, "status": "ok"},
+        }
+
+        try:
+            response = httpx.get(f"{pocketbase_url}/api/health", timeout=2.0)
+            response.raise_for_status()
+            if not isinstance(response.json(), dict):
+                raise ValueError("health endpoint returned a non-object payload")
+        except Exception as exc:
+            report["pocketbase"] = {
+                "url": pocketbase_url,
+                "status": "error",
+                "error": str(exc),
+            }
+
+        if report["pocketbase"]["status"] == "ok":
+            for name, store in (
+                ("memory", self.remember_store()),
+                ("history", self.history_store()),
+            ):
+                try:
+                    if name == "memory":
+                        store.list_all(limit=1)
+                    else:
+                        store.list_recent(limit=1)
+                    report[name] = {"status": "ok"}
+                except Exception as exc:
+                    report[name] = {"status": "error", "error": str(exc)}
+
+        failed = [
+            name
+            for name in ("pocketbase", "memory", "history")
+            if report.get(name, {}).get("status") != "ok"
+        ]
+        if failed:
+            report["failed_checks"] = failed
+            report["status"] = "error"
+        return report
 
     def keyword_rewriter(self) -> KeywordRewriter | None:
         if not self.config.query_rewrite_enabled or not self.config.llm_api_key.strip():
@@ -726,17 +532,6 @@ class StorageService:
             base_url=base_url,
         )
 
-    def build_export_target_store(self, provider_name: str) -> BaseRememberStore:
-        """Build a remember store specifically for export, using user_id from config and no app_id."""
-        from .providers import get_remember_provider_class
-
-        provider_cls = get_remember_provider_class(provider_name)
-        return provider_cls.from_config(
-            self.config,
-            app_id="",  # Special instruction for export
-            keyword_rewriter=self.keyword_rewriter(),
-            embedding_client=self.embedding_client(),
-        )
 
     def remember_store(self) -> BaseRememberStore:
         if self._remember_store is None:

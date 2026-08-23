@@ -7,7 +7,7 @@ def main():
     
     # 加载配置
     config = load_storage_config(user_id_override="admin")
-    service = StorageService(config, use_cli=False)
+    service = StorageService(config)
     store = service.remember_store()
     
     if not store._embedding_enabled():

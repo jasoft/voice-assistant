@@ -78,7 +78,6 @@ def test_pocketbase_hybrid_search_uses_persisted_embedding_json():
         user_id="u1",
         backend="pocketbase",
         remember_max_results=10,
-        keyword_search_enabled=True,
         semantic_search_enabled=True,
         embedding_search_enabled=True,
         embedding_client=embedding_client,

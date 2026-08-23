@@ -6,7 +6,6 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Any
-from .logging import log
 
 PTT_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -20,6 +19,42 @@ ENV_VAR_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 def load_json_file(path: Path) -> Any:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_workflow_config() -> dict[str, Any]:
+    try:
+        workflow = load_json_file(WORKFLOW_CONFIG_PATH)
+    except Exception:
+        return {}
+    return expand_env_placeholders(workflow) if isinstance(workflow, dict) else {}
+
+
+def workflow_default_execution_mode() -> str:
+    workflow = load_workflow_config()
+    execution = workflow.get("execution") if isinstance(workflow, dict) else None
+    if not isinstance(execution, dict):
+        return "memory-chat"
+
+    mode = str(execution.get("default_mode", "")).strip().lower()
+    if mode == "intent":
+        return "database"
+    if mode in {"database", "hermes", "memory-chat"}:
+        return mode
+    return "memory-chat"
+
+
+def require_mapping(value: Any, path: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"workflow config missing required mapping: {path}")
+    return value
+
+
+def render_prompt_template(template: str, values: dict[str, str]) -> str:
+    rendered = str(template or "")
+    for key, value in values.items():
+        rendered = rendered.replace(f"${{{key}}}", value)
+    return rendered
+
 
 def _candidate_env_files() -> list[Path]:
     candidates = [
@@ -168,18 +203,3 @@ def expand_env_placeholders(value: Any) -> Any:
 
         return ENV_VAR_PATTERN.sub(replace, value)
     return value
-
-def load_mem0_tuning_config() -> dict[str, Any]:
-    defaults = {"min_score": 0.8, "max_items": 3}
-    try:
-        workflow = load_json_file(WORKFLOW_CONFIG_PATH)
-        mem0_cfg = workflow.get("mem0", {}) if isinstance(workflow, dict) else {}
-        if not isinstance(mem0_cfg, dict):
-            return defaults
-        if mem0_cfg.get("min_score") is not None:
-            defaults["min_score"] = float(mem0_cfg["min_score"])
-        if mem0_cfg.get("max_items") is not None:
-            defaults["max_items"] = max(1, int(mem0_cfg["max_items"]))
-    except Exception as e:
-        log(f"Failed to load mem0 tuning config: {e}", level="error")
-    return defaults

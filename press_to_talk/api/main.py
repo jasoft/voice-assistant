@@ -16,10 +16,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 import json
 
-from .auth import get_user_id
+from .auth import get_user_id, uses_harness_backend as _uses_harness_backend
 from ..models.config import Config, parse_args
 from ..execution import execute_transcript_async
-from ..storage.service import StorageService, load_storage_config, ensure_storage_database
+from ..storage.service import StorageService, load_storage_config
 from ..utils.logging import log, log_multiline
 from ..utils.photo import get_photo_url
 from ..harness import DeepSeekHarnessClient, HarnessError
@@ -37,11 +37,6 @@ def mask_auth_header(auth_str: str) -> str:
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
 _harness_clients: dict[str, DeepSeekHarnessClient] = {}
-
-
-def _uses_harness_backend() -> bool:
-    backend = os.environ.get("PTT_QUERY_BACKEND", "legacy").strip().lower()
-    return backend in {"harness", "deepseek-harness"}
 
 
 def _harness_client_for(user_id: str) -> DeepSeekHarnessClient:
@@ -62,14 +57,14 @@ async def _close_harness_clients() -> None:
 def _history_service_for(user_id: str) -> StorageService:
     return StorageService(
         load_storage_config(user_id_override=user_id),
-        use_cli=False,
+
     )
 
 
 def _mem0_store_for(user_id: str) -> Mem0RememberStore:
     config = load_storage_config(user_id_override=user_id)
     config.backend = "mem0"
-    store = StorageService(config, use_cli=False).remember_store()
+    store = StorageService(config).remember_store()
     if not isinstance(store, Mem0RememberStore):
         raise RuntimeError("Mem0 记忆后端未启用：请配置 MEM0_API_KEY")
     return store
@@ -177,12 +172,8 @@ async def lifespan(app: FastAPI):
         except SystemExit:
             base_config = None
 
-    # Harness owns memory and tool orchestration. Do not initialize the legacy
-    # PocketBase storage path when the query backend is explicitly Harness.
-    if not _uses_harness_backend():
-        storage_cfg = load_storage_config()
-        ensure_storage_database(storage_cfg)
-        
+    # Harness owns memory and tool orchestration; legacy storage initializes lazily.
+
     yield
     # Cleanup on shutdown
     log("API Server shutting down.", level="info")
@@ -495,8 +486,7 @@ async def query(req: QueryRequest, request: Request, user_id: str = Depends(get_
         cfg.user_token = None
         cfg.text_input = req.query
         cfg.no_tts = True
-        cfg.use_cli = False  # Ensure direct database access
-        
+
         if req.mode:
             mode_val = req.mode.value if hasattr(req.mode, "value") else req.mode
             cfg.execution_mode = mode_val
@@ -770,7 +760,7 @@ async def get_memories(user_id: str = Depends(get_user_id)):
 
     try:
         config = load_storage_config(user_id_override=user_id)
-        service = StorageService(config, use_cli=False)
+        service = StorageService(config)
         records = service.remember_store().list_all(limit=50)
         return [
             MemoryItem(

@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     # Start command (default behavior)
-    start_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "start",
         help="Start the voice assistant interactive session (default)",
         description="Run the interactive voice loop. Accepts all core engine flags.",

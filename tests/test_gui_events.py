@@ -103,7 +103,7 @@ class TestStorageCli:
 
         assert service == "service"
         assert fake_config.query_rewrite_enabled
-        service_mock.assert_called_once_with(fake_config, use_cli=False)
+        service_mock.assert_called_once_with(fake_config)
 
     def test_no_args_prints_help_and_returns_zero(self) -> None:
         stdout = io.StringIO()
@@ -128,12 +128,9 @@ class TestStorageCli:
 
         assert exc.value.code == 2
         assert "Did you mean 'search'?" in stderr.getvalue()
-
     def test_list_history_loads_backend_from_env_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            test_db_path = str(tmp_path / "absolutely_empty.sqlite3")
-
             stderr = io.StringIO()
             stdout = io.StringIO()
             from press_to_talk.storage import service as storage_service_module

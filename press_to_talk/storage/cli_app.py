@@ -12,12 +12,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .models import SessionHistoryRecord
-from .service import (
-    StorageService,
-    load_storage_config,
-    APP_ROOT,
-    resolve_user_id_from_api_key,
-)
+from .service import StorageService, load_storage_config, resolve_user_id_from_api_key
+from ..utils.env import APP_ROOT
 
 
 class AgentHelpFormatter(argparse.RawDescriptionHelpFormatter):
@@ -144,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _build_local_service() -> StorageService:
     config = load_storage_config()
-    return StorageService(config, use_cli=False)
+    return StorageService(config)
 
 
 def _run_storage_doctor() -> int:
@@ -232,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.category == "doctor":
                 return _run_storage_doctor()
 
-            service = StorageService(config, use_cli=False)
+            service = StorageService(config)
 
             def _archive_photo(input_path: str | None) -> str | None:
                 if not input_path:

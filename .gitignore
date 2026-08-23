@@ -34,3 +34,11 @@ config/deepseek-harness/runtime/
 deepseek-harness/.cron_add_allowlist.py
 deepseek-harness/.cron_run_update.py
 deepseek-harness/.cron_update_hermes.sh
+
+# Local editor/system artifacts and generated environments.
+.DS_Store
+.venv*/
+.pytest_cache/
+.ruff_cache/
+*.log
+*.tsbuildinfo

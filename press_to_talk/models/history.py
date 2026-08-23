@@ -26,13 +26,6 @@ def build_storage_config(cfg: Config) -> StorageConfig:
         env_str("MEM0_USER_ID", config.mem0_user_id).strip() or config.mem0_user_id
     )
     
-    # We already normalized paths in load_storage_config(). 
-    # Only override history_db_path if explicitly set via env var.
-    # Otherwise, it will use the consistent default set in load_storage_config().
-    env_h_path = env_str("PTT_HISTORY_DB_PATH", "").strip()
-    if env_h_path:
-        config.history_db_path = env_h_path
-        
     config.llm_api_key = cfg.llm_api_key.strip()
     config.llm_base_url = cfg.llm_base_url.strip()
     if cfg.llm_model.strip():

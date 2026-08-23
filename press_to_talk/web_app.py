@@ -136,12 +136,6 @@ async def process_audio(audio: UploadFile = File(...)):
     except Exception as e:
         log(f"Web API Error: {str(e)}", level="error")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # 清理临时文件（可选，如果想保留可以注释掉）
-        # if temp_dir.exists():
-        #     shutil.rmtree(temp_dir)
-        pass
-
 
 
 # 挂载静态文件放在最后，避免拦截 API 路由

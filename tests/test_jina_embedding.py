@@ -6,7 +6,6 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from press_to_talk.storage.service import JinaEmbeddingClient
-from press_to_talk.utils.logging import log
 
 def test_jina_embedding():
     api_key = os.environ.get("JINA_API_KEY")

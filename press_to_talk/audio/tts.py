@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 import time
-import shutil
 import contextlib
 import subprocess
 from pathlib import Path
@@ -89,25 +88,6 @@ def _run_tts_process(text: str, is_async: bool = False) -> subprocess.Popen | su
             text=True,
         )
 
-def generate_tts_wav(text: str, output_path: Path) -> Path:
-    clean_text = sanitize_for_tts(text)
-    if not clean_text:
-        raise RuntimeError("tts text became empty after sanitize")
-
-    log(f"generating tts wav for text: {clean_text[:20]}...")
-
-    proc = _run_tts_process(clean_text, is_async=False)
-
-    if proc.returncode == 0:
-        default_output = Path("output.wav")
-        if default_output.exists():
-            shutil.move(str(default_output), str(output_path))
-            return output_path
-        elif output_path.exists():
-            return output_path
-
-    msg = (proc.stderr or proc.stdout or f"tts generation failed with code {proc.returncode}").strip()
-    raise RuntimeError(msg)
 
 def speak_text(text: str) -> bool:
     clean_text = sanitize_for_tts(text)

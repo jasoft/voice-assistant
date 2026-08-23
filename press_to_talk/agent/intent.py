@@ -3,23 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-def prefers_local_record(text: str) -> bool:
-    normalized = re.sub(r"[\s,，。！？]+", "", text or "")
-    record_markers = [
-        "记住",
-        "帮我记一下",
-        "帮我记住",
-        "记一下",
-        "记录",
-        "保存",
-        "更新",
-    ]
-    return any(marker in normalized for marker in record_markers)
 
-def detect_local_intent(text: str) -> str:
-    if prefers_local_record(text):
-        return "record"
-    return "find"
 
 def salvage_truncated_intent_payload(text: str) -> dict[str, Any] | None:
     intent_match = re.search(r'"intent"\s*:\s*"([^"]+)"', text)

@@ -18,7 +18,6 @@ class TestBTNodes:
         cfg_mock.llm_api_key = "test-key"
         cfg_mock.llm_model = "test-model"
         cfg_mock.query_rewrite_enabled = False
-        cfg_mock.keyword_search_enabled = True
         cfg_mock.semantic_search_enabled = False
         cfg_mock.reranker_enabled = False
         self.bb = Blackboard(transcript="test", cfg=cfg_mock)

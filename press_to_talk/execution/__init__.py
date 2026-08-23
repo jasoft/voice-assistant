@@ -9,6 +9,8 @@ from .resolver import resolve_execution_mode
 from .bt.base import Blackboard
 from .bt.builder import build_master_tree
 
+from ..utils.logging import log
+
 
 import asyncio
 

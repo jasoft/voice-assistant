@@ -23,7 +23,7 @@ class TestExecutionModeConfig:
                 "resolve_remember_script_path",
                 return_value=Path("/tmp/remember.py"),
             ),
-            patch.object(config_module, "load_json_file", return_value=workflow_data),
+            patch("press_to_talk.utils.env.load_workflow_config", return_value=workflow_data),
             patch.dict(
                 "os.environ",
                 {
@@ -85,7 +85,7 @@ class TestExecutionModeConfig:
                 "resolve_remember_script_path",
                 return_value=Path("/tmp/remember.py"),
             ),
-            patch.object(config_module, "load_json_file", return_value={}),
+            patch("press_to_talk.utils.env.load_workflow_config", return_value={}),
             patch.dict(
                 "os.environ",
                 {
@@ -183,7 +183,7 @@ class TestMemoryChatExecutionRunner:
         )
 
         with patch(
-            "press_to_talk.execution.memory_chat.AsyncOpenAI",
+            "press_to_talk.execution.memory_chat.build_async_openai_client",
             return_value=SimpleNamespace(
                 chat=SimpleNamespace(
                     completions=SimpleNamespace(create=AsyncMock())
@@ -278,7 +278,7 @@ class TestMemoryChatExecutionRunner:
         )
 
         with patch(
-            "press_to_talk.execution.memory_chat.AsyncOpenAI",
+            "press_to_talk.execution.memory_chat.build_async_openai_client",
             return_value=fake_client,
         ):
             runner = MemoryChatExecutionRunner(cfg)
@@ -295,7 +295,7 @@ class TestMemoryChatExecutionRunner:
         from press_to_talk.execution.memory_chat import MemoryChatExecutionRunner
 
         create_mock = patch(
-            "press_to_talk.execution.memory_chat.AsyncOpenAI",
+            "press_to_talk.execution.memory_chat.build_async_openai_client",
             return_value=SimpleNamespace(
                 chat=SimpleNamespace(
                     completions=SimpleNamespace(
@@ -386,7 +386,7 @@ class TestMemoryChatExecutionRunner:
         )
 
         with patch(
-            "press_to_talk.execution.memory_chat.AsyncOpenAI",
+            "press_to_talk.execution.memory_chat.build_async_openai_client",
             return_value=SimpleNamespace(
                 chat=SimpleNamespace(
                     completions=SimpleNamespace(
@@ -475,19 +475,16 @@ class TestCoreExecutionDispatch:
         )
 
         fake_events = SimpleNamespace(emit=lambda *args, **kwargs: None)
-        fake_history_writer = SimpleNamespace(enabled=False)
 
         with (
             patch.object(core, "parse_args", return_value=cfg),
             patch.object(core, "GuiEventWriter", return_value=fake_events),
-            patch.object(core, "HistoryWriter"),
-            patch.object(core.HistoryWriter, "from_config", return_value=fake_history_writer),
             patch.object(core, "init_session_log", return_value=Path("/tmp/session.log")),
             patch.object(core, "close_session_log"),
             patch.object(core, "log") as log_mock,
             patch.object(core, "log_timing"),
             patch.object(core, "execute_transcript", return_value=SimpleNamespace(reply="Hermes 回复")) as execute_mock,
-            patch("builtins.print") as print_mock,
+            patch("builtins.print"),
         ):
             result = core.main()
         

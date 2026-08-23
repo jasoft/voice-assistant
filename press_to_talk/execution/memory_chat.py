@@ -1,21 +1,14 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
-
-from openai import AsyncOpenAI
 
 from .intent import IntentExecutionRunner
 from ..models.history import build_storage_config
 from ..storage import StorageService
-from ..utils.env import (
-    WORKFLOW_CONFIG_PATH,
-    expand_env_placeholders,
-    load_json_file,
-)
+from ..utils.env import load_workflow_config
 from ..utils.logging import log, log_llm_prompt, log_multiline
-from ..utils.llm_streaming import stream_chat_completion_text
+from ..utils.llm_streaming import build_async_openai_client, stream_chat_completion_text
 from ..utils.shell import parse_json_output
 from ..utils.text import strip_think_tags, current_time_text
 
@@ -37,13 +30,10 @@ def _format_memory_context_items(items: list[dict[str, Any]]) -> str:
 
 class MemoryChatExecutionRunner:
     def __init__(self, cfg: Any) -> None:
-        client_kwargs: dict[str, Any] = {
-            "api_key": cfg.llm_api_key,
-            "timeout": float(os.environ.get("PTT_LLM_TIMEOUT_SECONDS", "12"))
-        }
-        if str(getattr(cfg, "llm_base_url", "") or "").strip():
-            client_kwargs["base_url"] = str(cfg.llm_base_url).strip()
-        self.client = AsyncOpenAI(**client_kwargs)
+        self.client = build_async_openai_client(
+            api_key=cfg.llm_api_key,
+            base_url=getattr(cfg, "llm_base_url", ""),
+        )
         self.cfg = cfg
         self.model = str(cfg.llm_model)
         self.summary_model = str(getattr(cfg, "llm_summarize_model", "") or self.model)
@@ -51,8 +41,7 @@ class MemoryChatExecutionRunner:
         self._load_workflow_config()
 
     def _load_workflow_config(self) -> None:
-        workflow_data = load_json_file(WORKFLOW_CONFIG_PATH)
-        self.workflow = expand_env_placeholders(workflow_data)
+        self.workflow = load_workflow_config()
 
     def _storage(self) -> StorageService:
         if self._storage_service is None:
@@ -191,7 +180,9 @@ class MemoryChatExecutionRunner:
             # 那么我们会进入兜底回答流程。
             memory_context = "没有命中相关记忆。"
             if start_date or end_date:
-                date_info = f"{start_date or ''} 到 {end_date or ''}".strip(" 到 ")
+                date_info = " ".join(
+                    part for part in (start_date, "到", end_date) if part
+                )
                 memory_context = f"在 {date_info} 期间没有命中相关记忆。"
         else:
             memory_context = _format_memory_context_items(items)

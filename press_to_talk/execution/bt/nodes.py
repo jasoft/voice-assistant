@@ -52,10 +52,9 @@ class IsEmptyTranscript(Condition):
 
 class SetEmptyTranscriptReplyAction(Action):
     async def tick(self, bb: Blackboard) -> Status:
-        from ...utils.env import WORKFLOW_CONFIG_PATH, load_json_file
+        from ...utils.env import load_workflow_config
         try:
-            workflow = load_json_file(WORKFLOW_CONFIG_PATH)
-            prompts = workflow.get("prompts", {})
+            prompts = load_workflow_config().get("prompts", {})
             reply_cfg = prompts.get("empty_speech_reply", {})
             bb.reply = reply_cfg.get("text", "大王，我没有听到您说话。请重新按住录音键尝试。")
         except Exception:
@@ -83,15 +82,12 @@ class ExtractIntentAction(Action):
                 bb.intent = {"intent": "find", "args": {"query": bb.transcript}}
                 log("Forced ask mode: skipped general intent extraction", level="info")
             else:
-                # 正常走通用意图识别 (包含分类和提炼)
                 bb.intent = await agent._extract_intent_payload(bb.transcript)
             
             log_multiline("Extracted Intent", json.dumps(bb.intent, indent=2, ensure_ascii=False))
             return Status.SUCCESS
         except Exception as e:
             bb.error = str(e)
-            return Status.FAILURE
-
             return Status.FAILURE
 
 class SetDefaultIntentAction(Action):

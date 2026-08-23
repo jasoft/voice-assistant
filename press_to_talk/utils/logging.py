@@ -113,16 +113,13 @@ def log_multiline(title: str, content: str, *, level: str = "debug") -> None:
     log(t, level=level, stack_depth=2)
 
     # Smart JSON detection and jq formatting
-    is_json = False
     if (normalized.startswith("{") and normalized.endswith("}")) or \
        (normalized.startswith("[") and normalized.endswith("]")):
         import json
         import subprocess
         try:
-            # Validate JSON first
             json.loads(normalized)
-            is_json = True
-            
+
             # Try jq for formatting and color (if it's a TTY)
             # Use -C for color, . for identity filter
             try:

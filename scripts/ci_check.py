@@ -249,7 +249,7 @@ def main():
                             )
                     except urllib.error.HTTPError as e:
                         if e.code == 401:
-                            print(f"\n\033[1;32m[Docker API 存活验证通过] 服务器已启动并拦截认证 (HTTP 401)\033[0m\n")
+                            print("\n\033[1;32m[Docker API 存活验证通过] 服务器已启动并拦截认证 (HTTP 401)\033[0m\n")
                         else:
                             print(f"\033[1;31m测试请求失败: {e}\033[0m")
                             failed_checks.append("P0-4 | Docker 运行与 API 测试")
