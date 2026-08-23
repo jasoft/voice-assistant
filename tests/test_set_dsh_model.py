@@ -19,6 +19,7 @@ EXPECTED_FAST_PROFILE = """- id: fast
             off: "none"
             high: high
           compat:
+            supportsDeveloperRole: false
             supportsReasoningEffort: true
 """
 
@@ -104,6 +105,7 @@ agent-default-model:
         "            off: \"none\"\n"
         "            high: high\n"
         "          compat:\n"
+        "            supportsDeveloperRole: false\n"
         "            supportsReasoningEffort: true\n"
         "          contextWindow: 128000\n"
     ) in text

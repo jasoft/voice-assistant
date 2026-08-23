@@ -69,6 +69,7 @@ if [[ "$model" == "fast" ]]; then
       print fast_indent "    off: \"none\""
       print fast_indent "    high: high"
       print fast_indent "  compat:"
+      print fast_indent "    supportsDeveloperRole: false"
       print fast_indent "    supportsReasoningEffort: true"
       in_fast = 1
       next
