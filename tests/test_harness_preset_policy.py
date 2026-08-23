@@ -40,10 +40,12 @@ def test_minimal_preset_discovers_only_preset_directory_skills() -> None:
     ]
     assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
     assert entries[1]["config"]["enableRunInBackground"] is False
-    assert entries[1]["config"]["concludeOnSuccessCommandPrefixes"] == [
-        "python3 /app/scripts/memo_api.py add ",
-        "python3 /app/scripts/memo_api.py delete ",
-    ]
+    assert entries[1]["config"]["concludeOnSuccessCommandPrefixes"] == (
+        "(() => {\n"
+        "  const memoApi = process.env.MEMO_API_SCRIPT || \"/app/scripts/memo_api.py\";\n"
+        "  return [`python3 ${memoApi} add `, `python3 ${memoApi} delete `];\n"
+        "})()\n"
+    )
     assert entries[2]["name"] == "@deepseek-ai/dsh-skill-filesystem"
     assert entries[2]["config"]["includeDefaultRoots"] is False
     assert entries[2]["config"]["customSkillDirs"] == [
@@ -58,12 +60,23 @@ def test_minimal_preset_discovers_only_preset_directory_skills() -> None:
 def test_minimal_preset_uses_direct_compact_mem0_wrapper() -> None:
     text = MINIMAL_PRESET.read_text(encoding="utf-8")
 
-    assert "python3 /app/scripts/memo_api.py add" in text
-    assert "python3 /app/scripts/memo_api.py search" in text
-    assert "python3 /app/scripts/memo_api.py list" in text
-    assert "python3 /app/scripts/memo_api.py delete" in text
+    assert "process.env.MEMO_API_SCRIPT" in text
+    assert '"/app/scripts/memo_api.py"' in text
+    assert "`python3 ${memoApi} add --text <完整用户原文>`" in text
+    assert "`python3 ${memoApi} search --query <完整用户问题> --limit 3`" in text
+    assert "`python3 ${memoApi} list --page 1 --page-size 20`" in text
+    assert "`python3 ${memoApi} delete --id <memory-id>`" in text
     assert "--limit 3" in text
     assert "最终回复不超过 60 个汉字" in text
+
+
+def test_local_dsh_startup_pins_wrapper_and_refreshes_presets() -> None:
+    text = (ROOT / "scripts" / "start_dsh.sh").read_text(encoding="utf-8")
+
+    assert 'export MEMO_API_SCRIPT="${MEMO_API_SCRIPT:-$project_root/scripts/memo_api.py}"' in text
+    assert 'local_preset_root="$project_root/config/deepseek-harness/agent-presets"' in text
+    assert 'rm -rf "$dsh_home/.agent-presets/$preset_name"' in text
+    assert 'cp -R "$preset_source" "$dsh_home/.agent-presets/$preset_name"' in text
 
 
 def test_project_harness_preset_has_multi_pass_recall_rules() -> None:

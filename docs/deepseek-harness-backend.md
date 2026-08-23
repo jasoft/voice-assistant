@@ -36,7 +36,7 @@ Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取
 默认的 `memo-minimal` preset 不挂载 MCP、Web 或 skill loader 工具；它保留 bash，并通过 `/app/scripts/memo_api.py` 直接调用 Mem0 REST API，避免请求再次绕回语音助手 API。它的 skill 目录被显式隔离：`includeDefaultRoots=false` 关闭项目、DSH home、agents home 和内置根目录，只在 preset 作用域发现自带 `skills/remember`，不加载系统全局 skill。旧的多轮 MCP preset 仍保留在 `memo-mem0`，便于回退。
 
 项目内的记忆 preset 策略源文件是
-`config/deepseek-harness/agent-presets/memo-minimal/agent.cordis.yml`。它要求当前用户明确说出“记住/记录/保存”等意图才允许写入；普通陈述、关键词和查询只能读取。
+`config/deepseek-harness/agent-presets/memo-minimal/agent.cordis.yml`。它要求当前用户明确说出“记住/记录/保存”等意图才允许写入；普通陈述、关键词和查询只能读取。wrapper 路径由 DSH 启动器注入的 `MEMO_API_SCRIPT` 决定：Docker 中是 `/app/scripts/memo_api.py`，本机开发是仓库里的同名脚本，因此本地和容器共用同一份 preset 源。`scripts/start_dsh.sh` 还会在本地启动前刷新 `$DSH_HOME/.agent-presets` 里来自项目的 preset，避免旧会话目录继续保留昨天的提示词或 skill。
 
 preset 固定了唯一允许的四条 wrapper 命令（`add`、`search`、`list`、`delete`）。搜索使用 Mem0 v2 的 `top_k`，关闭额外 rerank，并只向模型返回 `id`、记忆正文、分数和创建时间，避免完整 Mem0 元数据撑大第二次模型调用。删除必须基于准确 memory id；自然语言不明确时先返回候选，不允许猜测删除。
 
@@ -46,7 +46,7 @@ preset 固定了唯一允许的四条 wrapper 命令（`add`、`search`、`list`
 
 Compose 给一次性 Harness 容器设置 `DSH_PERMISSION_MODE=danger-full-access`。这是容器内执行 Mem0 REST wrapper 所需的部署选择；不要把同一配置照搬到本机开发或非隔离环境。
 
-Harness 会主动清洗子进程里凭据形状的环境变量，所以 wrapper 在环境变量缺失时会从 `$DSH_HOME/.env` 读取 `MEM0_API_KEY` 或 `MEM0_MCP_TOKEN`。这样 token 仍留在机器本地凭据文件中，不会进入模型 shell 的进程环境。
+Harness 会主动清洗子进程里凭据形状的环境变量，所以 wrapper 在环境变量缺失时会从 `$DSH_HOME/.env` 读取 `MEM0_API_KEY` 或 `MEM0_MCP_TOKEN`。这样 token 仍留在机器本地凭据文件中，不会进入模型 shell 的进程环境。Skill Markdown 不是模板：`<PTT_API_KEY>` 这类占位符不会被 DSH 替换；只有最终交给 bash 的命令里的 `$VAR` 会按普通 shell 规则展开。极简记忆 Agent 不走 `/v1/query`，因此不需要 `PTT_API_KEY`，它的 Mem0 token 只由 `memo_api.py` 读取。
 
 Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` 和 `POST /api/session.history`。语音助手会为每个认证用户保持一个 Harness 会话，并串行等待本轮最终助手消息。
 
