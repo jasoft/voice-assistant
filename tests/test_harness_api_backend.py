@@ -343,7 +343,12 @@ def test_set_dsh_model_updates_default_model_before_deployment(tmp_path) -> None
 
     assert result.returncode == 0
     assert settings.read_text(encoding="utf-8") == (
-        'agent-default-model:\n  model: fast\n  other: keep\nother:\n  model: untouched\n'
+        'agent-default-model:\n'
+        '  model: fast\n'
+        '  other: keep\n'
+        '  reasoningEffort: off\n'
+        'other:\n'
+        '  model: untouched\n'
     )
     deploy_script = __import__("pathlib").Path("scripts/deploy.sh").read_text(encoding="utf-8")
     model_position = deploy_script.find("./scripts/set_dsh_model.sh fast")
