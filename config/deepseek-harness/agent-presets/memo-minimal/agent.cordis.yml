@@ -39,7 +39,4 @@
   config:
     includeDefaultRoots: false
     customSkillDirs:
-      - skills
-
-- id: tool-skill
-  name: '@deepseek-ai/dsh-tool-skill'
+      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"

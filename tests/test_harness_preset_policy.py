@@ -9,6 +9,16 @@ MINIMAL_PRESET = MINIMAL_DIR / "agent.cordis.yml"
 FALLBACK_PRESET = PRESET_ROOT / "memo-mem0" / "agent.cordis.yml"
 
 
+class PresetYamlLoader(yaml.SafeLoader):
+    """Safe loader that preserves Harness's JavaScript-tagged config values."""
+
+
+PresetYamlLoader.add_constructor(
+    "tag:yaml.org,2002:js",
+    lambda loader, node: loader.construct_scalar(node),
+)
+
+
 def test_project_harness_preset_requires_explicit_record_intent() -> None:
     text = MINIMAL_PRESET.read_text(encoding="utf-8")
 
@@ -16,16 +26,15 @@ def test_project_harness_preset_requires_explicit_record_intent() -> None:
     assert "完整用户原文" in text
 
 
-def test_minimal_preset_loads_only_preset_directory_skills() -> None:
+def test_minimal_preset_discovers_only_preset_directory_skills() -> None:
     preset_text = MINIMAL_PRESET.read_text(encoding="utf-8")
-    entries = yaml.safe_load(preset_text)
+    entries = yaml.load(preset_text, Loader=PresetYamlLoader)
 
     assert isinstance(entries, list)
     assert [entry["id"] for entry in entries] == [
         "persona",
         "memory-shell",
         "skill-filesystem",
-        "tool-skill",
     ]
     assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
     assert entries[1]["config"]["enableRunInBackground"] is False
@@ -36,10 +45,10 @@ def test_minimal_preset_loads_only_preset_directory_skills() -> None:
     assert entries[2]["name"] == "@deepseek-ai/dsh-skill-filesystem"
     assert entries[2]["config"]["includeDefaultRoots"] is False
     assert entries[2]["config"]["customSkillDirs"] == [
-        "skills",
+        "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))",
     ]
-    assert entries[3]["name"] == "@deepseek-ai/dsh-tool-skill"
     assert "mcp-client" not in preset_text
+    assert "- id: tool-skill" not in preset_text
     skill = MINIMAL_DIR / "skills" / "remember" / "SKILL.md"
     assert skill.read_text(encoding="utf-8").startswith("---\nname: remember\n")
 

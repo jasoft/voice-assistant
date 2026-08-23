@@ -33,7 +33,7 @@ macOS 上不要把 Node 版 dsh 直接作为 launchd 子进程运行：该上下
 
 Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取；Mem0 凭据不写入本项目。
 
-默认的 `memo-minimal` preset 不挂载 MCP 或 Web 工具；它保留 bash，并通过 `/app/scripts/memo_api.py` 直接调用 Mem0 REST API，避免请求再次绕回语音助手 API。它的 skill 目录被显式隔离：`includeDefaultRoots=false` 关闭项目、DSH home、agents home 和内置根目录，只加载 preset 自带 `skills/remember`，不加载系统全局 skill。旧的多轮 MCP preset 仍保留在 `memo-mem0`，便于回退。
+默认的 `memo-minimal` preset 不挂载 MCP、Web 或 skill loader 工具；它保留 bash，并通过 `/app/scripts/memo_api.py` 直接调用 Mem0 REST API，避免请求再次绕回语音助手 API。它的 skill 目录被显式隔离：`includeDefaultRoots=false` 关闭项目、DSH home、agents home 和内置根目录，只在 preset 作用域发现自带 `skills/remember`，不加载系统全局 skill。旧的多轮 MCP preset 仍保留在 `memo-mem0`，便于回退。
 
 项目内的记忆 preset 策略源文件是
 `config/deepseek-harness/agent-presets/memo-minimal/agent.cordis.yml`。它要求当前用户明确说出“记住/记录/保存”等意图才允许写入；普通陈述、关键词和查询只能读取。
