@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -17,6 +18,10 @@ class HarnessError(RuntimeError):
 
 
 JsonRequester = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
+
+_WRAPPER_COMMAND_RE = re.compile(
+    r"^\s*python3\s+\S*memo_api\.py\s+(add|search|list|delete)\b",
+)
 
 
 class DeepSeekHarnessClient:
@@ -105,6 +110,38 @@ class DeepSeekHarnessClient:
                 baseline_seq,
                 timeout_seconds=timeout_seconds,
             )
+
+            # Some models occasionally output the wrapper command as plain
+            # text instead of invoking the bash tool. Detect that pattern and
+            # send a corrective follow-up so the tool actually runs.
+            if _WRAPPER_COMMAND_RE.match(reply):
+                correction_baseline = max(
+                    (self._event_seq(entry) for entry in await self._history(session_id)),
+                    default=-1,
+                )
+                await self._rpc(
+                    "session.prompt",
+                    {
+                        "sessionId": session_id,
+                        "mode": "queue",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "你刚才把命令文本直接作为回复输出了，这是错误的。"
+                                    "请立即通过 bash 工具实际执行该命令，"
+                                    "然后只回复执行结果的自然语言总结。"
+                                ),
+                            }
+                        ],
+                    },
+                )
+                reply = await self._wait_for_reply(
+                    session_id,
+                    correction_baseline,
+                    timeout_seconds=timeout_seconds,
+                )
+
             return {
                 "reply": reply,
                 "memories": [],
@@ -215,8 +252,7 @@ class DeepSeekHarnessClient:
 
         effective_timeout = (
             max(1.0, float(timeout_seconds))
-            if timeout_seconds is not None
-            else self.timeout_seconds
+            if timeout_seconds is not None else self.timeout_seconds
         )
         raise HarnessError(f"等待 DeepSeek Harness 回复超时（{effective_timeout:.1f} 秒）")
 

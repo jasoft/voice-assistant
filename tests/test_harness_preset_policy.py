@@ -24,8 +24,8 @@ def test_project_harness_preset_requires_explicit_record_intent() -> None:
 
     assert "只有用户明确要求" in text
     assert "完整用户原文" in text
-    assert "必须通过 bash 工具执行" in text
-    assert "不要把命令文本作为最终回复" in text
+    assert "必须通过 bash 工具调用执行" in text
+    assert "绝对不能把命令文本直接作为回复输出" in text
 
 
 def test_minimal_preset_blocks_all_skill_loading() -> None:
