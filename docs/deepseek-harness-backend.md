@@ -58,7 +58,7 @@ PTT API 默认只启动一个 uvicorn worker。异步任务表和 Harness 客户
 - PocketBase 是会话历史持久层。每次 `/v1/query` 成功返回后，语音助手会把用户问题和最终回复写入 `session_histories`，`/v1/history` 从这里读取最近 20 条。
 - `/v1/memories` 在 Harness 模式下直接读取当前用户的全部 Mem0 记录，不再返回空的兼容数组。
 - SQLite 不在当前查询链路中使用；旧 SQLite 文件只作为历史存档保留。
-- 默认模型由运行机 `config/deepseek-harness/runtime/settings.yaml` 的 `agent-default-model.model` 控制，部署脚本用 `./scripts/set_dsh_model.sh fast` 设置，并把 `fast.maxTokens` 固定到 256（可用 `DSH_FAST_MAX_TOKENS` 覆盖）；同时固定 `agent-default-model.reasoningEffort=off`。Qwen 网关即使请求省略 reasoning 参数也会默认思考，所以 `fast` 还声明 `reasoningEfforts.off="none"` 和 `supportsReasoningEffort=true`，让每次请求显式携带 `reasoning_effort=none`；该网关的聊天模板不认识 `developer` 角色，因此同时固定 `supportsDeveloperRole=false`，把系统提示以 `system` 发送。`reasoningEfforts: false` 只适合网关本身不会默认思考的模型；DeepSeek 官方适配器的部署锁则是 `thinking: disabled`。同步 Harness 等待上限为 10 秒，后台任务上限为 60 秒；这既让连续的添加、查询、删除保持在 Groq 免费 tier 的 8000 TPM 窗口内，也避免交互请求再次等待一分钟。
+- 默认模型和默认 Agent 由运行机 `config/deepseek-harness/runtime/settings.yaml` 控制。部署脚本用 `./scripts/set_dsh_model.sh fast` 设置 `agent-default-model.model` 和 `agent-presets.default=memo-minimal`，并把 `fast.maxTokens` 固定到 256（可用 `DSH_FAST_MAX_TOKENS` 覆盖）；同时固定 `agent-default-model.reasoningEffort=off`。这样 DSH 网页直接新建会话时也使用极简记忆 Agent，而不是旧的 MCP preset。Qwen 网关即使请求省略 reasoning 参数也会默认思考，所以 `fast` 还声明 `reasoningEfforts.off="none"` 和 `supportsReasoningEffort=true`，让每次请求显式携带 `reasoning_effort=none`；该网关的聊天模板不认识 `developer` 角色，因此同时固定 `supportsDeveloperRole=false`，把系统提示以 `system` 发送。`reasoningEfforts: false` 只适合网关本身不会默认思考的模型；DeepSeek 官方适配器的部署锁则是 `thinking: disabled`。同步 Harness 等待上限为 10 秒，后台任务上限为 60 秒；这既让连续的添加、查询、删除保持在 Groq 免费 tier 的 8000 TPM 窗口内，也避免交互请求再次等待一分钟。
 
 ## Memo 手机 Web 外壳
 

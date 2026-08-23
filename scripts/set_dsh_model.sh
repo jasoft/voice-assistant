@@ -4,6 +4,7 @@ set -euo pipefail
 
 model="${1:-fast}"
 fast_max_tokens="${DSH_FAST_MAX_TOKENS:-256}"
+agent_preset="memo-minimal"
 project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 settings="${DSH_SETTINGS:-$project_root/config/deepseek-harness/runtime/settings.yaml}"
 
@@ -15,10 +16,15 @@ fi
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
-awk -v model="$model" '
+awk -v model="$model" -v agent_preset="$agent_preset" '
   /^agent-default-model:/ {
     print
     in_block = 1
+    next
+  }
+  /^agent-presets:/ {
+    print
+    in_presets = 1
     next
   }
   in_block && /^[^[:space:]#]/ {
@@ -39,6 +45,19 @@ awk -v model="$model" '
     replaced_effort = 1
     next
   }
+  in_presets && /^[^[:space:]#]/ {
+    if (!replaced_preset) {
+      print "  default: " agent_preset
+    }
+    in_presets = 0
+    print
+    next
+  }
+  in_presets && $1 == "default:" {
+    print "  default: " agent_preset
+    replaced_preset = 1
+    next
+  }
   { print }
   END {
     if (!replaced) {
@@ -47,10 +66,20 @@ awk -v model="$model" '
     if (in_block && !replaced_effort) {
       print "  reasoningEffort: off"
     }
+    if (in_presets && !replaced_preset) {
+      print "  default: " agent_preset
+    }
   }
 ' "$settings" > "$tmp"
 
 mv "$tmp" "$settings"
+
+# Keep the DSH web UI on the same low-latency memory agent that the voice
+# assistant selects explicitly. The old memo-mem0 MCP preset remains available
+# as an explicit fallback.
+if ! grep -q '^agent-presets:' "$settings"; then
+  printf '\nagent-presets:\n  default: %s\n' "$agent_preset" >> "$settings"
+fi
 
 # Groq's free TPM budget counts input plus requested max output. The minimal
 # memory agent only needs short tool calls/replies, so keep fast safely below
@@ -115,4 +144,4 @@ if [[ "$model" == "fast" ]]; then
   printf 'DeepSeek Harness fast maxTokens set to %s and default reasoning set to none in %s\n' "$fast_max_tokens" "$settings" >&2
 fi
 
-printf 'DeepSeek Harness default model set to %s in %s\n' "$model" "$settings" >&2
+printf 'DeepSeek Harness default model set to %s and default preset set to %s in %s\n' "$model" "$agent_preset" "$settings" >&2

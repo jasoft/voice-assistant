@@ -48,6 +48,49 @@ agent-default-model:
     assert "reasoningEffort: off" in text
 
 
+def test_fast_model_pins_default_agent_preset(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.yaml"
+    settings.write_text(
+        """llm-pi-ai:
+  providers:
+    cliproxyapp:
+      models:
+        - id: fast
+agent-default-model:
+  model: free
+agent-presets:
+  default: memo-mem0
+""",
+        encoding="utf-8",
+    )
+
+    set_model_fast(settings)
+
+    text = settings.read_text(encoding="utf-8")
+    assert "agent-presets:\n  default: memo-minimal\n" in text
+    assert "memo-mem0" not in text
+
+
+def test_fast_model_adds_missing_default_agent_preset(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.yaml"
+    settings.write_text(
+        """llm-pi-ai:
+  providers:
+    cliproxyapp:
+      models:
+        - id: fast
+agent-default-model:
+  model: free
+""",
+        encoding="utf-8",
+    )
+
+    set_model_fast(settings)
+
+    text = settings.read_text(encoding="utf-8")
+    assert "agent-default-model:\n  model: fast\n  reasoningEffort: off\n\nagent-presets:\n  default: memo-minimal\n" in text
+
+
 def test_fast_model_adds_missing_max_tokens(tmp_path: Path) -> None:
     settings = tmp_path / "settings.yaml"
     settings.write_text(
