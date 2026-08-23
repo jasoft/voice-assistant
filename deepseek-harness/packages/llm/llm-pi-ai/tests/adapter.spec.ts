@@ -629,6 +629,43 @@ describe('provider profile lifecycle', () => {
     expect(server.requests[0]).toMatchObject({ reasoning_effort: 'none' })
   })
 
+  it('lets a private gateway opt a reasoning model out of developer role', async () => {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { off: 'none', high: 'high' },
+          }],
+        },
+      },
+    })
+
+    await assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-think',
+      reasoningEffort: ReasoningEffortId('off'),
+      system: 'Answer briefly.',
+      messages: [],
+    })
+
+    expect(server.requests[0]).toMatchObject({
+      reasoning_effort: 'none',
+    })
+    const request = server.requests[0] as { messages?: Array<{ role?: string; content?: string }> }
+    expect(request.messages?.[0]).toEqual({ role: 'system', content: 'Answer briefly.' })
+  })
+
   it('holds back reasoning_effort when the endpoint cannot take it', async () => {
     vi.stubEnv('PI_TEST_KEY', 'test-key')
     const server = await mockServer([{ events: textEvents }])

@@ -767,16 +767,20 @@ describe('reasoning-dispatch compat switches', () => {
       'acme-gateway': {
         api: 'openai-completions',
         baseURL: 'https://acme.test',
-        compat: { thinkingFormat: 'deepseek' },
+          compat: { thinkingFormat: 'deepseek' },
         models: [
           { id: 'dialect-default', reasoningEfforts: { off: null, high: 'high' } },
-          { id: 'dialect-odd', compat: { thinkingFormat: 'openai', supportsReasoningEffort: false } },
+          { id: 'dialect-odd', compat: { thinkingFormat: 'openai', supportsReasoningEffort: false, supportsDeveloperRole: false } },
         ],
       },
     }, 'acme-gateway')
 
     expect(models.get('dialect-default')?.compat).toEqual({ thinkingFormat: 'deepseek' })
-    expect(models.get('dialect-odd')?.compat).toEqual({ thinkingFormat: 'openai', supportsReasoningEffort: false })
+    expect(models.get('dialect-odd')?.compat).toEqual({
+      thinkingFormat: 'openai',
+      supportsReasoningEffort: false,
+      supportsDeveloperRole: false,
+    })
   })
 
   it('merges the switches over the catalog entry’s own compat instead of replacing it', () => {
