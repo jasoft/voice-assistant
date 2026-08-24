@@ -393,6 +393,14 @@
         thresholds: [3, 5, 8]
         argumentsPreviewChars: 500
 
+    # Give every agent a native request-time clock snapshot. Complete persona
+    # presets suppress runtime context but do not suppress this opt-in plugin,
+    # so one-shot API agents still know the current date without prompt hacks.
+    - id: time-context
+      name: '@deepseek-ai/dsh-time-context'
+      config:
+        timeZone: Asia/Shanghai
+
     # Every mode enables the stable model-facing web_search tool. DeepSeek search
     # resolves the same DEEPSEEK_API_KEY credential the Models page manages for
     # chat, at each search; its Messages endpoint is separate from the

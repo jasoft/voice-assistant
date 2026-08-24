@@ -155,3 +155,22 @@ def test_compose_and_api_wire_the_fast_chat_endpoint() -> None:
     assert '@app.post(\n    "/chat"' in api
     assert "_chat_harness_client_for(user_id)" in api
     assert "POST /v1/chat" in docs
+
+
+def test_base_bundle_mounts_native_time_context() -> None:
+    patch = (ROOT / "deepseek-harness" / "packages" / "bundle" / "base" / "cordis.patch.yml").read_text(
+        encoding="utf-8"
+    )
+    package = (ROOT / "deepseek-harness" / "packages" / "bundle" / "base" / "package.json").read_text(
+        encoding="utf-8"
+    )
+
+    assert "- id: time-context" in patch
+    assert "@deepseek-ai/dsh-time-context" in patch
+    assert "timeZone: Asia/Shanghai" in patch
+    assert '"@deepseek-ai/dsh-time-context": "workspace:^"' in package
+    # The one-shot chat persona intentionally suppresses runtime context, so the
+    # native clock plugin must remain independent at the base bundle layer.
+    assert "includeRuntimeContext: false" in (PRESET_ROOT / "chat-fast" / "agent.cordis.yml").read_text(
+        encoding="utf-8"
+    )
