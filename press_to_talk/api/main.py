@@ -37,7 +37,7 @@ def mask_auth_header(auth_str: str) -> str:
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
 _harness_clients: dict[str, DeepSeekHarnessClient] = {}
-_chat_timeout_default = 5.0
+_chat_timeout_default = 30.0
 
 
 def _chat_timeout_seconds() -> float:
@@ -495,7 +495,7 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
     description=(
         "单次请求自动分流：明确的记忆记录或记忆查询走 Mem0；"
         "常规问题由专用 Harness Agent 回答，必要时单次 Brave 搜索。"
-        "每次调用使用独立会话，不携带上一轮上下文，目标 5 秒内完成。"
+        "每次调用使用独立会话，不携带上一轮上下文，最长等待 30 秒。"
     ),
 )
 async def chat(req: QueryRequest, user_id: str = Depends(get_user_id)):

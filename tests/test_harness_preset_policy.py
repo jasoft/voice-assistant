@@ -149,7 +149,7 @@ def test_compose_and_api_wire_the_fast_chat_endpoint() -> None:
 
     assert "./config/deepseek-harness/agent-presets/chat-fast:/root/.dsh/.agent-presets/chat-fast" in compose
     assert 'PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast' in compose
-    assert 'PTT_CHAT_TIMEOUT_SECONDS: "5"' in compose
+    assert 'PTT_CHAT_TIMEOUT_SECONDS: "30"' in compose
     assert 'MEM0_REQUEST_TIMEOUT_SECONDS: "3"' in compose
     assert '@app.post(\n    "/v1/chat"' in api
     assert '@app.post(\n    "/chat"' in api

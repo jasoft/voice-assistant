@@ -15,7 +15,7 @@ services:
       PTT_HARNESS_ASYNC_TIMEOUT_SECONDS: "60"
       PTT_REMEMBER_BACKEND: mem0
       PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast
-      PTT_CHAT_TIMEOUT_SECONDS: "5"
+      PTT_CHAT_TIMEOUT_SECONDS: "30"
     ports:
       - "10031:10031"
     volumes:

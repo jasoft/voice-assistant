@@ -396,7 +396,7 @@ def test_chat_is_one_shot_with_dedicated_fast_agent(path: str, monkeypatch) -> N
     assert body["reply"] == "一次性回复"
     assert body["debug_info"]["agent_preset"] == "chat-fast"
     fake_client.query.assert_awaited_once_with(
-        "今天怎么样", photo=None, timeout_seconds=5.0
+        "今天怎么样", photo=None, timeout_seconds=30.0
     )
     fake_client.close.assert_awaited_once()
     assert len(persisted) == 1
