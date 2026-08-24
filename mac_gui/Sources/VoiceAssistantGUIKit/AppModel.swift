@@ -91,21 +91,29 @@ public final class AppModel: ObservableObject {
     }
 
     private func performRemoteQuery(text: String) {
-        session.apply(jsonLine: "{\"type\": \"status\", \"phase\": \"thinking\"}")
+        applySessionEvent(["type": "status", "phase": "thinking"])
         Task { @MainActor in
             do {
                 guard let client = vaClient else { return }
                 let response = try await client.chat(text: text)
                 guard !isShuttingDown else { return }
-                session.apply(jsonLine: "{\"type\": \"reply\", \"text\": \"\(response.reply.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n"))\"}")
-                session.apply(jsonLine: "{\"type\": \"status\", \"phase\": \"done\", \"auto_close_seconds\": 5}")
+                applySessionEvent(["type": "reply", "text": response.reply])
+                applySessionEvent(["type": "status", "phase": "done", "auto_close_seconds": 5])
 
                 // Optional: Play TTS locally
                 speakLocally(text: response.reply)
             } catch {
-                session.apply(jsonLine: "{\"type\": \"error\", \"message\": \"API Error: \(error.localizedDescription)\"}")
+                applySessionEvent(["type": "error", "message": "API Error: \(error.localizedDescription)"])
             }
         }
+    }
+
+    private func applySessionEvent(_ payload: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let line = String(data: data, encoding: .utf8) else {
+            return
+        }
+        session.apply(jsonLine: line)
     }
 
     private func speakLocally(text: String) {
