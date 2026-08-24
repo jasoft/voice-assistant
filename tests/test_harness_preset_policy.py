@@ -112,3 +112,46 @@ def test_deploy_defaults_to_fast_model() -> None:
 
     assert "./scripts/set_dsh_model.sh fast" in deploy
     assert "./scripts/set_dsh_model.sh free" not in deploy
+
+
+def test_fast_chat_preset_routes_memory_and_brave_without_skills() -> None:
+    chat_dir = PRESET_ROOT / "chat-fast"
+    entries = yaml.load(
+        (chat_dir / "agent.cordis.yml").read_text(encoding="utf-8"),
+        Loader=PresetYamlLoader,
+    )
+
+    assert [entry["id"] for entry in entries] == [
+        "persona",
+        "memory-shell",
+        "tool-web",
+        "skill-filesystem",
+    ]
+    persona = entries[0]["config"]["text"]
+    web = entries[2]["config"]
+    assert "明确要求记住、记录、保存、记一下" in persona
+    assert "search --query <完整用户问题> --limit 5" in persona
+    assert "web_search" in persona
+    assert "不追问" in persona
+    assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
+    assert entries[3]["name"] == "@deepseek-ai/dsh-skill-filesystem"
+    assert entries[3]["config"]["includeDefaultRoots"] is False
+    assert web["fetch"] is False
+    assert web["searchMaxResults"] == 3
+    assert web["searchTimeoutMs"] <= 3500
+    assert not (chat_dir / "skills").exists()
+
+
+def test_compose_and_api_wire_the_fast_chat_endpoint() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    api = (ROOT / "press_to_talk" / "api" / "main.py").read_text(encoding="utf-8")
+    docs = (ROOT / "docs" / "api" / "v1.md").read_text(encoding="utf-8")
+
+    assert "./config/deepseek-harness/agent-presets/chat-fast:/root/.dsh/.agent-presets/chat-fast" in compose
+    assert 'PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast' in compose
+    assert 'PTT_CHAT_TIMEOUT_SECONDS: "5"' in compose
+    assert 'MEM0_REQUEST_TIMEOUT_SECONDS: "3"' in compose
+    assert '@app.post(\n    "/v1/chat"' in api
+    assert '@app.post(\n    "/chat"' in api
+    assert "_chat_harness_client_for(user_id)" in api
+    assert "POST /v1/chat" in docs

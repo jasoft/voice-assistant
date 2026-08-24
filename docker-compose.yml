@@ -14,6 +14,8 @@ services:
       PTT_HARNESS_TIMEOUT_SECONDS: "10"
       PTT_HARNESS_ASYNC_TIMEOUT_SECONDS: "60"
       PTT_REMEMBER_BACKEND: mem0
+      PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast
+      PTT_CHAT_TIMEOUT_SECONDS: "5"
     ports:
       - "10031:10031"
     volumes:
@@ -36,6 +38,7 @@ services:
       # network-enabled shell command. Avoid requiring a sandbox runner inside
       # this isolated container.
       DSH_PERMISSION_MODE: danger-full-access
+      MEM0_REQUEST_TIMEOUT_SECONDS: "3"
     command:
       - --host
       - 0.0.0.0
@@ -51,6 +54,7 @@ services:
       - ./config/deepseek-harness/runtime:/root/.dsh
       - ./config/deepseek-harness/agent-presets/memo-minimal:/root/.dsh/.agent-presets/memo-minimal
       - ./config/deepseek-harness/agent-presets/memo-mem0:/root/.dsh/.agent-presets/memo-mem0
+      - ./config/deepseek-harness/agent-presets/chat-fast:/root/.dsh/.agent-presets/chat-fast
     ports:
       - "3080:3080"
     restart: unless-stopped

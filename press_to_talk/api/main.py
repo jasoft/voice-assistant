@@ -37,6 +37,26 @@ def mask_auth_header(auth_str: str) -> str:
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
 _harness_clients: dict[str, DeepSeekHarnessClient] = {}
+_chat_timeout_default = 5.0
+
+
+def _chat_timeout_seconds() -> float:
+    raw = os.environ.get("PTT_CHAT_TIMEOUT_SECONDS", str(_chat_timeout_default))
+    try:
+        value = float(raw)
+    except ValueError:
+        return _chat_timeout_default
+    return value if value > 0 else _chat_timeout_default
+
+
+def _chat_harness_client_for(user_id: str) -> DeepSeekHarnessClient:
+    """Build a disposable one-shot client so chat requests share no context."""
+    del user_id  # Mem0 and the fast agent are intentionally scoped to soj.
+    return DeepSeekHarnessClient.from_env(
+        agent_preset=os.environ.get("PTT_CHAT_HARNESS_AGENT_PRESET", "chat-fast"),
+        timeout_seconds=_chat_timeout_seconds(),
+        poll_interval_seconds=float(os.environ.get("PTT_CHAT_POLL_INTERVAL_SECONDS", "0.1")),
+    )
 
 
 def _harness_client_for(user_id: str) -> DeepSeekHarnessClient:
@@ -398,11 +418,13 @@ async def _execute_harness_query(
     user_id: str,
     req: QueryRequest,
     timeout_seconds: float | None = None,
+    client: DeepSeekHarnessClient | None = None,
+    mode_name: str | None = None,
 ) -> QueryResponse:
     kwargs: dict[str, Any] = {}
     if timeout_seconds is not None:
         kwargs["timeout_seconds"] = timeout_seconds
-    harness_result = await _harness_client_for(user_id).query(
+    harness_result = await (client or _harness_client_for(user_id)).query(
         req.query,
         photo=await _harness_photo_payload(req.photo),
         **kwargs,
@@ -418,12 +440,75 @@ async def _execute_harness_query(
             user_id=user_id,
             query=str(harness_result.get("query") or req.query),
             reply=str(harness_result.get("reply", "")),
-            mode=req.mode.value if req.mode else None,
+            mode=mode_name or (req.mode.value if req.mode else None),
             harness_session_id=harness_session_id,
         )
     except Exception as exc:
         raise HarnessHistoryPersistenceError("查询成功但写入会话历史失败") from exc
     return QueryResponse(**harness_result)
+
+
+async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
+    """Run a stateless one-shot request with the dedicated fast chat Agent."""
+    if base_config is None:
+        raise HTTPException(status_code=500, detail="Server configuration error")
+    if not _uses_harness_backend():
+        raise HTTPException(status_code=404, detail="聊天端点仅在 Harness 模式可用")
+
+    try:
+        client = _chat_harness_client_for(user_id)
+        try:
+            return await asyncio.wait_for(
+                _execute_harness_query(
+                    user_id=user_id,
+                    req=req,
+                    client=client,
+                    mode_name="chat",
+                    timeout_seconds=_chat_timeout_seconds(),
+                ),
+                timeout=_chat_timeout_seconds(),
+            )
+        finally:
+            await client.close()
+    except asyncio.TimeoutError as exc:
+        timeout_seconds = _chat_timeout_seconds()
+        log(f"Chat timed out after {timeout_seconds:g}s", level="warn")
+        raise HTTPException(
+            status_code=504,
+            detail=f"聊天处理超过 {timeout_seconds:g} 秒",
+        ) from exc
+    except HarnessError as exc:
+        log(f"DeepSeek Harness chat failed: {exc}", level="error")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except HarnessHistoryPersistenceError as exc:
+        log(f"DeepSeek Harness chat history persistence failed: {exc}", level="error")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        log(f"Chat processing failed: {exc}", level="error")
+        raise HTTPException(status_code=500, detail="聊天处理失败") from exc
+
+
+@app.post(
+    "/v1/chat",
+    response_model=QueryResponse,
+    summary="[极速] 一次性聊天与记忆问答",
+    description=(
+        "单次请求自动分流：明确的记忆记录或记忆查询走 Mem0；"
+        "常规问题由专用 Harness Agent 回答，必要时单次 Brave 搜索。"
+        "每次调用使用独立会话，不携带上一轮上下文，目标 5 秒内完成。"
+    ),
+)
+async def chat(req: QueryRequest, user_id: str = Depends(get_user_id)):
+    return await _handle_chat(req, user_id)
+
+
+@app.post(
+    "/chat",
+    response_model=QueryResponse,
+    include_in_schema=False,
+)
+async def chat_alias(req: QueryRequest, user_id: str = Depends(get_user_id)):
+    return await _handle_chat(req, user_id)
 
 
 @app.post(

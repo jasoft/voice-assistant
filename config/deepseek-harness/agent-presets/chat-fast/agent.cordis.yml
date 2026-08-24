@@ -1,0 +1,51 @@
+# /v1/chat 专用：每个 API 请求创建新会话，不依赖上一轮上下文。
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: !!js |
+      (() => {
+        const memoApi = process.env.MEMO_API_SCRIPT || "/app/scripts/memo_api.py";
+        return [
+          "你是个人助理，user_id 固定为 soj。这是单次请求：直接给出最终答复，不追问、",
+          "不要求补充信息、不说“还需要我做什么”，也不保留或引用会话上下文。",
+          "",
+          "先在内部判断当前消息：",
+          "1. 明确要求记住、记录、保存、记一下：调用一次 Mem0 写入；不要改写原文。",
+          `   bash: python3 ${memoApi} add --text <完整用户原文>`,
+          "2. 查询用户的过去事实、位置、人物、日期、事件或要求看记录：先用完整用户原话",
+          `   调用一次 bash: python3 ${memoApi} search --query <完整用户问题> --limit 5`,
+          "   用户明确要全部记录时用 list 分页读取。只依据返回内容回答；结果为空就明说。",
+          "3. 常规问题：直接用自己的知识简洁回答。只有答案依赖实时或近期外部事实时，",
+          "   才调用一次 web_search；禁止 web_fetch。若搜索不可用或超时，直接说明未能核实。",
+          "",
+          "意图模糊时优先按普通聊天回答，不得写入 Mem0。除上述场景外不调用工具。",
+          "所有命令必须通过 bash 工具实际执行，绝不能把命令文本作为回复输出。",
+          "回复保持自然语言，中文用户用中文；关键日期、地点、人名、数字和来源结论保持准确。",
+        ].join("\n");
+      })()
+    complete: true
+    includeRuntimeContext: false
+
+- id: memory-shell
+  name: '@deepseek-ai/dsh-tool-bash'
+  config:
+    enableRunInBackground: false
+    concludeOnSuccessCommandPrefixes: !!js |
+      (() => {
+        const memoApi = process.env.MEMO_API_SCRIPT || "/app/scripts/memo_api.py";
+        return [`python3 ${memoApi} add `, `python3 ${memoApi} delete `];
+      })()
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    search: true
+    fetch: false
+    searchMaxResults: 3
+    searchTimeoutMs: 3500
+
+# Keep this preset self-contained; loading project/global skills can add latency.
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    includeDefaultRoots: false

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -359,3 +360,73 @@ def test_set_dsh_model_updates_default_model_before_deployment(tmp_path) -> None
     assert model_position != -1
     assert compose_position != -1
     assert model_position < compose_position
+
+
+@pytest.mark.parametrize("path", ["/v1/chat", "/chat"])
+def test_chat_is_one_shot_with_dedicated_fast_agent(path: str, monkeypatch) -> None:
+    monkeypatch.setenv("PTT_QUERY_BACKEND", "deepseek-harness")
+    monkeypatch.setenv("PTT_CHAT_HARNESS_AGENT_PRESET", "chat-fast")
+    monkeypatch.setattr(api_main, "base_config", SimpleNamespace())
+    api_main.app.dependency_overrides[get_user_id] = lambda: "test-user"
+
+    fake_client = AsyncMock()
+    fake_client.query.return_value = {
+        "reply": "一次性回复",
+        "memories": [],
+        "images": [],
+        "query": "今天怎么样",
+        "debug_info": {
+            "backend": "deepseek-harness",
+            "agent_preset": "chat-fast",
+            "session_id": "chat-session-1",
+        },
+    }
+    history_service, persisted = _fake_history_service([])
+    monkeypatch.setattr(api_main, "_chat_harness_client_for", lambda _user_id: fake_client)
+    monkeypatch.setattr(api_main, "_history_service_for", lambda _user_id: history_service)
+
+    try:
+        with TestClient(api_main.app) as client:
+            response = client.post(path, json={"query": "今天怎么样"})
+    finally:
+        api_main.app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply"] == "一次性回复"
+    assert body["debug_info"]["agent_preset"] == "chat-fast"
+    fake_client.query.assert_awaited_once_with(
+        "今天怎么样", photo=None, timeout_seconds=5.0
+    )
+    fake_client.close.assert_awaited_once()
+    assert len(persisted) == 1
+    assert persisted[0].mode == "chat"
+    assert persisted[0].session_id.startswith("chat-session-1:")
+
+
+def test_chat_returns_504_within_configured_deadline(monkeypatch) -> None:
+    monkeypatch.setenv("PTT_QUERY_BACKEND", "deepseek-harness")
+    monkeypatch.setenv("PTT_CHAT_TIMEOUT_SECONDS", "0.01")
+    monkeypatch.setattr(api_main, "base_config", SimpleNamespace())
+    api_main.app.dependency_overrides[get_user_id] = lambda: "test-user"
+
+    async def slow_query(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        return {"reply": "太晚"}
+
+    fake_client = AsyncMock()
+    fake_client.query.side_effect = slow_query
+    history_service, persisted = _fake_history_service([])
+    monkeypatch.setattr(api_main, "_chat_harness_client_for", lambda _user_id: fake_client)
+    monkeypatch.setattr(api_main, "_history_service_for", lambda _user_id: history_service)
+
+    try:
+        with TestClient(api_main.app) as client:
+            response = client.post("/v1/chat", json={"query": "慢问题"})
+    finally:
+        api_main.app.dependency_overrides.clear()
+
+    assert response.status_code == 504
+    assert "0.01 秒" in response.json()["detail"]
+    fake_client.close.assert_awaited_once()
+    assert persisted == []

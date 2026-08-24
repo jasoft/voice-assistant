@@ -56,12 +56,29 @@ class DeepSeekHarnessClient:
         self._lock = asyncio.Lock()
 
     @classmethod
-    def from_env(cls) -> "DeepSeekHarnessClient":
+    def from_env(
+        cls,
+        *,
+        agent_preset: str | None = None,
+        timeout_seconds: float | None = None,
+        poll_interval_seconds: float | None = None,
+    ) -> "DeepSeekHarnessClient":
         return cls(
             os.environ.get("PTT_HARNESS_API_URL", "http://127.0.0.1:3080"),
-            agent_preset=os.environ.get("PTT_HARNESS_AGENT_PRESET", "memo-mem0"),
-            timeout_seconds=float(os.environ.get("PTT_HARNESS_TIMEOUT_SECONDS", "60")),
-            poll_interval_seconds=float(os.environ.get("PTT_HARNESS_POLL_INTERVAL_SECONDS", "0.25")),
+            agent_preset=(
+                agent_preset
+                or os.environ.get("PTT_HARNESS_AGENT_PRESET", "memo-mem0")
+            ),
+            timeout_seconds=(
+                timeout_seconds
+                if timeout_seconds is not None
+                else float(os.environ.get("PTT_HARNESS_TIMEOUT_SECONDS", "60"))
+            ),
+            poll_interval_seconds=(
+                poll_interval_seconds
+                if poll_interval_seconds is not None
+                else float(os.environ.get("PTT_HARNESS_POLL_INTERVAL_SECONDS", "0.25"))
+            ),
         )
 
     def _default_headers(self) -> dict[str, str]:
