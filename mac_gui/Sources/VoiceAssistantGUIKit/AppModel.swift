@@ -95,7 +95,7 @@ public final class AppModel: ObservableObject {
         Task { @MainActor in
             do {
                 guard let client = vaClient else { return }
-                let response = try await client.query(text: text)
+                let response = try await client.chat(text: text)
                 guard !isShuttingDown else { return }
                 session.apply(jsonLine: "{\"type\": \"reply\", \"text\": \"\(response.reply.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n"))\"}")
                 session.apply(jsonLine: "{\"type\": \"status\", \"phase\": \"done\", \"auto_close_seconds\": 5}")

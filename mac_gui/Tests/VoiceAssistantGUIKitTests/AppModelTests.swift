@@ -36,3 +36,17 @@ struct AppModelTests {
         #expect(model.isShuttingDown)
     }
 }
+
+@MainActor
+struct VAClientRoutingTests {
+    @Test(arguments: [
+        ("http://127.0.0.1:10031/v1", "http://127.0.0.1:10031/v1/chat"),
+        ("http://127.0.0.1:10031/v1/query", "http://127.0.0.1:10031/v1/chat"),
+        ("http://127.0.0.1:10031/chat", "http://127.0.0.1:10031/chat"),
+    ])
+    func chatClientUsesOneShotChatEndpoint(base: String, expected: String) {
+        let url = VAClient.makeChatURL(base: URL(string: base)!)
+
+        #expect(url.absoluteString == expected)
+    }
+}
