@@ -345,9 +345,8 @@ def test_set_dsh_model_updates_default_model_before_deployment(tmp_path) -> None
     assert result.returncode == 0
     assert settings.read_text(encoding="utf-8") == (
         'agent-default-model:\n'
-        '  model: fast\n'
+        '  model: google/gemini-3.1-flash-lite\n'
         '  other: keep\n'
-        '  reasoningEffort: off\n'
         'other:\n'
         '  model: untouched\n'
         '\n'

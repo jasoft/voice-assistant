@@ -13,18 +13,7 @@ def set_model_fast(settings: Path) -> None:
     subprocess.run([str(SCRIPT), "fast"], check=True, env=env)
 
 
-EXPECTED_FAST_PROFILE = """- id: fast
-          maxTokens: 1024
-          reasoningEfforts:
-            off: "none"
-            high: high
-          compat:
-            supportsDeveloperRole: false
-            supportsReasoningEffort: true
-"""
-
-
-def test_fast_model_pins_existing_max_tokens(tmp_path: Path) -> None:
+def test_fast_route_maps_to_non_reasoning_flash_lite(tmp_path: Path) -> None:
     settings = tmp_path / "settings.yaml"
     settings.write_text(
         """llm-pi-ai:
@@ -33,9 +22,11 @@ def test_fast_model_pins_existing_max_tokens(tmp_path: Path) -> None:
       models:
         - id: fast
           maxTokens: 6000
+        - id: google/gemini-3.1-flash-lite
 agent-default-model:
   provider: cliproxyapp
-  model: free
+  model: fast
+  reasoningEffort: off
 """,
         encoding="utf-8",
     )
@@ -43,19 +34,22 @@ agent-default-model:
     set_model_fast(settings)
 
     text = settings.read_text(encoding="utf-8")
-    assert EXPECTED_FAST_PROFILE in text
-    assert "model: fast" in text
-    assert "reasoningEffort: off" in text
+    assert (
+        "- id: google/gemini-3.1-flash-lite\n"
+        "          maxTokens: 1024\n"
+    ) in text
+    assert "model: google/gemini-3.1-flash-lite" in text
+    assert "reasoningEffort:" not in text
 
 
-def test_fast_model_pins_default_agent_preset(tmp_path: Path) -> None:
+def test_fast_route_pins_default_agent_preset(tmp_path: Path) -> None:
     settings = tmp_path / "settings.yaml"
     settings.write_text(
         """llm-pi-ai:
   providers:
     cliproxyapp:
       models:
-        - id: fast
+        - id: google/gemini-3.1-flash-lite
 agent-default-model:
   model: free
 agent-presets:
@@ -71,49 +65,7 @@ agent-presets:
     assert "memo-mem0" not in text
 
 
-def test_fast_model_adds_missing_default_agent_preset(tmp_path: Path) -> None:
-    settings = tmp_path / "settings.yaml"
-    settings.write_text(
-        """llm-pi-ai:
-  providers:
-    cliproxyapp:
-      models:
-        - id: fast
-agent-default-model:
-  model: free
-""",
-        encoding="utf-8",
-    )
-
-    set_model_fast(settings)
-
-    text = settings.read_text(encoding="utf-8")
-    assert "agent-default-model:\n  model: fast\n  reasoningEffort: off\n\nagent-presets:\n  default: memo-minimal\n" in text
-
-
-def test_fast_model_adds_missing_max_tokens(tmp_path: Path) -> None:
-    settings = tmp_path / "settings.yaml"
-    settings.write_text(
-        """llm-pi-ai:
-  providers:
-    cliproxyapp:
-      models:
-        - id: fast
-agent-default-model:
-  provider: cliproxyapp
-  model: free
-""",
-        encoding="utf-8",
-    )
-
-    set_model_fast(settings)
-
-    text = settings.read_text(encoding="utf-8")
-    assert EXPECTED_FAST_PROFILE in text
-    assert "reasoningEffort: off" in text
-
-
-def test_fast_model_replaces_existing_reasoning_and_preserves_neighbors(tmp_path: Path) -> None:
+def test_fast_route_preserves_model_neighbors(tmp_path: Path) -> None:
     settings = tmp_path / "settings.yaml"
     settings.write_text(
         """llm-pi-ai:
@@ -122,12 +74,7 @@ def test_fast_model_replaces_existing_reasoning_and_preserves_neighbors(tmp_path
       models:
         - id: slow
           maxTokens: 6000
-        - id: fast
-          maxTokens: 6000
-          reasoningEfforts:
-            high: high
-          compat:
-            supportsReasoningEffort: false
+        - id: google/gemini-3.1-flash-lite
           contextWindow: 128000
         - id: free
 agent-default-model:
@@ -142,15 +89,8 @@ agent-default-model:
     text = settings.read_text(encoding="utf-8")
     assert "- id: slow\n          maxTokens: 6000" in text
     assert (
-        "- id: fast\n"
+        "- id: google/gemini-3.1-flash-lite\n"
         "          maxTokens: 1024\n"
-        "          reasoningEfforts:\n"
-        "            off: \"none\"\n"
-        "            high: high\n"
-        "          compat:\n"
-        "            supportsDeveloperRole: false\n"
-        "            supportsReasoningEffort: true\n"
         "          contextWindow: 128000\n"
     ) in text
-    assert "supportsReasoningEffort: false" not in text
     assert "- id: free" in text
