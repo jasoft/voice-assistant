@@ -36,7 +36,7 @@ agent-default-model:
     text = settings.read_text(encoding="utf-8")
     assert (
         "- id: google/gemini-3.1-flash-lite\n"
-        "          maxTokens: 1024\n"
+        "          maxTokens: 512\n"
     ) in text
     assert "model: google/gemini-3.1-flash-lite" in text
     assert "reasoningEffort:" not in text
@@ -90,7 +90,7 @@ agent-default-model:
     assert "- id: slow\n          maxTokens: 6000" in text
     assert (
         "- id: google/gemini-3.1-flash-lite\n"
-        "          maxTokens: 1024\n"
+        "          maxTokens: 512\n"
         "          contextWindow: 128000\n"
     ) in text
     assert "- id: free" in text
