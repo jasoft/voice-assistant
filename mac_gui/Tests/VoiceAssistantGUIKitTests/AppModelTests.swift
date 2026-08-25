@@ -35,6 +35,24 @@ struct AppModelTests {
 
         #expect(model.isShuttingDown)
     }
+
+    @Test
+    func mainInterfaceIsOnlyIdleLiveScreenWithEmptyInput() {
+        let model = AppModel(forwardedArgs: [], workingDirectory: URL(fileURLWithPath: "/tmp"))
+
+        #expect(model.isMainInterface)
+
+        model.draftInput = "x"
+        #expect(!model.isMainInterface)
+
+        model.draftInput = ""
+        model.screenMode = .history
+        #expect(!model.isMainInterface)
+
+        model.screenMode = .live
+        model.session.apply(jsonLine: #"{"type":"status","phase":"recording"}"#)
+        #expect(!model.isMainInterface)
+    }
 }
 
 @MainActor

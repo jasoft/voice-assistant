@@ -228,6 +228,12 @@ public final class AppModel: ObservableObject {
         canSubmitTextInput
     }
 
+    public var isMainInterface: Bool {
+        screenMode == .live
+            && session.state.status == .idle
+            && draftInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     public var canInterruptCurrentRun: Bool {
         switch session.state.status {
         case .recording, .transcribing, .thinking, .speaking:

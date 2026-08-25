@@ -57,7 +57,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             if event.keyCode == 53 {
-                self.model.handleEscapeKey()
+                if self.model.isMainInterface {
+                    NSApp.terminate(nil)
+                } else {
+                    self.model.handleEscapeKey()
+                }
                 return nil
             }
             return event
