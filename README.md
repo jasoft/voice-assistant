@@ -98,7 +98,7 @@ swift build -c release
 ```
 
 ### Mac GUI 手机提醒
-原生 GUI 支持通过 Upstash QStash + Bark 创建云端定时手机提醒，Mac 关机后仍会触发。配置和使用见 [docs/mac_gui_bark_reminders.md](docs/mac_gui_bark_reminders.md)。
+原生 GUI 支持通过 Upstash QStash + Bark 创建云端定时手机提醒，Mac 关机后仍会触发。配置、真实验收见 [docs/mac_gui_bark_reminders.md](docs/mac_gui_bark_reminders.md)。
 
 ### 自动化测试
 提交代码前必须通过全量测试：

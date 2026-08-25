@@ -24,9 +24,11 @@ struct ReminderConfigurationTests {
             workingDirectory: directory,
             processEnvironment: Self.makeValues(environment: [
                 "QSTASH_TOKEN": "process-token",
+                "QSTASH_URL": "https://qstash-us-east-1.upstash.io/",
                 "BARK_URL": "https://bark.example/process",
             ])
         )
+        #expect(configuration?.qstashURL.absoluteString == "https://qstash-us-east-1.upstash.io")
         #expect(configuration?.qstashToken == "process-token")
         #expect(configuration?.barkURL.absoluteString == "https://bark.example/process")
         #expect(configuration?.group == ".env提醒")
@@ -61,7 +63,7 @@ struct ReminderConfigurationTests {
             message: "检查 美股/期货 & 盘前"
         )
 
-        #expect(url.absoluteString.hasPrefix("https://api.day.app/device-key/%E6%A3%80%E6%9F%A5%20%E7%BE%8E%E8%82%A1/%E6%9C%9F%E8%B4%A7%20&%20%E7%9B%98%E5%89%8D?"))
+        #expect(url.absoluteString.hasPrefix("https://api.day.app/device-key/%E6%A3%80%E6%9F%A5%20%E7%BE%8E%E8%82%A1%2F%E6%9C%9F%E8%B4%A7%20%26%20%E7%9B%98%E5%89%8D?"))
         #expect(url.query?.contains("group=Mac%20%E6%8F%90%E9%86%92") == true)
         #expect(url.query?.contains("sound=minuet") == true)
     }
@@ -71,17 +73,18 @@ struct QStashRequestTests {
     @Test
     func scheduleRequestTargetsPublishEndpointWithNotBefore() throws {
         let configuration = ReminderConfiguration(
+            qstashURL: URL(string: "https://qstash-us-east-1.upstash.io")!,
             qstashToken: "secret",
             barkURL: URL(string: "https://api.day.app/key")!
         )
         let request = try QStashClient.makeScheduleRequest(
-            baseAPI: URL(string: "https://qstash.upstash.io")!,
+            baseAPI: configuration.qstashURL,
             configuration: configuration,
             message: "开会",
             timestamp: 1_789_000_000
         )
 
-        #expect(request.url?.absoluteString == "https://qstash.upstash.io/v2/publish/https://api.day.app/key?notBefore=1789000000")
+        #expect(request.url?.absoluteString == "https://qstash-us-east-1.upstash.io/v2/publish/https://api.day.app/key?notBefore=1789000000")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret")
         #expect(String(decoding: request.httpBody ?? Data(), as: UTF8.self) == "开会")

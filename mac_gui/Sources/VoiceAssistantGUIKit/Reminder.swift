@@ -42,6 +42,7 @@ public struct ScheduledReminder: Identifiable, Codable, Equatable, Sendable {
 }
 
 public struct ReminderConfiguration: Equatable, Sendable {
+    public let qstashURL: URL
     public let qstashToken: String
     public let barkURL: URL
     public let group: String
@@ -52,11 +53,16 @@ public struct ReminderConfiguration: Equatable, Sendable {
     }
 
     public init(
+        qstashURL: URL = URL(string: "https://qstash.upstash.io")!,
         qstashToken: String,
         barkURL: URL,
         group: String = "Mac提醒",
         sound: String? = nil
     ) {
+        let normalizedQStashURL = qstashURL.absoluteString.hasSuffix("/")
+            ? URL(string: String(qstashURL.absoluteString.dropLast()))!
+            : qstashURL
+        self.qstashURL = normalizedQStashURL
         self.qstashToken = qstashToken.trimmingCharacters(in: .whitespacesAndNewlines)
         self.barkURL = barkURL
         self.group = group.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -84,6 +90,9 @@ public struct ReminderConfiguration: Equatable, Sendable {
         }
 
         guard let tokenValue = values["QSTASH_TOKEN"], !tokenValue.isEmpty else { return nil }
+        let qstashAPIString = values["QSTASH_URL"] ?? "https://qstash.upstash.io"
+        guard let qstashAPI = URL(string: qstashAPIString), let apiScheme = qstashAPI.scheme?.lowercased(),
+              apiScheme == "https" || apiScheme == "http", qstashAPI.host()?.isEmpty == false else { return nil }
         let barkURLValue = values["BARK_URL"] ?? [values["BARK_SERVER"], values["BARK_DEVICE_KEY"]]
             .compactMap { $0 }
             .joined()
@@ -91,6 +100,7 @@ public struct ReminderConfiguration: Equatable, Sendable {
               scheme == "https" || scheme == "http" else { return nil }
 
         return ReminderConfiguration(
+            qstashURL: qstashAPI,
             qstashToken: tokenValue,
             barkURL: barkURL,
             group: values["REMINDER_GROUP"] ?? "Mac提醒",
@@ -101,7 +111,7 @@ public struct ReminderConfiguration: Equatable, Sendable {
     static func environmentValues(processEnvironment: [String: String]) -> [String: String] {
         var values: [String: String] = [:]
         for key in [
-            "QSTASH_TOKEN", "BARK_URL", "BARK_SERVER", "BARK_DEVICE_KEY",
+            "QSTASH_URL", "QSTASH_TOKEN", "BARK_URL", "BARK_SERVER", "BARK_DEVICE_KEY",
             "REMINDER_GROUP", "REMINDER_SOUND",
         ] where processEnvironment[key]?.isEmpty == false {
             values[key] = processEnvironment[key]
@@ -164,7 +174,7 @@ public struct QStashClient: Sendable {
             throw ReminderError.timeMustBeInTheFuture
         }
         let request = try Self.makeScheduleRequest(
-            baseAPI: URL(string: "https://qstash.upstash.io")!,
+            baseAPI: configuration.qstashURL,
             configuration: configuration,
             message: message,
             timestamp: Int(date.timeIntervalSince1970)
@@ -180,7 +190,7 @@ public struct QStashClient: Sendable {
     }
 
     public func cancel(messageID: String) async throws {
-        let request = Self.makeCancelRequest(baseAPI: URL(string: "https://qstash.upstash.io")!, configuration: configuration, messageID: messageID)
+        let request = Self.makeCancelRequest(baseAPI: configuration.qstashURL, configuration: configuration, messageID: messageID)
         let (data, response) = try await session.data(for: request)
         try Self.validate(response: response, data: data)
     }
@@ -195,7 +205,9 @@ public struct QStashClient: Sendable {
     }
 
     static func barkDestinationURL(configuration: ReminderConfiguration, message: String) -> URL {
-        let encodedMessage = message.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? message
+        let encodedMessage = message.addingPercentEncoding(
+            withAllowedCharacters: CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        ) ?? message
         let baseURL = configuration.barkURL.absoluteString.hasSuffix("/")
             ? String(configuration.barkURL.absoluteString.dropLast())
             : configuration.barkURL.absoluteString
