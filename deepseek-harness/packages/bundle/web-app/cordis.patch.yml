@@ -237,6 +237,10 @@
     - id: ui-jobs
       name: '@deepseek-ai/dsh-client-ui-jobs'
 
+    # Stock indices: real-time SSE, ChiNext, and STAR 50 display in header utilities.
+    - id: ui-stock-indices
+      name: '@deepseek-ai/dsh-client-ui-stock-indices'
+
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal
       name: '@deepseek-ai/dsh-client-ui-goal'
