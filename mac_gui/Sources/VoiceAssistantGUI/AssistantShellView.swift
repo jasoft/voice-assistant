@@ -256,6 +256,12 @@ struct AssistantShellView: View {
                     }
                     .help("查看历史记录")
 
+                    iconButton(symbol: "bell.badge") {
+                        model.keepWindowOpen()
+                        RemindersWindowController.show(workingDirectory: model.workingDirectory)
+                    }
+                    .help("设置手机提醒")
+
                     iconButton(symbol: "gearshape") {
                         SettingsWindowController.show(store: MemoryStore(workingDirectory: model.workingDirectory))
                     }

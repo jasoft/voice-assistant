@@ -42,3 +42,6 @@ deepseek-harness/.cron_update_hermes.sh
 .ruff_cache/
 *.log
 *.tsbuildinfo
+
+# Mac GUI reminder bookkeeping only; credentials stay in the ignored .env.
+.mac_gui_reminders.json
