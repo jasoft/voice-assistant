@@ -5,7 +5,7 @@
     "is_reminder": true,
     "message": "",
     "recurrence": {
-      "type": "once|daily|weekly|monthly",
+      "type": "once|daily|weekly|monthly|interval",
       "by_weekday": "monday|tuesday|wednesday|thursday|friday|saturday|sunday|null",
       "by_month_day": 0,
       "by_hour": 0,
@@ -17,6 +17,7 @@
   },
   "instructions": [
     "只有用户明确要求在未来某个时间、周期性提醒/通知/叫醒自己做事时，才把 is_reminder 设为 true。普通问题、普通聊天、记录事实、查询记忆都不是提醒。",
+    "interval 类型表示每隔若干分钟触发一次，填写 by_minute（分钟数，正整数）；例如每隔5分钟填 by_minute=5，每10分钟填 by_minute=10。",
     "message 必须是简洁的提醒正文；去掉'提醒我''帮我设置'等指令性前缀，但保留做什么和关键限定词。",
     "recurrence.type=once 时必须填写 scheduled_at_local，格式 YYYY-MM-DDTHH:MM:SS，按用户时区计算绝对时间。",
     "相对表达（3分钟后、半小时后、今晚8点、明天早上9点）都按当前时间换算成 once 的 scheduled_at_local。",
@@ -32,7 +33,13 @@
       "assistant": {
         "is_reminder": true,
         "message": "起来走走",
-        "recurrence": {"type":"once","by_weekday":null,"by_month_day":null,"by_hour":null,"by_minute":null},
+        "recurrence": {
+          "type": "once",
+          "by_weekday": null,
+          "by_month_day": null,
+          "by_hour": null,
+          "by_minute": null
+        },
         "scheduled_at_local": "${EXAMPLE_ONCE_LOCAL}",
         "confidence": 0.99,
         "notes": "三分钟后的一次性提醒"
@@ -43,7 +50,13 @@
       "assistant": {
         "is_reminder": true,
         "message": "吃药",
-        "recurrence": {"type":"weekly","by_weekday":"friday","by_month_day":null,"by_hour":9,"by_minute":0},
+        "recurrence": {
+          "type": "weekly",
+          "by_weekday": "friday",
+          "by_month_day": null,
+          "by_hour": 9,
+          "by_minute": 0
+        },
         "scheduled_at_local": null,
         "confidence": 0.99,
         "notes": "每周五上午九点"
@@ -54,10 +67,33 @@
       "assistant": {
         "is_reminder": false,
         "message": "",
-        "recurrence": {"type":"once","by_weekday":null,"by_month_day":null,"by_hour":null,"by_minute":null},
+        "recurrence": {
+          "type": "once",
+          "by_weekday": null,
+          "by_month_day": null,
+          "by_hour": null,
+          "by_minute": null
+        },
         "scheduled_at_local": null,
         "confidence": 0.99,
         "notes": "普通查询，不是提醒"
+      }
+    },
+    {
+      "user": "每隔5分钟提醒我起来走走",
+      "assistant": {
+        "is_reminder": true,
+        "message": "起来走走",
+        "recurrence": {
+          "type": "interval",
+          "by_minute": 5,
+          "by_weekday": null,
+          "by_month_day": null,
+          "by_hour": null
+        },
+        "scheduled_at_local": null,
+        "confidence": 0.99,
+        "notes": "每隔5分钟触发一次"
       }
     }
   ]

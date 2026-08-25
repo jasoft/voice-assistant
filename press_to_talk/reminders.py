@@ -65,6 +65,7 @@ class Extraction:
     minute: int | None
     scheduled_at_local: datetime | None
     confidence: float
+    interval_minutes: int | None = None
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -121,7 +122,7 @@ def parse_extraction(payload: dict[str, Any], *, local_timezone: ZoneInfo) -> Ex
     if not isinstance(recurrence, dict):
         raise ReminderCreationError("提醒重复规则缺失")
     recurrence_type = str(recurrence.get("type") or "").lower()
-    if recurrence_type not in {"once", "daily", "weekly", "monthly"}:
+    if recurrence_type not in {"once", "daily", "weekly", "monthly", "interval"}:
         raise ReminderCreationError("提醒重复规则无效")
 
     raw_weekday = recurrence.get("by_weekday")
@@ -130,8 +131,15 @@ def parse_extraction(payload: dict[str, Any], *, local_timezone: ZoneInfo) -> Ex
     hour = int(recurrence["by_hour"]) if recurrence.get("by_hour") is not None else None
     minute = int(recurrence.get("by_minute") or 0)
 
+    interval_minutes: int | None = None
     scheduled_local: datetime | None = None
-    if recurrence_type == "once":
+    if recurrence_type == "interval":
+        raw_interval = recurrence.get("by_minute")
+        if raw_interval is None or not isinstance(raw_interval, int) or raw_interval < 1:
+            raise ReminderCreationError("间隔提醒缺少有效的 by_minute（正整数分钟）")
+        interval_minutes = raw_interval
+        hour, minute = 0, 0
+    elif recurrence_type == "once":
         raw_time = str(payload.get("scheduled_at_local") or "")
         try:
             scheduled_local = datetime.fromisoformat(raw_time)
@@ -147,7 +155,7 @@ def parse_extraction(payload: dict[str, Any], *, local_timezone: ZoneInfo) -> Ex
     if hour is None or not 0 <= hour <= 23 or not 0 <= minute <= 59:
         raise ReminderCreationError("提醒小时或分钟无效")
 
-    return Extraction(message, recurrence_type, weekday, month_day, hour, minute, scheduled_local, confidence)
+    return Extraction(message, recurrence_type, weekday, month_day, hour, minute, scheduled_local, confidence, interval_minutes)
 
 
 def build_cron(extraction: Extraction, *, source_timezone: ZoneInfo, at_utc: datetime) -> tuple[str, datetime, str]:
@@ -178,6 +186,12 @@ def build_cron(extraction: Extraction, *, source_timezone: ZoneInfo, at_utc: dat
         local_weekday = extraction.weekday or candidate_local.isoweekday()
         cron = f"{candidate_utc.minute} {candidate_utc.hour} * * {candidate_utc.isoweekday() % 7}"
         return cron, local_now, f"每{names[local_weekday - 1]} {extraction.hour:02d}:{extraction.minute:02d}"
+    if extraction.recurrence_type == "interval":
+        minutes = extraction.interval_minutes or 1
+        cron = f"*/{minutes} * * * *"
+        next_occurrence = at_utc + timedelta(minutes=minutes)
+        display = f"每隔 {minutes} 分钟"
+        return cron, next_occurrence, display
     return (
         f"{candidate_utc.minute} {candidate_utc.hour} {candidate_utc.day} * *",
         local_now,

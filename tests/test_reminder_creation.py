@@ -131,3 +131,74 @@ def test_low_confidence_or_non_reminder_is_rejected():
 def test_bark_path_escapes_slash_to_keep_one_body_field():
     url = bark_destination("https://api.day.app/key/", "开会/注意", "Mac 提醒")
     assert url == "https://api.day.app/key/%E5%BC%80%E4%BC%9A%2F%E6%B3%A8%E6%84%8F?group=Mac+%E6%8F%90%E9%86%92"
+
+
+def test_interval_reminder_creates_cron_schedule(tmp_path: Path):
+    now = datetime(2026, 8, 25, 16, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
+    calls = []
+
+    def fake_post(url, method, headers, body):
+        calls.append((url, method, headers, body))
+        if "chat/completions" in url:
+            return 200, model_response({
+                "is_reminder": True,
+                "message": "站起来走走",
+                "recurrence": {"type": "interval", "by_minute": 5, "by_weekday": None, "by_month_day": None, "by_hour": None},
+                "scheduled_at_local": None,
+                "confidence": 0.99,
+            })
+        return 201, {"scheduleId": "schedule_interval_test"}
+
+    result = create_reminder_from_text(
+        "每隔5分钟提醒我站起来走走",
+        now=now,
+        qstash_url="https://qstash.test",
+        qstash_token="token",
+        bark_url="https://api.day.app/key",
+        openai_api_key="key",
+        openai_base_url="https://llm.test/v1",
+        model="model",
+        group="Mac提醒",
+        store_path=tmp_path / "reminders.json",
+        post_json=fake_post,
+    )
+
+    endpoint, _, headers, _ = calls[1]
+    assert "/v2/schedules/" in endpoint
+    assert headers["Upstash-Cron"] == "*/5 * * * *"
+    assert headers["Upstash-Method"] == "GET"
+    assert result == {
+        "kind": "recurring",
+        "message": "站起来走走",
+        "remote_id": "schedule_interval_test",
+        "display": "每隔 5 分钟",
+        "cron_expression": "*/5 * * * *",
+    }
+    records = json.loads((tmp_path / "reminders.json").read_text())
+    assert records[0]["is_recurring"] is True
+    assert records[0]["cron_expression"] == "*/5 * * * *"
+    assert records[0]["schedule_description"] == "每隔 5 分钟"
+
+
+def test_interval_reminder_missing_by_minute_raises():
+    payload = {
+        "is_reminder": True,
+        "message": "走走",
+        "recurrence": {"type": "interval", "by_minute": None, "by_weekday": None, "by_month_day": None, "by_hour": None},
+        "scheduled_at_local": None,
+        "confidence": 0.99,
+    }
+    with pytest.raises(ReminderCreationError, match="by_minute"):
+        parse_extraction(payload, local_timezone=ZoneInfo("Asia/Shanghai"))
+
+
+def test_interval_reminder_zero_by_minute_raises():
+    payload = {
+        "is_reminder": True,
+        "message": "走走",
+        "recurrence": {"type": "interval", "by_minute": 0, "by_weekday": None, "by_month_day": None, "by_hour": None},
+        "scheduled_at_local": None,
+        "confidence": 0.99,
+    }
+    with pytest.raises(ReminderCreationError, match="by_minute"):
+        parse_extraction(payload, local_timezone=ZoneInfo("Asia/Shanghai"))
