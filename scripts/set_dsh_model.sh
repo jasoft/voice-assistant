@@ -14,7 +14,7 @@ settings="${DSH_SETTINGS:-$project_root/config/deepseek-harness/runtime/settings
 # thinking, so pin the route to a non-reasoning Flash Lite model instead of
 # sending provider-specific thinking flags.
 if [[ "$model" == "fast" ]]; then
-  resolved_model="google/gemini-3.1-flash-lite"
+  resolved_model="gemini-3.1-flash-lite"
 fi
 
 if [[ ! -f "$settings" ]]; then

@@ -22,7 +22,7 @@ def test_fast_route_maps_to_non_reasoning_flash_lite(tmp_path: Path) -> None:
       models:
         - id: fast
           maxTokens: 6000
-        - id: google/gemini-3.1-flash-lite
+        - id: gemini-3.1-flash-lite
 agent-default-model:
   provider: cliproxyapp
   model: fast
@@ -35,10 +35,10 @@ agent-default-model:
 
     text = settings.read_text(encoding="utf-8")
     assert (
-        "- id: google/gemini-3.1-flash-lite\n"
+        "- id: gemini-3.1-flash-lite\n"
         "          maxTokens: 512\n"
     ) in text
-    assert "model: google/gemini-3.1-flash-lite" in text
+    assert "model: gemini-3.1-flash-lite" in text
     assert "reasoningEffort:" not in text
 
 
@@ -49,7 +49,7 @@ def test_fast_route_pins_default_agent_preset(tmp_path: Path) -> None:
   providers:
     cliproxyapp:
       models:
-        - id: google/gemini-3.1-flash-lite
+        - id: gemini-3.1-flash-lite
 agent-default-model:
   model: free
 agent-presets:
@@ -74,7 +74,7 @@ def test_fast_route_preserves_model_neighbors(tmp_path: Path) -> None:
       models:
         - id: slow
           maxTokens: 6000
-        - id: google/gemini-3.1-flash-lite
+        - id: gemini-3.1-flash-lite
           contextWindow: 128000
         - id: free
 agent-default-model:
@@ -89,7 +89,7 @@ agent-default-model:
     text = settings.read_text(encoding="utf-8")
     assert "- id: slow\n          maxTokens: 6000" in text
     assert (
-        "- id: google/gemini-3.1-flash-lite\n"
+        "- id: gemini-3.1-flash-lite\n"
         "          maxTokens: 512\n"
         "          contextWindow: 128000\n"
     ) in text

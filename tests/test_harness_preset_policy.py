@@ -136,9 +136,11 @@ def test_fast_chat_preset_routes_memory_and_brave_without_skills() -> None:
     assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
     assert entries[3]["name"] == "@deepseek-ai/dsh-skill-filesystem"
     assert entries[3]["config"]["includeDefaultRoots"] is False
-    assert web["fetch"] is False
     assert web["searchMaxResults"] == 3
     assert web["searchTimeoutMs"] <= 3500
+    assert web["fetch"] is True
+    assert web["fetchTimeoutMs"] == 15000
+    assert web["fetchMaxOutputChars"] == 12000
     assert not (chat_dir / "skills").exists()
 
 
@@ -174,3 +176,7 @@ def test_base_bundle_mounts_native_time_context() -> None:
     assert "includeRuntimeContext: false" in (PRESET_ROOT / "chat-fast" / "agent.cordis.yml").read_text(
         encoding="utf-8"
     )
+    assert "searchProvider: deepseek-official" in patch
+    assert "fetchProvider: http" in patch
+    assert "- id: web-fetch-http" in patch
+    assert '"@deepseek-ai/dsh-web-fetch-http": "workspace:^"' in package

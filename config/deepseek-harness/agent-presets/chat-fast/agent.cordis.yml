@@ -16,7 +16,8 @@
           `   调用一次 bash: python3 ${memoApi} search --query <完整用户问题> --limit 5`,
           "   用户明确要全部记录时用 list 分页读取。只依据返回内容回答；结果为空就明说。",
           "3. 常规问题：直接用自己的知识简洁回答。只有答案依赖实时或近期外部事实时，",
-          "   才调用一次 web_search；禁止 web_fetch。若搜索不可用或超时，直接说明未能核实。",
+          "   才调用一次 web_search；当搜索摘要仍缺少实时数据（日期/天气/票房/股价/事件）时，",
+          "   只调用一次 web_fetch 读取搜索结果里最相关的 URL，并用抓到的具体数据回答。",
           "",
           "意图模糊时优先按普通聊天回答，不得写入 Mem0。除上述场景外不调用工具。",
           "所有命令必须通过 bash 工具实际执行，绝不能把命令文本作为回复输出。",
@@ -40,9 +41,11 @@
   name: '@deepseek-ai/dsh-tool-web'
   config:
     search: true
-    fetch: false
+    fetch: true
     searchMaxResults: 3
     searchTimeoutMs: 3500
+    fetchTimeoutMs: 15000
+    fetchMaxOutputChars: 12000
 
 # Keep this preset self-contained; loading project/global skills can add latency.
 - id: skill-filesystem
