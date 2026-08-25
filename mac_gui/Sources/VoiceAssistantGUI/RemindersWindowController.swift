@@ -7,7 +7,7 @@ final class RemindersWindowController: NSWindowController {
     private let store: ReminderStore
     private let configuration: ReminderConfiguration?
 
-    init(store: ReminderStore, configuration: ReminderConfiguration?) {
+    init(store: ReminderStore, configuration: ReminderConfiguration?, remoteClient: VAClient? = nil) {
         self.store = store
         self.configuration = configuration
 
@@ -22,7 +22,7 @@ final class RemindersWindowController: NSWindowController {
         window.level = .floating
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.center()
-        window.contentView = NSHostingView(rootView: RemindersView(store: store, configuration: configuration))
+        window.contentView = NSHostingView(rootView: RemindersView(store: store, configuration: configuration, remoteClient: remoteClient))
     }
 
     required init?(coder: NSCoder) {
@@ -35,9 +35,11 @@ final class RemindersWindowController: NSWindowController {
             return
         }
         let root = PathHelper.resolveProjectRoot(startingAt: workingDirectory)
+        let remoteClient = VAConfig.load(workingDirectory: root).map { VAClient(config: $0) }
         let controller = RemindersWindowController(
             store: ReminderStore(workingDirectory: root),
-            configuration: ReminderConfiguration.load(workingDirectory: root)
+            configuration: ReminderConfiguration.load(workingDirectory: root),
+            remoteClient: remoteClient
         )
         shared = controller
         controller.showWindow(nil)

@@ -23,6 +23,14 @@ from ..storage.service import StorageService, load_storage_config
 from ..utils.logging import log, log_multiline
 from ..utils.photo import get_photo_url
 from ..harness import DeepSeekHarnessClient, HarnessError
+from ..reminders import (
+    ReminderCreationError,
+    cancel_remote_reminder,
+    configured_store_path,
+    create_reminder_from_text,
+    load_reminder_records,
+    save_reminder_records,
+)
 from ..storage.models import SessionHistoryRecord
 from ..storage.providers.mem0 import Mem0RememberStore
 
@@ -288,6 +296,8 @@ async def ready():
         raise HTTPException(status_code=503, detail="Configuration not loaded")
     return {"status": "ready"}
 
+
+
 from enum import Enum
 
 class ExecutionMode(str, Enum):
@@ -408,6 +418,117 @@ class QueryJobStatusResponse(BaseModel):
     reply: Optional[str] = Field(None, description="Final assistant reply when status is succeeded.")
     error: Optional[str] = Field(None, description="Failure reason when status is failed or cancelled.")
 
+
+class ReminderCreateRequest(BaseModel):
+    """Natural-language reminder text supplied by the chat Agent."""
+
+    text: str = Field(..., min_length=1, description="完整用户原话。")
+
+
+class ReminderItem(BaseModel):
+    """A QStash-backed reminder; field names match the Mac GUI store."""
+
+    id: str
+    qstash_message_id: str
+    message: str
+    scheduled_at: str
+    created_at: str
+    status: str
+    is_recurring: bool = False
+    cron_expression: Optional[str] = None
+    timezone_identifier: Optional[str] = None
+    schedule_description: Optional[str] = None
+
+
+
+
+def _reminder_creation_kwargs() -> dict[str, Any]:
+    missing = [
+        name for name in ("QSTASH_URL", "QSTASH_TOKEN", "BARK_URL", "OPENAI_API_KEY", "PTT_MODEL")
+        if not os.getenv(name)
+    ]
+    if missing:
+        raise RuntimeError(f"提醒配置缺失：{','.join(missing)}")
+    return {
+        "qstash_url": os.environ["QSTASH_URL"],
+        "qstash_token": os.environ["QSTASH_TOKEN"],
+        "bark_url": os.environ["BARK_URL"],
+        "openai_api_key": os.environ["OPENAI_API_KEY"],
+        "openai_base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        "model": os.environ["PTT_MODEL"],
+        "timezone_name": os.getenv("REMINDER_TIMEZONE", "Asia/Shanghai"),
+        "group": os.getenv("REMINDER_GROUP", "Mac提醒"),
+        "sound": os.getenv("REMINDER_SOUND") or None,
+        "store_path": configured_store_path(),
+    }
+
+
+@app.post(
+    "/v1/reminders",
+    response_model=ReminderItem,
+    status_code=201,
+    summary="从自然语言创建云端手机提醒",
+)
+async def create_reminder(req: ReminderCreateRequest, user_id: str = Depends(get_user_id)):
+    del user_id
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        timezone_name = os.getenv("REMINDER_TIMEZONE", "Asia/Shanghai")
+        result = await asyncio.to_thread(
+            create_reminder_from_text,
+            req.text,
+            now=datetime.now(ZoneInfo(timezone_name)),
+            **_reminder_creation_kwargs(),
+        )
+    except ReminderCreationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        log(f"Reminder creation failed: {exc}", level="error")
+        raise HTTPException(status_code=500, detail="提醒创建失败") from exc
+
+    records = load_reminder_records(configured_store_path())
+    created = records[-1]
+    return ReminderItem(**created)
+
+
+@app.get("/v1/reminders", response_model=List[ReminderItem], summary="获取云端手机提醒")
+async def list_reminders(user_id: str = Depends(get_user_id)):
+    del user_id
+    return [ReminderItem(**item) for item in load_reminder_records(configured_store_path())]
+
+
+@app.delete(
+    "/v1/reminders/{reminder_id}",
+    response_model=ReminderItem,
+    summary="取消云端手机提醒",
+)
+async def cancel_reminder(reminder_id: str, user_id: str = Depends(get_user_id)):
+    del user_id
+    store_path = configured_store_path()
+    records = load_reminder_records(store_path)
+    index = next((index for index, item in enumerate(records) if item.get("id") == reminder_id), None)
+    if index is None:
+        raise HTTPException(status_code=404, detail="提醒不存在")
+    record = records[index]
+    if record.get("status") == "cancelled":
+        return ReminderItem(**record)
+    try:
+        await asyncio.to_thread(
+            cancel_remote_reminder,
+            str(record["qstash_message_id"]),
+            qstash_url=os.getenv("QSTASH_URL", ""),
+            qstash_token=os.getenv("QSTASH_TOKEN", ""),
+            is_recurring=bool(record.get("is_recurring")),
+        )
+    except ReminderCreationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    record["status"] = "cancelled"
+    records[index] = record
+    save_reminder_records(store_path, records)
+
+    return ReminderItem(**record)
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")

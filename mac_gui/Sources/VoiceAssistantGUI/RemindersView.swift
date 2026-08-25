@@ -4,6 +4,7 @@ import VoiceAssistantGUIKit
 struct RemindersView: View {
     let store: ReminderStore
     let configuration: ReminderConfiguration?
+    var remoteClient: VAClient? = nil
 
     @State private var reminders: [ScheduledReminder] = []
     @State private var draftMessage = ""
@@ -170,6 +171,19 @@ struct RemindersView: View {
         defer { isLoading = false }
         reload()
 
+        if let remoteClient {
+            do {
+                let remoteReminders = try await remoteClient.fetchReminders()
+                let localByID = Dictionary(uniqueKeysWithValues: reminders.map { ($0.id, $0) })
+                for reminder in remoteReminders where localByID[reminder.id]?.status == nil || localByID[reminder.id]! == reminder {
+                    try store.save(reminder)
+                }
+            } catch {
+                errorMessage = "服务器提醒同步失败：\(error.localizedDescription)"
+            }
+            reload()
+        }
+
         guard syncCloud, let configuration, !reminders.isEmpty else { return }
         do {
             let statuses = try await QStashClient(configuration: configuration).statuses(for: reminders)
@@ -215,6 +229,9 @@ struct RemindersView: View {
         do {
             try await QStashClient(configuration: configuration!).cancel(reminder)
             try store.markCancelled(id: reminder.id)
+            if let remoteClient {
+                try await remoteClient.cancelReminder(id: reminder.id)
+            }
             await refreshReminders(syncCloud: false)
         } catch {
             errorMessage = error.localizedDescription

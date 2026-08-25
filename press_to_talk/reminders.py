@@ -18,6 +18,39 @@ WEEKDAYS = {"monday": 1, "tuesday": 2, "wednesday": 3, "thursday": 4, "friday": 
 JsonPoster = Callable[[str, str, dict[str, str], str | None], tuple[int, dict[str, Any] | str]]
 
 
+def configured_store_path() -> Path:
+    """Return the durable reminder store used by API and CLI callers."""
+    return Path(os.getenv("PTT_REMINDER_STORE_PATH", str(DEFAULT_STORE_PATH)))
+
+
+def load_reminder_records(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    return [item for item in loaded if isinstance(item, dict)] if isinstance(loaded, list) else []
+
+
+def save_reminder_records(path: Path, records: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def cancel_remote_reminder(
+    remote_id: str,
+    *,
+    qstash_url: str,
+    qstash_token: str,
+    is_recurring: bool,
+) -> None:
+    endpoint = f"{qstash_url.rstrip('/')}/{'v2/schedules' if is_recurring else 'v2/messages'}/{remote_id}"
+    status, _ = default_post_json(endpoint, "DELETE", {"Authorization": f"Bearer {qstash_token}"}, None)
+    if status not in {200, 201, 202, 204}:
+        raise ReminderCreationError(f"QStash 取消失败：HTTP {status}")
+
+
 class ReminderCreationError(RuntimeError):
     """Raised when natural language cannot safely become a QStash reminder."""
 
@@ -268,16 +301,10 @@ def create_reminder_from_text(
         "timezone_identifier": timezone_name if extraction.recurrence_type != "once" else None,
         "schedule_description": display if extraction.recurrence_type != "once" else None,
     }
-    records: list[dict[str, Any]] = []
-    if store_path.exists():
-        try:
-            loaded = json.loads(store_path.read_text(encoding="utf-8"))
-            records = loaded if isinstance(loaded, list) else []
-        except json.JSONDecodeError:
-            records = []
+    records = load_reminder_records(store_path)
     records.append(record)
     store_path.parent.mkdir(parents=True, exist_ok=True)
-    store_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_reminder_records(store_path, records)
     return {
         "kind": "recurring" if record["is_recurring"] else "once",
         "message": extraction.message,

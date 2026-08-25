@@ -16,6 +16,7 @@ services:
       PTT_REMEMBER_BACKEND: mem0
       PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast
       PTT_CHAT_TIMEOUT_SECONDS: "30"
+      PTT_REMINDER_STORE_PATH: /app/data/reminders.json
     ports:
       - "10031:10031"
     volumes:
@@ -39,6 +40,8 @@ services:
       # this isolated container.
       DSH_PERMISSION_MODE: danger-full-access
       MEM0_REQUEST_TIMEOUT_SECONDS: "3"
+      REMINDER_API_URL: http://voice-assistant:10031
+      PTT_API_KEY: ${PTT_API_KEY}
     command:
       - --host
       - 0.0.0.0
