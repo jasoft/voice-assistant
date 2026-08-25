@@ -36,10 +36,19 @@ def encode_path(value: str) -> str:
     return urllib.parse.quote(value, safe="")
 
 
-def request_json(url: str, *, method: str = "GET", token: str | None = None, body: str | None = None) -> tuple[int, Any]:
+def request_json(
+    url: str,
+    *,
+    method: str = "GET",
+    token: str | None = None,
+    body: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, Any]:
     request = urllib.request.Request(url, method=method)
     if token:
         request.add_header("Authorization", f"Bearer {token}")
+    for key, value in (headers or {}).items():
+        request.add_header(key, value)
     if body is not None:
         request.add_header("Content-Type", "text/plain; charset=utf-8")
         request.data = body.encode("utf-8")
@@ -85,12 +94,15 @@ def main() -> int:
 
     when = int(time.time() + args.delay)
     destination = bark_url(bark_base, f"{args.message}（QStash 定时）", args.group)
-    publish_url = f"{qstash_base}/v2/publish/{destination}?notBefore={when}"
+    publish_url = f"{qstash_base}/v2/publish/{destination}"
     schedule_status, schedule_payload = request_json(
         publish_url,
         method="POST",
         token=token,
-        body="云端定时提醒验收",
+        headers={
+            "Upstash-Not-Before": str(when),
+            "Upstash-Method": "GET",
+        },
     )
     message_id = ""
     if isinstance(schedule_payload, dict):

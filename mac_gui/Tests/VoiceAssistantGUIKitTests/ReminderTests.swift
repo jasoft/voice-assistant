@@ -71,25 +71,29 @@ struct ReminderConfigurationTests {
 
 struct QStashRequestTests {
     @Test
-    func scheduleRequestTargetsPublishEndpointWithNotBefore() throws {
+    func scheduleRequestUsesHeadersBarkPathAndGetMethod() throws {
         let configuration = ReminderConfiguration(
             qstashURL: URL(string: "https://qstash-us-east-1.upstash.io")!,
             qstashToken: "secret",
-            barkURL: URL(string: "https://api.day.app/key")!
+            barkURL: URL(string: "https://api.day.app/key")!,
+            group: "提醒"
         )
         let request = try QStashClient.makeScheduleRequest(
             baseAPI: configuration.qstashURL,
             configuration: configuration,
-            message: "开会",
+            message: "开会/注意",
             timestamp: 1_789_000_000
         )
 
-        #expect(request.url?.absoluteString == "https://qstash-us-east-1.upstash.io/v2/publish/https://api.day.app/key?notBefore=1789000000")
+        #expect(request.url?.absoluteString == "https://qstash-us-east-1.upstash.io/v2/publish/https://api.day.app/key/%E5%BC%80%E4%BC%9A%2F%E6%B3%A8%E6%84%8F?group=%E6%8F%90%E9%86%92")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret")
-        #expect(String(decoding: request.httpBody ?? Data(), as: UTF8.self) == "开会")
+        #expect(request.value(forHTTPHeaderField: "Upstash-Not-Before") == "1789000000")
+        #expect(request.value(forHTTPHeaderField: "Upstash-Method") == "GET")
+        #expect(request.httpBody == nil)
     }
 }
+
 
 final class StubURLProtocol: URLProtocol {
     nonisolated(unsafe) static var handler: ((URLRequest) -> (Int, [String: String], Data))?

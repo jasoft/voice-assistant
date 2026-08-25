@@ -227,13 +227,18 @@ public struct QStashClient: Sendable {
         timestamp: Int,
         now: Date = .now
     ) throws -> URLRequest {
-        var components = URLComponents(url: baseAPI.appendingPathComponent("v2/publish/\(configuration.barkURL.absoluteString)"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "notBefore", value: String(timestamp))]
-        var request = URLRequest(url: components.url!)
+        let base = baseAPI.absoluteString.hasSuffix("/") ? String(baseAPI.absoluteString.dropLast()) : baseAPI.absoluteString
+        let destination = barkDestinationURL(configuration: configuration, message: message)
+        let url = URL(string: "\(base)/v2/publish/\(destination.absoluteString)")!
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(configuration.qstashToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(message.utf8)
+        // QStash control metadata must use Upstash-* headers. A query parameter named
+        // notBefore is ignored for scheduling and gets forwarded to the destination.
+        request.setValue(String(timestamp), forHTTPHeaderField: "Upstash-Not-Before")
+        // Bark accepts the notification body in its URL path. GET avoids sending an
+        // empty/plain-text HTTP body that Bark would otherwise render as an empty push.
+        request.setValue("GET", forHTTPHeaderField: "Upstash-Method")
         return request
     }
 
