@@ -103,7 +103,7 @@ struct RemindersView: View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(reminder.message).fontWeight(.medium).lineLimit(2)
-                Text("\(reminder.scheduledAt.formatted(date: .abbreviated, time: .shortened)) · \(statusLabel(reminder.status))")
+                Text("\(reminder.scheduleDescription ?? reminder.scheduledAt.formatted(date: .abbreviated, time: .shortened)) · \(statusLabel(reminder.status))")
                     .font(.caption)
                     .foregroundStyle(statusColor(reminder.status))
             }
@@ -213,7 +213,7 @@ struct RemindersView: View {
         successMessage = ""
         defer { isSubmitting = false }
         do {
-            try await QStashClient(configuration: configuration!).cancel(messageID: reminder.qstashMessageID)
+            try await QStashClient(configuration: configuration!).cancel(reminder)
             try store.markCancelled(id: reminder.id)
             await refreshReminders(syncCloud: false)
         } catch {

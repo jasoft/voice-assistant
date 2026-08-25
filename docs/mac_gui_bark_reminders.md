@@ -61,6 +61,18 @@ cd mac_gui
 swift test
 ```
 
+## 自然语言创建
+
+在聊天输入框直接说：
+
+- “3分钟后提醒我起来走走”
+- “明天早上8点提醒我开会”
+- “每周五的9点提醒我吃药”
+
+DeepSeek Harness 聊天 Agent 会调用项目内置的 `scripts/reminder_cli.py`。时间理解由大模型完成，配置在 `config/reminders/natural_language.json`；脚本负责换算时区、创建 QStash 一次性延迟消息或周期 cron schedule，并写入 GUI 的提醒列表。
+
+支持一次性、每天、每周、每月提醒。每周/每天/每月时间按 `REMINDER_TIMEZONE`（默认 Asia/Shanghai）解释，并转换为 QStash 使用的 UTC cron。
+
 ## 真实验收
 
 项目内置一条只输出状态、不输出密钥的验收命令：

@@ -20,7 +20,7 @@ class HarnessError(RuntimeError):
 JsonRequester = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 _WRAPPER_COMMAND_RE = re.compile(
-    r"^\s*python3\s+\S*memo_api\.py\s+(add|search|list|delete)\b",
+    r"^\s*python3\s+\S*(memo_api\.py\s+(add|search|list|delete)|reminder_cli\.py\s+create)\b",
 )
 
 

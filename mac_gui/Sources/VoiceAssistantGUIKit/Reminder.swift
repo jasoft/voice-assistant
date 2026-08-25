@@ -14,6 +14,10 @@ public struct ScheduledReminder: Identifiable, Codable, Equatable, Sendable {
     public var scheduledAt: Date
     public var createdAt: Date
     public var status: ReminderStatus
+    public var isRecurring: Bool
+    public var cronExpression: String?
+    public var timezoneIdentifier: String?
+    public var scheduleDescription: String?
 
     public init(
         id: UUID = UUID(),
@@ -21,7 +25,11 @@ public struct ScheduledReminder: Identifiable, Codable, Equatable, Sendable {
         message: String,
         scheduledAt: Date,
         createdAt: Date = .now,
-        status: ReminderStatus = .scheduled
+        status: ReminderStatus = .scheduled,
+        isRecurring: Bool = false,
+        cronExpression: String? = nil,
+        timezoneIdentifier: String? = nil,
+        scheduleDescription: String? = nil
     ) {
         self.id = id
         self.qstashMessageID = qstashMessageID
@@ -29,6 +37,24 @@ public struct ScheduledReminder: Identifiable, Codable, Equatable, Sendable {
         self.scheduledAt = scheduledAt
         self.createdAt = createdAt
         self.status = status
+        self.isRecurring = isRecurring
+        self.cronExpression = cronExpression
+        self.timezoneIdentifier = timezoneIdentifier
+        self.scheduleDescription = scheduleDescription
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        qstashMessageID = try container.decode(String.self, forKey: .qstashMessageID)
+        message = try container.decode(String.self, forKey: .message)
+        scheduledAt = try container.decode(Date.self, forKey: .scheduledAt)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        status = try container.decode(ReminderStatus.self, forKey: .status)
+        isRecurring = try container.decodeIfPresent(Bool.self, forKey: .isRecurring) ?? false
+        cronExpression = try container.decodeIfPresent(String.self, forKey: .cronExpression)
+        timezoneIdentifier = try container.decodeIfPresent(String.self, forKey: .timezoneIdentifier)
+        scheduleDescription = try container.decodeIfPresent(String.self, forKey: .scheduleDescription)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -38,6 +64,10 @@ public struct ScheduledReminder: Identifiable, Codable, Equatable, Sendable {
         case scheduledAt = "scheduled_at"
         case createdAt = "created_at"
         case status
+        case isRecurring = "is_recurring"
+        case cronExpression = "cron_expression"
+        case timezoneIdentifier = "timezone_identifier"
+        case scheduleDescription = "schedule_description"
     }
 }
 
@@ -160,6 +190,19 @@ public struct QStashPublishResponse: Codable, Equatable, Sendable {
     }
 }
 
+struct QStashScheduleResponse: Decodable, Sendable {
+    let scheduleID: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        scheduleID = try container.decode(String.self, forKey: .scheduleID)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case scheduleID = "scheduleId"
+    }
+}
+
 struct QStashLogEvent: Decodable, Sendable {
     let messageID: String
     let state: String
@@ -208,7 +251,7 @@ public struct QStashClient: Sendable {
     }
 
     public func statuses(for reminders: [ScheduledReminder]) async throws -> [String: ReminderStatus] {
-        let ids = reminders.map(\.qstashMessageID)
+        let ids = reminders.filter { !$0.isRecurring }.map(\.qstashMessageID)
         guard !ids.isEmpty else { return [:] }
 
         var components = URLComponents(url: configuration.qstashURL.appendingPathComponent("v2/events"), resolvingAgainstBaseURL: false)!
@@ -240,6 +283,45 @@ public struct QStashClient: Sendable {
             }
         }
         return result
+    }
+
+    public func scheduleRecurring(
+        message: String,
+        cronExpression: String,
+        timezoneIdentifier: String,
+        scheduleDescription: String
+    ) async throws -> ScheduledReminder {
+        let destination = Self.barkDestinationURL(configuration: configuration, message: message)
+            .absoluteString
+            .removingPercentEncoding ?? ""
+        precondition(!destination.isEmpty, "Bark destination must be valid")
+        var components = URLComponents(url: configuration.qstashURL.appendingPathComponent("v2/schedules"), resolvingAgainstBaseURL: false)!
+        components.path += "/\(destination)"
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(configuration.qstashToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(cronExpression, forHTTPHeaderField: "Upstash-Cron")
+        request.setValue("GET", forHTTPHeaderField: "Upstash-Method")
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        let decoded = try JSONDecoder().decode(QStashScheduleResponse.self, from: data)
+        return ScheduledReminder(
+            qstashMessageID: decoded.scheduleID,
+            message: message,
+            scheduledAt: .now,
+            isRecurring: true,
+            cronExpression: cronExpression,
+            timezoneIdentifier: timezoneIdentifier,
+            scheduleDescription: scheduleDescription
+        )
+    }
+
+    public func cancel(_ reminder: ScheduledReminder) async throws {
+        let request = reminder.isRecurring
+            ? Self.makeCancelRequest(baseAPI: configuration.qstashURL, configuration: configuration, messageID: reminder.qstashMessageID, isSchedule: true)
+            : Self.makeCancelRequest(baseAPI: configuration.qstashURL, configuration: configuration, messageID: reminder.qstashMessageID)
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
     }
 
     public func cancel(messageID: String) async throws {
@@ -295,8 +377,8 @@ public struct QStashClient: Sendable {
         return request
     }
 
-    static func makeCancelRequest(baseAPI: URL, configuration: ReminderConfiguration, messageID: String) -> URLRequest {
-        var request = URLRequest(url: baseAPI.appendingPathComponent("v2/messages/\(messageID)"))
+    static func makeCancelRequest(baseAPI: URL, configuration: ReminderConfiguration, messageID: String, isSchedule: Bool = false) -> URLRequest {
+        var request = URLRequest(url: baseAPI.appendingPathComponent(isSchedule ? "v2/schedules/\(messageID)" : "v2/messages/\(messageID)"))
         request.httpMethod = "DELETE"
         request.setValue("Bearer \(configuration.qstashToken)", forHTTPHeaderField: "Authorization")
         return request
