@@ -96,13 +96,28 @@ struct QStashRequestTests {
 
 
 final class StubURLProtocol: URLProtocol {
-    nonisolated(unsafe) static var handler: ((URLRequest) -> (Int, [String: String], Data))?
+    typealias Handler = @Sendable (URLRequest) -> (Int, [String: String], Data)
+    nonisolated(unsafe) private static var handlers: [String: Handler] = [:]
+    private static let lock = NSLock()
+
+    static func setHandler(host: String, handler: @escaping Handler) {
+        lock.lock()
+        handlers[host] = handler
+        lock.unlock()
+    }
+
+    static func clearHandlers() {
+        lock.lock()
+        handlers.removeAll()
+        lock.unlock()
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        guard let handler = Self.handler else {
+        guard let host = request.url?.host(),
+              let handler = Self.handler(for: host) else {
             client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
             return
         }
@@ -111,6 +126,12 @@ final class StubURLProtocol: URLProtocol {
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
+    }
+
+    private static func handler(for host: String) -> Handler? {
+        lock.lock()
+        defer { lock.unlock() }
+        return handlers[host]
     }
 
     override func stopLoading() {}
@@ -122,13 +143,17 @@ struct QStashClientNetworkTests {
     func scheduleParsesMessageIDAndStorePersistsReminder() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let configuration = ReminderConfiguration(qstashToken: "token", barkURL: URL(string: "https://api.day.app/key")!)
+        let configuration = ReminderConfiguration(
+            qstashURL: URL(string: "https://qstash-schedule.test")!,
+            qstashToken: "token",
+            barkURL: URL(string: "https://api.day.app/key")!
+        )
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [StubURLProtocol.self]
         let client = QStashClient(configuration: configuration, session: URLSession(configuration: sessionConfiguration))
         let store = ReminderStore(workingDirectory: directory)
 
-        StubURLProtocol.handler = { request in
+        StubURLProtocol.setHandler(host: "qstash-schedule.test") { request in
             #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer token")
             return (200, [:], #"{"messageId":"msg_123"}"#.data(using: .utf8)!)
         }
@@ -141,7 +166,7 @@ struct QStashClientNetworkTests {
         #expect(store.remindersFileURL.path.contains(".mac_gui_reminders.json"))
         try await Task.sleep(nanoseconds: 20_000_000)
 
-        StubURLProtocol.handler = { request in
+        StubURLProtocol.setHandler(host: "qstash-schedule.test") { request in
             #expect(request.httpMethod == "DELETE")
             #expect(request.url?.path == "/v2/messages/msg_123")
             return (200, [:], Data())
@@ -149,6 +174,49 @@ struct QStashClientNetworkTests {
         try await client.cancel(messageID: reminder.qstashMessageID)
         try store.markCancelled(id: reminder.id)
         #expect(try store.load().first?.status == .cancelled)
-        StubURLProtocol.handler = nil
+        StubURLProtocol.clearHandlers()
+    }
+
+    @Test
+    func statusesUseQStashLogsAndMapLatestCloudState() async throws {
+        let configuration = ReminderConfiguration(
+            qstashURL: URL(string: "https://qstash-status.test")!,
+            qstashToken: "token",
+            barkURL: URL(string: "https://api.day.app/key")!
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [StubURLProtocol.self]
+        let client = QStashClient(configuration: configuration, session: URLSession(configuration: sessionConfiguration))
+        let delivered = ScheduledReminder(
+            qstashMessageID: "msg_delivered",
+            message: "delivered",
+            scheduledAt: .now.addingTimeInterval(-60)
+        )
+        let active = ScheduledReminder(
+            qstashMessageID: "msg_active",
+            message: "active",
+            scheduledAt: .now.addingTimeInterval(60)
+        )
+
+        StubURLProtocol.setHandler(host: "qstash-status.test") { request in
+            #expect(request.httpMethod == "GET")
+            #expect(request.url?.path == "/v2/events")
+            let query = request.url?.query ?? ""
+            #expect(query.contains("messageIds=msg_delivered"))
+            #expect(query.contains("messageIds=msg_active"))
+            let payload = """
+            {"events":[
+              {"messageId":"msg_delivered","state":"ACTIVE","time":10},
+              {"messageId":"msg_delivered","state":"DELIVERED","time":20},
+              {"messageId":"msg_active","state":"CREATED","time":30}
+            ]}
+            """
+            return (200, [:], payload.data(using: .utf8)!)
+        }
+
+        let statuses = try await client.statuses(for: [delivered, active])
+        #expect(statuses["msg_delivered"] == .delivered)
+        #expect(statuses["msg_active"] == .scheduled)
+        StubURLProtocol.clearHandlers()
     }
 }

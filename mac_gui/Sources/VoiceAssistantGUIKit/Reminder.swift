@@ -160,6 +160,24 @@ public struct QStashPublishResponse: Codable, Equatable, Sendable {
     }
 }
 
+struct QStashLogEvent: Decodable, Sendable {
+    let messageID: String
+    let state: String
+    let time: Double?
+    let timestamp: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case messageID = "messageId"
+        case state
+        case time
+        case timestamp
+    }
+}
+
+struct QStashLogsResponse: Decodable, Sendable {
+    let events: [QStashLogEvent]
+}
+
 public struct QStashClient: Sendable {
     private let configuration: ReminderConfiguration
     private let session: URLSession
@@ -187,6 +205,41 @@ public struct QStashClient: Sendable {
             message: message,
             scheduledAt: date
         )
+    }
+
+    public func statuses(for reminders: [ScheduledReminder]) async throws -> [String: ReminderStatus] {
+        let ids = reminders.map(\.qstashMessageID)
+        guard !ids.isEmpty else { return [:] }
+
+        var components = URLComponents(url: configuration.qstashURL.appendingPathComponent("v2/events"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "count", value: String(max(ids.count * 3, 10)))]
+            + ids.map { URLQueryItem(name: "messageIds", value: $0) }
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(configuration.qstashToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        let payload = try JSONDecoder().decode(QStashLogsResponse.self, from: data)
+
+        var latestStates: [String: (time: Double, state: String)] = [:]
+        for event in payload.events {
+            let knownState = event.state.trimmingCharacters(in: .whitespaces).uppercased()
+            guard let time = event.time ?? event.timestamp else { continue }
+            if let current = latestStates[event.messageID], current.time > time { continue }
+            latestStates[event.messageID] = (time, knownState)
+        }
+
+        var result: [String: ReminderStatus] = [:]
+        for (messageID, value) in latestStates {
+            switch value.state {
+            case "DELIVERED": result[messageID] = .delivered
+            case "ERROR", "FAILED": result[messageID] = .failed
+            case "CANCELED": result[messageID] = .cancelled
+            default: result[messageID] = .scheduled
+            }
+        }
+        return result
     }
 
     public func cancel(messageID: String) async throws {

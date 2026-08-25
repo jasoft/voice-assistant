@@ -29,7 +29,7 @@ struct RemindersView: View {
         }
         .padding(20)
         .frame(minWidth: 660, minHeight: 500)
-        .task { reload() }
+        .task { await refreshReminders(syncCloud: true) }
     }
 
     private var header: some View {
@@ -39,7 +39,7 @@ struct RemindersView: View {
             Text("手机提醒").font(.title2.bold())
             Spacer()
             Button {
-                reload()
+                Task { await refreshReminders(syncCloud: true) }
             } label: {
                 Label("刷新", systemImage: "arrow.clockwise")
             }
@@ -156,15 +156,35 @@ struct RemindersView: View {
     private var trimmedMessage: String { draftMessage.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private func reload() {
-        isLoading = true
-        errorMessage = ""
         do {
             reminders = try store.load()
-            successMessage = ""
         } catch {
             errorMessage = error.localizedDescription
         }
-        isLoading = false
+    }
+
+    private func refreshReminders(syncCloud: Bool) async {
+        isLoading = true
+        errorMessage = ""
+        successMessage = ""
+        defer { isLoading = false }
+        reload()
+
+        guard syncCloud, let configuration, !reminders.isEmpty else { return }
+        do {
+            let statuses = try await QStashClient(configuration: configuration).statuses(for: reminders)
+            for var reminder in reminders where statuses[reminder.qstashMessageID] != nil {
+                let cloudStatus = statuses[reminder.qstashMessageID]!
+                if cloudStatus != reminder.status {
+                    reminder.status = cloudStatus
+                    try store.save(reminder)
+                }
+            }
+            reload()
+        } catch {
+            // Local history is still usable when the cloud log lookup fails.
+            errorMessage = "云端状态同步失败：\(error.localizedDescription)"
+        }
     }
 
     private func createReminder() async {
@@ -181,7 +201,7 @@ struct RemindersView: View {
             try store.save(reminder)
             draftMessage = ""
             successMessage = "已安排提醒：\(reminder.scheduledAt.formatted(date: .abbreviated, time: .shortened))"
-            reload()
+            await refreshReminders(syncCloud: false)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -195,7 +215,7 @@ struct RemindersView: View {
         do {
             try await QStashClient(configuration: configuration!).cancel(messageID: reminder.qstashMessageID)
             try store.markCancelled(id: reminder.id)
-            reload()
+            await refreshReminders(syncCloud: false)
         } catch {
             errorMessage = error.localizedDescription
         }
