@@ -53,6 +53,17 @@ struct AppModelTests {
         model.session.apply(jsonLine: #"{"type":"status","phase":"recording"}"#)
         #expect(!model.isMainInterface)
     }
+
+    @Test
+    func speechStartsUnmutedAndMuteSilencesCurrentOutput() {
+        let model = AppModel(forwardedArgs: [], workingDirectory: URL(fileURLWithPath: "/tmp"))
+
+        #expect(!model.isSpeechMuted)
+
+        model.toggleSpeechMuted()
+
+        #expect(model.isSpeechMuted)
+    }
 }
 
 @MainActor

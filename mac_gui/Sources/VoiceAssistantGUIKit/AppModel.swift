@@ -16,6 +16,7 @@ public final class AppModel: ObservableObject {
     @Published public var historyError: String?
     @Published public var historyQuery = ""
     @Published public var draftInput = ""
+    @Published public private(set) var isSpeechMuted = false
 
     private let bridge: PTTProcessBridge
     private let serviceManager: ServiceManager?
@@ -117,6 +118,7 @@ public final class AppModel: ObservableObject {
     }
 
     private func speakLocally(text: String) {
+        guard !isSpeechMuted else { return }
         stopSpeaking() // Kill existing playback
 
         let process = Process()
@@ -205,6 +207,17 @@ public final class AppModel: ObservableObject {
     public func stopSpeaking() {
         keepWindowOpen()
         stopSpeechPlaybackNow()
+    }
+
+    public func toggleSpeechMuted() {
+        keepWindowOpen()
+        isSpeechMuted.toggle()
+
+        // Muting must silence the current output immediately; unmuting takes
+        // effect on the next generated reply instead of replaying old text.
+        if isSpeechMuted {
+            stopSpeechPlaybackNow()
+        }
     }
 
     public func stopServices() {

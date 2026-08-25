@@ -316,6 +316,7 @@ struct AssistantShellView: View {
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(red: 0.10, green: 0.11, blue: 0.16))
                 Spacer()
+                speechToggleButton
                 if case .speaking = model.session.state.status {
                     Text("朗读中")
                         .font(.system(size: 11, weight: .semibold))
@@ -343,6 +344,24 @@ struct AssistantShellView: View {
                 )
                 .shadow(color: Color.black.opacity(0.04), radius: 14, x: 0, y: 8)
         )
+    }
+
+    private var speechToggleButton: some View {
+        Button(action: {
+            model.toggleSpeechMuted()
+        }) {
+            Image(systemName: model.isSpeechMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(
+                    model.isSpeechMuted
+                        ? Color(red: 0.72, green: 0.24, blue: 0.24)
+                        : Color(red: 0.46, green: 0.47, blue: 0.54)
+                )
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Color.white.opacity(0.68)))
+        }
+        .buttonStyle(.plain)
+        .help(model.isSpeechMuted ? "当前已静音，点击恢复语音播放" : "当前正在播放，点击静音")
     }
 
     private var composer: some View {
