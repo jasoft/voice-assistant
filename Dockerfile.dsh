@@ -8,25 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @deepseek-ai/dsh@0.1.2-rc.1 \
-    && sed -i 's/options.host === "0.0.0.0"/false/g' $(find /usr/local/lib/node_modules -name startup.js) \
-    && node -e '\
-const fs = require("fs"); \
-const connPath = require("child_process").execSync("find /usr/local/lib/node_modules -path \"*/@deepseek-ai/dsh-client-connection/lib/index.js\"").toString().trim(); \
-let connCode = fs.readFileSync(connPath, "utf8"); \
-connCode = connCode.replace("const endpoint = pathname.slice(channel.length + 1);", "let endpoint = pathname.slice(channel.length + 1); if (endpoint.includes(\".\")) endpoint = endpoint.replace(\".\", \"/\");"); \
-connCode = connCode.replace("const message = envelope.data;", "const message = envelope.data; if (typeof message.method === \"string\" && message.method.includes(\".\")) message.method = message.method.replace(\".\", \"/\");"); \
-connCode = connCode.replace("this.browserAuth.isAuthenticated(request) ? void 0 : 401", "void 0"); \
-fs.writeFileSync(connPath, connCode, "utf8"); \
-const gwPath = require("child_process").execSync("find /usr/local/lib/node_modules -path \"*/@deepseek-ai/dsh-api-gateway/lib/index.js\"").toString().trim(); \
-let gwCode = fs.readFileSync(gwPath, "utf8"); \
-gwCode = gwCode.replace("const [namespace, method] = segments;", "const [namespace, method] = segments; if (isObject(payload) && isPlainObject(payload) && !Object.hasOwn(payload, \"args\")) { payload = { args: payload }; }"); \
-fs.writeFileSync(gwPath, gwCode, "utf8"); \
-console.log("dsh packages patched successfully");'
+RUN npm install -g @deepseek-ai/dsh@0.1.2-rc.1
 
-
-
-
+COPY scripts/patch_dsh_runtime.js /app/scripts/patch_dsh_runtime.js
+RUN node /app/scripts/patch_dsh_runtime.js && rm -f /app/scripts/patch_dsh_runtime.js
 
 COPY scripts/start_dsh.sh ./scripts/start_dsh.sh
 COPY scripts/memo_api.py /app/scripts/memo_api.py
