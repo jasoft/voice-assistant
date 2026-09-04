@@ -9,7 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @deepseek-ai/dsh@0.1.2-rc.1 \
-    && sed -i 's/options.host === "0.0.0.0"/false/g' $(find /usr/local/lib/node_modules -name startup.js)
+    && sed -i 's/options.host === "0.0.0.0"/false/g' $(find /usr/local/lib/node_modules -name startup.js) \
+    && sed -i 's/this.browserAuth.isAuthenticated(request) ? void 0 : 401/void 0/g' $(find /usr/local/lib/node_modules -path '*/@deepseek-ai/dsh-client-connection/lib/index.js')
+
 
 
 COPY scripts/start_dsh.sh ./scripts/start_dsh.sh
