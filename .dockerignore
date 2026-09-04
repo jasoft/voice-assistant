@@ -34,10 +34,6 @@ tmp/
 
 # DeepSeek Harness local state and private runtime configuration
 config/deepseek-harness/
-deepseek-harness/node_modules/
-deepseek-harness/.dsh/
-deepseek-harness/.sessions/
-deepseek-harness/**/dist/
-deepseek-harness/**/lib/
+deepseek-harness/
 press_to_talk/**/__pycache__/
 tests/**/__pycache__/

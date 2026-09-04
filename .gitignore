@@ -15,12 +15,8 @@ tmp/
 logs/
 data/
 
-# DeepSeek Harness is vendored as source; keep local dependencies and runtime state out of git.
-deepseek-harness/node_modules/
-deepseek-harness/.dsh/
-deepseek-harness/.sessions/
-deepseek-harness/**/dist/
-deepseek-harness/**/lib/
+# DeepSeek Harness monorepo is externalized; ignore if placed locally
+deepseek-harness/
 
 # Project-local Harness runtime state; the versioned preset remains tracked.
 config/deepseek-harness/profiles/

@@ -50,4 +50,15 @@ if [[ "$#" -eq 0 ]]; then
   set -- --port "${DSH_WEB_PORT:-3080}"
 fi
 
-exec pnpm --dir "$project_root/deepseek-harness" dsh web "$@"
+if command -v dsh >/dev/null 2>&1; then
+  exec dsh web "$@"
+elif [[ -n "${DSH_SOURCE_DIR:-}" && -d "$DSH_SOURCE_DIR" ]]; then
+  exec pnpm --dir "$DSH_SOURCE_DIR" dsh web "$@"
+elif [[ -d "$HOME/.dsh/deepseek-harness" ]]; then
+  exec pnpm --dir "$HOME/.dsh/deepseek-harness" dsh web "$@"
+elif [[ -d "$project_root/deepseek-harness" ]]; then
+  exec pnpm --dir "$project_root/deepseek-harness" dsh web "$@"
+else
+  exec npx --yes @deepseek-ai/dsh web "$@"
+fi
+
