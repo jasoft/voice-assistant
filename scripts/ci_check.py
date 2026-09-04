@@ -73,6 +73,9 @@ def main():
     ci_env = os.environ.copy()
     ci_env["PTT_WORKSPACE_ROOT"] = str(test_data_dir)
     ci_env["PTT_USER_ID"] = "ci_admin"
+    if "PTT_REMEMBER_BACKEND" not in ci_env:
+        ci_env["PTT_REMEMBER_BACKEND"] = "mem0"
+
 
     # ─────────────────────────────────────────────
     # Step 2: 依赖检查

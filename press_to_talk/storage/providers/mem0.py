@@ -185,11 +185,22 @@ class Mem0RememberStore(BaseRememberStore):
             }
         }
 
-    def add(self, *, memory: str, original_text: str = "") -> str:
+    def add(
+        self,
+        *,
+        memory: str,
+        original_text: str = "",
+        photo_path: str | None = None,
+    ) -> str:
         messages = [{"role": "user", "content": memory}]
         kwargs = self._write_scope_kwargs()
+        metadata: dict[str, Any] = {}
         if original_text.strip():
-            kwargs["metadata"] = {"original_text": original_text.strip()}
+            metadata["original_text"] = original_text.strip()
+        if photo_path and str(photo_path).strip():
+            metadata["photo_path"] = str(photo_path).strip()
+        if metadata:
+            kwargs["metadata"] = metadata
         try:
             response = self.client.add(messages, **kwargs)
         except TypeError:
@@ -203,6 +214,7 @@ class Mem0RememberStore(BaseRememberStore):
                     first.get("memory") or first.get("data", {}).get("memory") or memory
                 )
         return f"✅ 已记录：{stored_memory}"
+
 
     def find(
         self,
@@ -244,10 +256,11 @@ class Mem0RememberStore(BaseRememberStore):
             metadata = {}
         created_at = str(item.get("created_at") or item.get("createdAt") or "")
         updated_at = str(item.get("updated_at") or item.get("updatedAt") or created_at)
-        if preserve_timestamps:
-            format_time = lambda value: value
-        else:
-            format_time = lambda value: format_local_datetime(value) if value else ""
+        def format_time(value: str) -> str:
+            if preserve_timestamps:
+                return value
+            return format_local_datetime(value) if value else ""
+
         return RememberItemRecord(
             id=str(item.get("id", "")),
             user_id=str(item.get("user_id") or self.user_id),
@@ -264,7 +277,9 @@ class Mem0RememberStore(BaseRememberStore):
         memory_id: str,
         memory: str,
         original_text: str = "",
+        photo_path: str | None = None,
     ) -> RememberItemRecord:
+
         items = self.get_all()
         existing = next((item for item in items if str(item.get("id", "")) == memory_id), None)
         if existing is None:
