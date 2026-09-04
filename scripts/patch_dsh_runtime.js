@@ -77,7 +77,7 @@ patchFile('*/@deepseek-ai/dsh-api-gateway/lib/index.js', (code) => {
          payload = { args: Object.hasOwn(payload, "request") ? payload : { request: payload } };
        }
        if (endpoint === "session/prompt" && payload.args?.request && !payload.args.request.requestId) {
-         payload.args.request.requestId = require("crypto").randomUUID();
+         payload.args.request.requestId = globalThis.crypto.randomUUID();
        }
      }`
   );
