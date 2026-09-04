@@ -8,7 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @deepseek-ai/dsh@0.1.2-rc.1
+RUN npm install -g @deepseek-ai/dsh@0.1.2-rc.1 \
+    && sed -i 's/options.host === "0.0.0.0"/false/g' $(find /usr/local/lib/node_modules -name startup.js)
+
 
 COPY scripts/start_dsh.sh ./scripts/start_dsh.sh
 COPY scripts/memo_api.py /app/scripts/memo_api.py
