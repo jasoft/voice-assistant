@@ -68,11 +68,20 @@ patchFile('*/@deepseek-ai/dsh-api-gateway/lib/index.js', (code) => {
     `async dispatchRpc(endpoint, payload, signal) {${historyHandler}`
   );
 
-  // remoteRequest 包装入参为 { args: { request: payload } }
+  // remoteRequest 包装入参为 { args: { request: payload } }，并为 session/prompt 自动生成缺失的 requestId
   code = code.replace(
     'const [namespace, method] = segments;',
-    'const [namespace, method] = segments; if (isObject(payload) && isPlainObject(payload) && !Object.hasOwn(payload, "args")) { payload = { args: Object.hasOwn(payload, "request") ? payload : { request: payload } }; }'
+    `const [namespace, method] = segments;
+     if (isObject(payload) && isPlainObject(payload)) {
+       if (!Object.hasOwn(payload, "args")) {
+         payload = { args: Object.hasOwn(payload, "request") ? payload : { request: payload } };
+       }
+       if (endpoint === "session/prompt" && payload.args?.request && !payload.args.request.requestId) {
+         payload.args.request.requestId = require("crypto").randomUUID();
+       }
+     }`
   );
+
 
   return code;
 });
