@@ -86,4 +86,17 @@ patchFile('*/@deepseek-ai/dsh-api-gateway/lib/index.js', (code) => {
   return code;
 });
 
+// 4. 让 session/page 在 throughSeq: -1 时自动解析为当前会话最新的 sourceCursor
+patchFile('*/@deepseek-ai/dsh-api-session-controller/lib/index.js', (code) => {
+  code = code.replace(
+    'const throughSeq = request.throughSeq === -1',
+    'let throughSeq = request.throughSeq === -1'
+  );
+  code = code.replace(
+    'const sourceCursor = sourceLog.at(-1)?.seq ?? -1;',
+    'const sourceCursor = sourceLog.at(-1)?.seq ?? -1; if (throughSeq === -1) throughSeq = sourceCursor;'
+  );
+  return code;
+});
+
 console.log('All dsh patches applied successfully!');
