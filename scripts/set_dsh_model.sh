@@ -9,14 +9,6 @@ agent_preset="memo-minimal"
 project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 settings="${DSH_SETTINGS:-$project_root/config/deepseek-harness/runtime/settings.yaml}"
 
-# "fast" is the voice assistant's latency-oriented logical route. The gateway's
-# current Qwen alias rejects every reasoning_effort spelling while defaulting to
-# thinking, so pin the route to a non-reasoning Flash Lite model instead of
-# sending provider-specific thinking flags.
-if [[ "$model" == "fast" ]]; then
-  resolved_model="gemini-3.1-flash-lite"
-fi
-
 if [[ ! -f "$settings" ]]; then
   printf 'DeepSeek Harness settings not found: %s\n' "$settings" >&2
   exit 1
