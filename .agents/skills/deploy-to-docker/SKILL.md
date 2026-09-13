@@ -1,6 +1,6 @@
 ---
 name: deploy-to-docker
-description: 一键将本地语音助手代码发布到远程 Docker 服务器。
+description: "通过本项目部署脚本发布语音助手到远程 Docker。"
 ---
 # Deploy to Docker Skill
 

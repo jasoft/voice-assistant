@@ -1,6 +1,6 @@
 ---
 name: vibe-report
-description: 生成并查看语音助手 API 的全链路压测报告（Vibe Check）。使用场景：当对查询链路、时间提取、RRF 排序等逻辑进行重大修改后，需要通过大量真实场景验证回复质量和准确性。
+description: "运行语音助手 API 的场景压测并生成报告；适用于明确的链路质量验证任务。"
 ---
 
 # Vibe Check 报告生成技能

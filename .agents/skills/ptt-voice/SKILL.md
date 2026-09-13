@@ -1,6 +1,6 @@
 ---
 name: ptt-voice
-description: PTT 语音助手的命令行工具集，包含录音、意图识别和内存管理。
+description: "操作本项目 PTT 语音助手的录音、意图识别和存储 CLI。"
 ---
 
 # PTT Voice Assistant CLI
