@@ -327,6 +327,12 @@ class DeepSeekHarnessClient:
         message = data.get("message")
         if not isinstance(message, dict) or message.get("role") != "assistant":
             return ""
+        content = message.get("content")
+        if isinstance(content, list) and any(
+            isinstance(block, dict) and block.get("type") in {"tool-call", "tool_call"}
+            for block in content
+        ):
+            return ""
         return cls._message_text(message)
 
     @staticmethod
