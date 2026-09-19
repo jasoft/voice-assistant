@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from contextlib import contextmanager
+from pathlib import Path
+import sys
 from typing import Any
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parents[1]))
 from scripts.memo_api import _main
 
 
@@ -37,9 +39,9 @@ def captured_request(
     def fake_urlopen(request: Any, timeout: float):
         body = json.loads(request.data.decode("utf-8")) if request.data is not None else None
         captured.append((request.full_url, body, dict(request.headers), request.method))
-        yield _FakeResponse({"results": []})
+        yield _FakeResponse({"memos": [], "results": []})
 
-    monkeypatch.setenv("MEM0_API_KEY", "test-token")
+    monkeypatch.setenv("MEMOS_TOKEN", "test-token")
     monkeypatch.setattr("scripts.memo_api.urllib.request.urlopen", fake_urlopen)
     return captured
 
@@ -51,18 +53,15 @@ def test_add_uses_original_text_and_scoped_user(
     _main(["add", "--text", "记住钥匙在白柜子"])
 
     url, payload, headers, method = captured_request[0]
-    assert url == "http://mem0-api.docker.home/v1/memories/"
+    assert url == "http://ds.home:5230/api/v1/memos"
     assert method == "POST"
     assert payload is not None
-    assert payload["messages"] == [{"role": "user", "content": "记住钥匙在白柜子"}]
-    assert payload["user_id"] == "soj"
-    assert payload["infer"] is False
+    assert payload["content"] == "记住钥匙在白柜子\n\n#voice"
+    assert payload["visibility"] == "PRIVATE"
     normalized_headers = {key.lower(): value for key, value in headers.items()}
-    assert normalized_headers["authorization"] == "Token test-token"
-    assert normalized_headers["mem0-user-id"] == hashlib.md5(b"test-token").hexdigest()
+    assert normalized_headers["authorization"] == "Bearer test-token"
     output = json.loads(capsys.readouterr().out)
-    assert output["reply"] == "已记录。"
-    assert output["results"] == []
+    assert output["reply"] == "已记录到 Memos。"
 
 
 def test_search_filters_by_fixed_user(
@@ -71,14 +70,9 @@ def test_search_filters_by_fixed_user(
     _main(["search", "--query", "钥匙在哪里", "--limit", "5"])
 
     url, payload, _, method = captured_request[0]
-    assert url == "http://mem0-api.docker.home/v3/memories/search/"
-    assert method == "POST"
-    assert payload == {
-        "query": "钥匙在哪里",
-        "filters": {"AND": [{"user_id": "soj"}]},
-        "top_k": 5,
-        "rerank": False,
-    }
+    assert url.startswith("http://ds.home:5230/api/v1/memos?")
+    assert method == "GET"
+    assert "filter=" in url
 
 
 def test_list_pages_within_scope(
@@ -87,10 +81,9 @@ def test_list_pages_within_scope(
     _main(["list", "--page", "2", "--page-size", "50"])
 
     url, payload, _headers, method = captured_request[0]
-    assert url.startswith("http://mem0-api.docker.home/memories?")
+    assert url.startswith("http://ds.home:5230/api/v1/memos?")
     assert method == "GET"
-    assert "user_id=soj" in url
-    assert "top_k=50" in url
+    assert "pageSize=50" in url
     assert payload is None
 
 
@@ -98,15 +91,15 @@ def test_delete_uses_memory_id_and_delete_method(
     captured_request: list[tuple[str, dict[str, Any] | None, dict[str, str], str]],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _main(["delete", "--id", "memory-123"])
+    _main(["delete", "--id", "memos/memory-123"])
 
     url, payload, _headers, method = captured_request[0]
-    assert url == "http://mem0-api.docker.home/v1/memories/memory-123/"
+    assert url == "http://ds.home:5230/api/v1/memos/memory-123"
     assert payload is None
     assert method == "DELETE"
     output = json.loads(capsys.readouterr().out)
     assert output["reply"] == "已删除。"
-    assert output["deleted"] == "memory-123"
+    assert output["deleted"] == "memos/memory-123"
 
 
 def test_search_compacts_mem0_payload(
@@ -117,17 +110,15 @@ def test_search_compacts_mem0_payload(
     @contextmanager
     def fake_urlopen(request: Any, timeout: float):
         yield _FakeResponse(
-            [
-                {
-                    "id": "memory-1",
-                    "memory": "钥匙在白柜子",
-                    "score": 0.9,
-                    "created_at": "2026-08-22T00:00:00Z",
-                    "categories": ["location"],
-                    "metadata": {"large": "unused"},
-                    "structured_attributes": {"unused": True},
-                }
-            ]
+            {
+                "memos": [
+                    {
+                        "name": "memos/memory-1",
+                        "content": "钥匙在白柜子\n\n#voice",
+                        "createTime": "2026-08-22T00:00:00Z",
+                    }
+                ]
+            }
         )
 
     monkeypatch.setattr("scripts.memo_api.urllib.request.urlopen", fake_urlopen)
@@ -137,12 +128,13 @@ def test_search_compacts_mem0_payload(
     assert json.loads(capsys.readouterr().out) == {
         "results": [
             {
-                "id": "memory-1",
+                "id": "memos/memory-1",
                 "memory": "钥匙在白柜子",
-                "score": 0.9,
                 "created_at": "2026-08-22T00:00:00Z",
+                "updated_at": "",
             }
-        ]
+        ],
+        "count": 1,
     }
 
 
@@ -151,13 +143,13 @@ def test_token_falls_back_to_harness_env_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    monkeypatch.delenv("MEM0_API_KEY", raising=False)
-    monkeypatch.delenv("MEM0_MCP_TOKEN", raising=False)
+    monkeypatch.delenv("MEMOS_TOKEN", raising=False)
+    monkeypatch.delenv("MEMOS_ACCESS_TOKEN", raising=False)
     monkeypatch.setenv("DSH_HOME", str(tmp_path))
     (tmp_path / ".env").write_text(
         "# machine credentials\n"
         "OTHER_TOKEN=do-not-use\n"
-        'MEM0_API_KEY="file-token"\n',
+        'MEMOS_TOKEN="file-token"\n',
         encoding="utf-8",
     )
 
@@ -165,5 +157,4 @@ def test_token_falls_back_to_harness_env_file(
 
     headers = captured_request[0][2]
     normalized_headers = {key.lower(): value for key, value in headers.items()}
-    assert normalized_headers["authorization"] == "Token file-token"
-    assert normalized_headers["mem0-user-id"] == hashlib.md5(b"file-token").hexdigest()
+    assert normalized_headers["authorization"] == "Bearer file-token"

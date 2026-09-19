@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Minimal command-line access to the Mem0 scope used by the memo agent."""
+"""Minimal command-line access to Memos for voice assistant and harness agents."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
-DEFAULT_BASE_URL = "http://mem0-api.docker.home"
-DEFAULT_API_KEY = "mem0-admin-sk-lan-secure-2026"
-USER_ID = "soj"
+DEFAULT_BASE_URL = "http://ds.home:5230"
+DEFAULT_API_KEY = "memos_pat_voice_assistant_lan_2026"
 DEFAULT_TIMEOUT_SECONDS = 7.0
 
 
@@ -50,17 +50,15 @@ def _dsh_env_values() -> dict[str, str]:
 
 def _base_url() -> str:
     env_url = (
-        os.environ.get("MEM0_BASE_URL")
-        or os.environ.get("LOCAL_MEM0_API_URL")
-        or os.environ.get("MEM0_HOST")
+        os.environ.get("MEMOS_BASE_URL")
+        or os.environ.get("MEMOS_API_URL")
         or ""
     )
     if not env_url:
         dsh_values = _dsh_env_values()
         env_url = (
-            dsh_values.get("MEM0_BASE_URL")
-            or dsh_values.get("LOCAL_MEM0_API_URL")
-            or dsh_values.get("MEM0_HOST")
+            dsh_values.get("MEMOS_BASE_URL")
+            or dsh_values.get("MEMOS_API_URL")
             or ""
         )
     return (env_url or DEFAULT_BASE_URL).rstrip("/")
@@ -68,24 +66,22 @@ def _base_url() -> str:
 
 def _token() -> str:
     token = (
-        os.environ.get("MEM0_API_KEY")
-        or os.environ.get("LOCAL_MEM0_API_KEY")
-        or os.environ.get("MEM0_MCP_TOKEN")
+        os.environ.get("MEMOS_TOKEN")
+        or os.environ.get("MEMOS_ACCESS_TOKEN")
         or ""
     )
     if not token:
         dsh_values = _dsh_env_values()
         token = (
-            dsh_values.get("MEM0_API_KEY")
-            or dsh_values.get("LOCAL_MEM0_API_KEY")
-            or dsh_values.get("MEM0_MCP_TOKEN")
+            dsh_values.get("MEMOS_TOKEN")
+            or dsh_values.get("MEMOS_ACCESS_TOKEN")
             or ""
         )
     return token or DEFAULT_API_KEY
 
 
 def _request_timeout_seconds() -> float:
-    raw = os.environ.get("MEM0_REQUEST_TIMEOUT_SECONDS", "").strip()
+    raw = os.environ.get("MEMOS_REQUEST_TIMEOUT_SECONDS", "").strip()
     if not raw:
         return DEFAULT_TIMEOUT_SECONDS
     try:
@@ -99,71 +95,61 @@ def _request(
     payload: dict[str, object] | None = None,
     *,
     method: str = "POST",
-    query: dict[str, int] | None = None,
-) -> object:
+    query: dict[str, Any] | None = None,
+) -> Any:
     token = _token()
     url = _base_url() + path
     if query:
-        from urllib.parse import urlencode
+        url += "?" + urllib.parse.urlencode(query)
 
-        url += "?" + urlencode(query)
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
     request = urllib.request.Request(
         url,
-        data=(
-            json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            if payload is not None
-            else None
-        ),
+        data=data,
         method=method,
-        headers={
-            "Authorization": f"Token {token}",
-            "Content-Type": "application/json",
-            # Mem0's client derives this value from the token; it scopes API access.
-            "Mem0-User-ID": hashlib.md5(token.encode()).hexdigest(),
-        },
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(request, timeout=_request_timeout_seconds()) as response:
-            return json.load(response)
+            content = response.read().decode("utf-8")
+            if not content.strip():
+                return {}
+            return json.loads(content)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise SystemExit(f"Mem0 HTTP {exc.code}: {detail}") from exc
+        raise SystemExit(f"Memos HTTP {exc.code}: {detail}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise SystemExit(f"Mem0 request failed: {exc}") from exc
+        raise SystemExit(f"Memos request failed: {exc}") from exc
 
 
-def _memory_items(payload: object) -> list[dict[str, Any]]:
-    raw_items: object
-    if isinstance(payload, list):
-        raw_items = payload
-    elif isinstance(payload, dict):
-        raw_items = payload.get("results", [])
-    else:
-        raw_items = []
-
-    if not isinstance(raw_items, list):
-        return []
-    return [item for item in raw_items if isinstance(item, dict)]
-
-
-def _compact_item(item: dict[str, Any]) -> dict[str, object]:
-    compact: dict[str, object] = {}
-    for key in ("id", "memory", "score", "created_at"):
-        value = item.get(key)
-        if value is not None:
-            compact[key] = value
-    return compact
+def _clean_memory(content: str) -> str:
+    """Strip tags and voice prefixes to provide clean memory text."""
+    lines = content.strip().splitlines()
+    cleaned_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#") and not stripped.startswith("# "):
+            continue
+        if stripped.startswith("> 原话：") or stripped.startswith("> 语音原文:"):
+            continue
+        cleaned_lines.append(line)
+    result = "\n".join(cleaned_lines).strip()
+    return result or content.strip()
 
 
-def _compact_result(payload: object) -> dict[str, object]:
-    items = [_compact_item(item) for item in _memory_items(payload)]
-    result: dict[str, object] = {"results": items}
-    if isinstance(payload, dict):
-        for key in ("count", "next", "previous"):
-            value = payload.get(key)
-            if value is not None:
-                result[key] = value
-    return result
+def _format_memo_item(memo: dict[str, Any]) -> dict[str, Any]:
+    content = str(memo.get("content", ""))
+    return {
+        "id": memo.get("name", ""),
+        "memory": _clean_memory(content),
+        "created_at": memo.get("createTime", ""),
+        "updated_at": memo.get("updateTime", ""),
+    }
 
 
 def _main(argv: list[str] | None = None) -> None:
@@ -186,70 +172,71 @@ def _main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
     if args.command == "add":
+        text = args.text.strip()
         payload = {
-            "messages": [{"role": "user", "content": args.text}],
-            "user_id": USER_ID,
-            "infer": False,
-            "async_mode": False,
-            "output_format": "v1.1",
+            "content": f"{text}\n\n#voice",
+            "visibility": "PRIVATE",
         }
+        res = _request("/api/v1/memos", payload, method="POST")
+        memo_id = res.get("name", "") if isinstance(res, dict) else ""
         result = {
-            "reply": "已记录。",
-            **_compact_result(_request("/v1/memories/", payload)),
+            "reply": "已记录到 Memos。",
+            "results": [{"id": memo_id, "memory": text}],
         }
     elif args.command == "search":
-        result = _compact_result(
-            _request(
-                "/v3/memories/search/",
-                {
-                    "query": args.query,
-                    "filters": {"AND": [{"user_id": USER_ID}]},
-                    "top_k": max(1, min(args.limit, 20)),
-                    "rerank": False,
-                },
-            )
-        )
+        query_text = args.query.strip()
+        matched: list[dict[str, Any]] = []
+
+        # Try CEL contains query if query doesn't have quotes/special chars
+        if query_text and not any(c in query_text for c in ("'", '"', "\\")):
+            try:
+                cel = f"content.contains('{query_text}')"
+                res = _request("/api/v1/memos", method="GET", query={"filter": cel, "pageSize": 50})
+                if isinstance(res, dict):
+                    matched = res.get("memos", [])
+            except Exception:
+                pass
+
+        # Fallback to listing and local match
+        if not matched:
+            try:
+                res = _request("/api/v1/memos", method="GET", query={"pageSize": 100})
+                memos = res.get("memos", []) if isinstance(res, dict) else []
+                tokens = [t.lower() for t in query_text.split() if t.strip()]
+                for memo in memos:
+                    content = str(memo.get("content", "")).lower()
+                    if not tokens or all(token in content for token in tokens):
+                        matched.append(memo)
+            except Exception:
+                matched = []
+
+        items = [_format_memo_item(m) for m in matched[: args.limit]]
+        result = {
+            "results": items,
+            "count": len(items),
+        }
     elif args.command == "list":
-        is_local = "docker.home" in _base_url() or "localhost" in _base_url() or "127.0.0.1" in _base_url()
-        if is_local:
-            result = _compact_result(
-                _request(
-                    "/memories",
-                    method="GET",
-                    query={
-                        "user_id": USER_ID,
-                        "top_k": max(1, min(args.page_size, 100)),
-                    },
-                )
-            )
-        else:
-            result = _compact_result(
-                _request(
-                    "/v1/memories/",
-                    method="GET",
-                    query={
-                        "user_id": USER_ID,
-                        "page": max(1, args.page),
-                        "page_size": max(1, min(args.page_size, 100)),
-                    },
-                )
-            )
+        res = _request(
+            "/api/v1/memos",
+            method="GET",
+            query={"pageSize": max(1, min(args.page_size, 100))},
+        )
+        memos = res.get("memos", []) if isinstance(res, dict) else []
+        items = [_format_memo_item(m) for m in memos]
+        result = {
+            "results": items,
+            "count": len(items),
+        }
     else:
         memory_id = args.memory_id.strip()
         if not memory_id:
             raise SystemExit("memory id is required")
-        response = _request(
-            f"/v1/memories/{memory_id}/",
-            method="DELETE",
-        )
+        path_name = memory_id if memory_id.startswith("memos/") else f"memos/{memory_id}"
+        _request(f"/api/v1/{path_name}", method="DELETE")
         result = {
             "reply": "已删除。",
             "deleted": memory_id,
-            "message": (
-                response.get("message", "Memory deleted successfully")
-                if isinstance(response, dict)
-                else "Memory deleted successfully"
-            ),
+            "message": "Memory deleted successfully",
         }
 
     json.dump(result, sys.stdout, ensure_ascii=False)

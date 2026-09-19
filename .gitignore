@@ -17,7 +17,7 @@ logs/
 data/
 
 # DeepSeek Harness monorepo is externalized; ignore if placed locally
-deepseek-harness/
+/deepseek-harness/
 
 # Project-local Harness runtime state; the versioned preset remains tracked.
 config/deepseek-harness/profiles/
