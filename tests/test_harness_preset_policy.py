@@ -43,13 +43,11 @@ def test_minimal_preset_blocks_all_skill_loading() -> None:
     assert entries[1]["config"]["enableRunInBackground"] is False
     assert entries[2]["name"] == "@deepseek-ai/dsh-skill-filesystem"
     assert entries[2]["config"]["includeDefaultRoots"] is False
-    # No customSkillDirs: loading any skill risks the model following
-    # remember/SKILL.md and calling /v1/query on itself.
+    # No customSkillDirs: do not load workspace skills.
     assert "customSkillDirs" not in preset_text
     assert "mcp-client" not in preset_text
     assert "- id: tool-skill" not in preset_text
-    # The remember skill must not ship inside this preset; external callers
-    # should use .agents/skills/remember/SKILL.md instead.
+    # Skills must not ship inside this preset.
     assert not (MINIMAL_DIR / "skills").exists()
 
 

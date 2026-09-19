@@ -1,6 +1,5 @@
 # 最小个人记忆 Agent：fast 模型 + 一个受限 Mem0 wrapper。
-# 不加载任何 skill：persona 已包含全部指令，且 remember skill 会引导模型
-# 回调 /v1/query 造成递归。外部调用者请使用 .agents/skills/remember/。
+# 不加载任何 skill：persona 已包含全部指令。
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:

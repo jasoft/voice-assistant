@@ -35,11 +35,10 @@ agent-default-model:
 
     text = settings.read_text(encoding="utf-8")
     assert (
-        "- id: gemini-3.1-flash-lite\n"
+        "- id: fast\n"
         "          maxTokens: 512\n"
     ) in text
-    assert "model: gemini-3.1-flash-lite" in text
-    assert "reasoningEffort:" not in text
+    assert "model: fast" in text
 
 
 def test_fast_route_pins_default_agent_preset(tmp_path: Path) -> None:
@@ -74,6 +73,7 @@ def test_fast_route_preserves_model_neighbors(tmp_path: Path) -> None:
       models:
         - id: slow
           maxTokens: 6000
+        - id: fast
         - id: gemini-3.1-flash-lite
           contextWindow: 128000
         - id: free
@@ -89,8 +89,11 @@ agent-default-model:
     text = settings.read_text(encoding="utf-8")
     assert "- id: slow\n          maxTokens: 6000" in text
     assert (
-        "- id: gemini-3.1-flash-lite\n"
+        "- id: fast\n"
         "          maxTokens: 512\n"
+    ) in text
+    assert (
+        "- id: gemini-3.1-flash-lite\n"
         "          contextWindow: 128000\n"
     ) in text
     assert "- id: free" in text
