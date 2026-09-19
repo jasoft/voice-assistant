@@ -19,7 +19,7 @@ class MemosClient:
         *,
         base_url: str = "http://ds.home:5230",
         token: str = "memos_pat_voice_assistant_lan_2026",
-        timeout: float = 6.0,
+        timeout: float = 15.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.token = token.strip()
@@ -238,10 +238,21 @@ class MemosRememberStore(BaseRememberStore):
         query_text = query.strip()
         matched_memos: list[dict[str, Any]] = []
 
+        stop_words = [
+            "帮我查一下", "帮我查查", "帮我查找", "帮我查询", "帮我查", "帮我找找", "帮我找",
+            "帮我看看", "帮我看一下", "查一下", "查查", "查询", "查找", "看看", "看一下",
+            "关于", "有关", "涉及", "有没有", "最新的", "最近的", "最新", "最近",
+            "几篇", "几条", "几个", "文章", "记录", "备忘", "笔记", "动态", "说说", "内容", "信息",
+        ]
+        clean_term = query_text
+        for sw in sorted(stop_words, key=len, reverse=True):
+            clean_term = clean_term.replace(sw, "")
+        clean_term = re.sub(r"[，。！？,.!? \t\n\r\"']", "", clean_term).strip("的").strip()
+
         # Strategy 1: Try CEL filter query directly if clean single search term
-        if query_text and not any(c in query_text for c in ("'", '"', "\\")):
+        if clean_term and not any(c in clean_term for c in ("'", '"', "\\")):
             try:
-                cel_filter = f"content.contains('{query_text}')"
+                cel_filter = f"content.contains('{clean_term}')"
                 res = self.client.list_memos(page_size=50, filter_expr=cel_filter)
                 matched_memos = res.get("memos", [])
             except Exception as e:
@@ -252,11 +263,27 @@ class MemosRememberStore(BaseRememberStore):
             try:
                 res = self.client.list_memos(page_size=100)
                 all_memos = res.get("memos", [])
-                tokens = [t.lower() for t in query_text.split() if t.strip()] if query_text else []
-                for memo in all_memos:
-                    content = str(memo.get("content", "")).lower()
-                    if not tokens or all(token in content for token in tokens):
-                        matched_memos.append(memo)
+                if not clean_term:
+                    # Pure recency query: return the newest memos directly
+                    matched_memos = all_memos
+                else:
+                    scored: list[tuple[int, dict[str, Any]]] = []
+                    term_lower = clean_term.lower()
+                    h1 = term_lower[: len(term_lower) // 2] if len(term_lower) >= 4 else ""
+                    h2 = term_lower[len(term_lower) // 2 :] if len(term_lower) >= 4 else ""
+                    for memo in all_memos:
+                        content = str(memo.get("content", "")).lower()
+                        score = 0
+                        if term_lower in content:
+                            score += 10
+                        elif h1 and (h1 in content):
+                            score += 3
+                        elif h2 and (h2 in content):
+                            score += 3
+                        if score > 0:
+                            scored.append((score, memo))
+                    scored.sort(key=lambda x: x[0], reverse=True)
+                    matched_memos = [m for _, m in scored]
             except Exception as e:
                 log(f"Failed to fetch memos: {e}", level="error")
                 return json.dumps({"items": [], "error": str(e)}, ensure_ascii=False)

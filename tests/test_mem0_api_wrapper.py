@@ -158,3 +158,57 @@ def test_token_falls_back_to_harness_env_file(
     headers = captured_request[0][2]
     normalized_headers = {key.lower(): value for key, value in headers.items()}
     assert normalized_headers["authorization"] == "Bearer file-token"
+
+
+def test_search_recency_query_returns_latest_memos(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    @contextmanager
+    def fake_urlopen(request: Any, timeout: float):
+        yield _FakeResponse(
+            {
+                "memos": [
+                    {
+                        "name": "memos/recent-1",
+                        "content": "电风扇行情尾声\n\n#voice",
+                        "createTime": "2026-09-19T15:00:00Z",
+                    },
+                    {
+                        "name": "memos/recent-2",
+                        "content": "AI时代落伍\n\n#voice",
+                        "createTime": "2026-09-19T06:00:00Z",
+                    },
+                ]
+            }
+        )
+
+    monkeypatch.setattr("scripts.memo_api.urllib.request.urlopen", fake_urlopen)
+
+    _main(["search", "--query", "帮我查一下最近的几篇文章。", "--limit", "2"])
+
+    out = json.loads(capsys.readouterr().out)
+    assert out["count"] == 2
+    assert out["results"][0]["id"] == "memos/recent-1"
+    assert out["results"][0]["memory"] == "电风扇行情尾声"
+
+
+def test_search_gracefully_handles_network_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    @contextmanager
+    def fake_urlopen(request: Any, timeout: float):
+        raise TimeoutError("timed out")
+        yield  # type: ignore
+
+    monkeypatch.setattr("scripts.memo_api.urllib.request.urlopen", fake_urlopen)
+
+    # Should NOT raise SystemExit, should return empty results with warning
+    _main(["search", "--query", "帮我查一下关于股指期货的文章。", "--limit", "5"])
+
+    out = json.loads(capsys.readouterr().out)
+    assert out["count"] == 0
+    assert out["results"] == []
+    assert "temporarily unavailable" in out["warning"]
+

@@ -17,7 +17,11 @@ import urllib.request
 
 DEFAULT_BASE_URL = "http://ds.home:5230"
 DEFAULT_API_KEY = "memos_pat_voice_assistant_lan_2026"
-DEFAULT_TIMEOUT_SECONDS = 7.0
+DEFAULT_TIMEOUT_SECONDS = 15.0
+
+
+class MemosRequestError(RuntimeError):
+    """Raised when an HTTP or network operation against Memos fails."""
 
 
 def _dsh_env_values() -> dict[str, str]:
@@ -122,9 +126,9 @@ def _request(
             return json.loads(content)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise SystemExit(f"Memos HTTP {exc.code}: {detail}") from exc
+        raise MemosRequestError(f"Memos HTTP {exc.code}: {detail}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise SystemExit(f"Memos request failed: {exc}") from exc
+        raise MemosRequestError(f"Memos request failed: {exc}") from exc
 
 
 def _clean_memory(content: str) -> str:
@@ -152,6 +156,23 @@ def _format_memo_item(memo: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+STOP_WORDS = [
+    "帮我查一下", "帮我查查", "帮我查找", "帮我查询", "帮我查", "帮我找找", "帮我找",
+    "帮我看看", "帮我看一下", "查一下", "查查", "查询", "查找", "看看", "看一下",
+    "关于", "有关", "涉及", "有没有", "最新的", "最近的", "最新", "最近",
+    "几篇", "几条", "几个", "文章", "记录", "备忘", "笔记", "动态", "说说", "内容", "信息",
+]
+
+
+def _clean_query_term(raw_query: str) -> str:
+    cleaned = raw_query.strip()
+    for sw in sorted(STOP_WORDS, key=len, reverse=True):
+        cleaned = cleaned.replace(sw, "")
+    cleaned = re.sub(r"[，。！？,.!? \t\n\r\"']", "", cleaned)
+    cleaned = cleaned.strip("的").strip()
+    return cleaned
+
+
 def _main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
@@ -177,7 +198,10 @@ def _main(argv: list[str] | None = None) -> None:
             "content": f"{text}\n\n#voice",
             "visibility": "PRIVATE",
         }
-        res = _request("/api/v1/memos", payload, method="POST")
+        try:
+            res = _request("/api/v1/memos", payload, method="POST")
+        except MemosRequestError as exc:
+            raise SystemExit(str(exc)) from exc
         memo_id = res.get("name", "") if isinstance(res, dict) else ""
         result = {
             "reply": "已记录到 Memos。",
@@ -186,29 +210,54 @@ def _main(argv: list[str] | None = None) -> None:
     elif args.command == "search":
         query_text = args.query.strip()
         matched: list[dict[str, Any]] = []
+        clean_term = _clean_query_term(query_text)
 
-        # Try CEL contains query if query doesn't have quotes/special chars
-        if query_text and not any(c in query_text for c in ("'", '"', "\\")):
-            try:
-                cel = f"content.contains('{query_text}')"
-                res = _request("/api/v1/memos", method="GET", query={"filter": cel, "pageSize": 50})
-                if isinstance(res, dict):
-                    matched = res.get("memos", [])
-            except Exception:
-                pass
+        try:
+            # If query has a clean specific term and no special syntax chars, try CEL filter
+            if clean_term and not any(c in clean_term for c in ("'", '"', "\\")):
+                try:
+                    cel = f"content.contains('{clean_term}')"
+                    res = _request("/api/v1/memos", method="GET", query={"filter": cel, "pageSize": 50})
+                    if isinstance(res, dict):
+                        matched = res.get("memos", [])
+                except Exception:
+                    pass
 
-        # Fallback to listing and local match
-        if not matched:
-            try:
+            # Fallback or pure recency query
+            if not matched:
                 res = _request("/api/v1/memos", method="GET", query={"pageSize": 100})
                 memos = res.get("memos", []) if isinstance(res, dict) else []
-                tokens = [t.lower() for t in query_text.split() if t.strip()]
-                for memo in memos:
-                    content = str(memo.get("content", "")).lower()
-                    if not tokens or all(token in content for token in tokens):
-                        matched.append(memo)
-            except Exception:
-                matched = []
+                if not clean_term:
+                    # Pure recency query: return the newest memos directly
+                    matched = memos
+                else:
+                    scored: list[tuple[int, dict[str, Any]]] = []
+                    term_lower = clean_term.lower()
+                    h1 = term_lower[: len(term_lower) // 2] if len(term_lower) >= 4 else ""
+                    h2 = term_lower[len(term_lower) // 2 :] if len(term_lower) >= 4 else ""
+                    for memo in memos:
+                        content = str(memo.get("content", "")).lower()
+                        score = 0
+                        if term_lower in content:
+                            score += 10
+                        elif h1 and (h1 in content):
+                            score += 3
+                        elif h2 and (h2 in content):
+                            score += 3
+                        if score > 0:
+                            scored.append((score, memo))
+                    scored.sort(key=lambda x: x[0], reverse=True)
+                    matched = [m for _, m in scored]
+        except Exception as exc:
+            # Gracefully degrade on timeout/error so the agent does not retry
+            result = {
+                "results": [],
+                "count": 0,
+                "warning": f"Memos service temporarily unavailable: {exc}",
+            }
+            json.dump(result, sys.stdout, ensure_ascii=False)
+            sys.stdout.write("\n")
+            return
 
         items = [_format_memo_item(m) for m in matched[: args.limit]]
         result = {
@@ -216,12 +265,22 @@ def _main(argv: list[str] | None = None) -> None:
             "count": len(items),
         }
     elif args.command == "list":
-        res = _request(
-            "/api/v1/memos",
-            method="GET",
-            query={"pageSize": max(1, min(args.page_size, 100))},
-        )
-        memos = res.get("memos", []) if isinstance(res, dict) else []
+        try:
+            res = _request(
+                "/api/v1/memos",
+                method="GET",
+                query={"pageSize": max(1, min(args.page_size, 100))},
+            )
+            memos = res.get("memos", []) if isinstance(res, dict) else []
+        except Exception as exc:
+            result = {
+                "results": [],
+                "count": 0,
+                "warning": f"Memos list temporarily unavailable: {exc}",
+            }
+            json.dump(result, sys.stdout, ensure_ascii=False)
+            sys.stdout.write("\n")
+            return
         items = [_format_memo_item(m) for m in memos]
         result = {
             "results": items,
@@ -232,7 +291,10 @@ def _main(argv: list[str] | None = None) -> None:
         if not memory_id:
             raise SystemExit("memory id is required")
         path_name = memory_id if memory_id.startswith("memos/") else f"memos/{memory_id}"
-        _request(f"/api/v1/{path_name}", method="DELETE")
+        try:
+            _request(f"/api/v1/{path_name}", method="DELETE")
+        except MemosRequestError as exc:
+            raise SystemExit(str(exc)) from exc
         result = {
             "reply": "已删除。",
             "deleted": memory_id,

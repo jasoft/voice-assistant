@@ -42,8 +42,9 @@ services:
       # this isolated container.
       DSH_PERMISSION_MODE: danger-full-access
       MEM0_REQUEST_TIMEOUT_SECONDS: "3"
-      MEM0_BASE_URL: http://mem0-api.docker.home
-      MEM0_API_KEY: ${MEM0_API_KEY:-mem0-admin-sk-lan-secure-2026}
+      MEMOS_REQUEST_TIMEOUT_SECONDS: "15"
+      MEMOS_BASE_URL: http://ds.home:5230
+      MEMOS_TOKEN: memos_pat_voice_assistant_lan_2026
       REMINDER_API_URL: http://voice-assistant:10031
       PTT_API_KEY: ${PTT_API_KEY}
     command:
