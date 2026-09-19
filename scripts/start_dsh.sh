@@ -59,6 +59,6 @@ elif [[ -d "$HOME/.dsh/deepseek-harness" ]]; then
 elif [[ -d "$project_root/deepseek-harness" ]]; then
   exec pnpm --dir "$project_root/deepseek-harness" dsh web "$@"
 else
-  exec npx --yes @deepseek-ai/dsh web "$@"
+  exec npx --yes @deepseek-ai/dsh@0.1.2-rc.1 web "$@"
 fi
 

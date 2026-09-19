@@ -27,7 +27,7 @@ services:
 
   deepseek-harness:
     container_name: deepseek-harness
-    image: deepseek-harness:local
+    image: deepseek-harness:0.1.2-rc.1
     build:
       context: .
       dockerfile: Dockerfile.dsh
