@@ -183,7 +183,7 @@
         }
     },
     "storage": {
-        "provider": "pocketbase",
+        "provider": "memos",
         "max_results": 20,
         "query_rewrite": {
             "enabled": true
@@ -202,6 +202,12 @@
             "api_key": "${JINA_API_KEY}",
             "model": "${PTT_RERANKER_MODEL}"
         }
+    },
+    "memos": {
+        "base_url": "http://ds.home:5230",
+        "access_token": "memos_pat_voice_assistant_lan_2026",
+        "visibility": "PRIVATE",
+        "tag": "voice"
     },
     "mem0": {
         "user_id": "soj",

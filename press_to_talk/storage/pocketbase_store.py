@@ -448,6 +448,8 @@ class PocketBaseRememberStore(BaseRememberStore):
             "/collections/remember_entries/records",
             params={"filter": f"user_id = '{self.user_id}'", "page": page, "perPage": limit, "sort": "-created"}
         )
+        if res.status_code == 404:
+            return []
         res.raise_for_status()
         items = res.json().get("items", [])
         results = []
@@ -500,6 +502,8 @@ class PocketBaseHistoryStore(BaseHistoryStore):
             "/collections/session_histories/records",
             params={"filter": filter_str, "sort": "-created", "perPage": limit}
         )
+        if res.status_code == 404:
+            return []
         res.raise_for_status()
         items = res.json().get("items", [])
         

@@ -65,6 +65,8 @@ def load_storage_config(
     storage_cfg = storage_cfg if isinstance(storage_cfg, dict) else {}
     mem0_cfg = workflow_cfg.get("mem0", {}) if isinstance(workflow_cfg, dict) else {}
     mem0_cfg = mem0_cfg if isinstance(mem0_cfg, dict) else {}
+    memos_cfg = workflow_cfg.get("memos", {}) if isinstance(workflow_cfg, dict) else {}
+    memos_cfg = memos_cfg if isinstance(memos_cfg, dict) else {}
     
     rewrite_cfg = storage_cfg.get("query_rewrite", {})
     rewrite_cfg = rewrite_cfg if isinstance(rewrite_cfg, dict) else {}
@@ -172,6 +174,22 @@ def load_storage_config(
         reranker_model=env_str(
             "PTT_RERANKER_MODEL",
             str(reranker_cfg.get("model")),
+        ).strip(),
+        memos_base_url=env_str(
+            "MEMOS_BASE_URL",
+            env_str("MEMOS_API_URL", str(memos_cfg.get("base_url", "http://ds.home:5230"))),
+        ).strip(),
+        memos_token=env_str(
+            "MEMOS_TOKEN",
+            env_str("MEMOS_ACCESS_TOKEN", str(memos_cfg.get("access_token", "memos_pat_voice_assistant_lan_2026"))),
+        ).strip(),
+        memos_visibility=env_str(
+            "MEMOS_VISIBILITY",
+            str(memos_cfg.get("visibility", "PRIVATE")),
+        ).strip(),
+        memos_tag=env_str(
+            "MEMOS_TAG",
+            str(memos_cfg.get("tag", "voice")),
         ).strip(),
     )
     safe_config = {
@@ -438,6 +456,9 @@ class StorageService:
             if self.config.backend == "mem0":
                 from .providers.mem0 import Mem0RememberStore
                 self._remember_store = Mem0RememberStore.from_config(self.config)
+            elif self.config.backend == "memos":
+                from .providers.memos import MemosRememberStore
+                self._remember_store = MemosRememberStore.from_config(self.config)
             else:
                 self._remember_store = PocketBaseRememberStore(self.config)
         return self._remember_store
@@ -478,23 +499,39 @@ class StorageService:
                 "error": str(exc),
             }
 
+        # Check memory store
+        if self.config.backend in ("memos", "mem0") or report["pocketbase"]["status"] == "ok":
+            try:
+                self.remember_store().list_all(limit=1)
+                report["memory"] = {"status": "ok"}
+            except Exception as exc:
+                report["memory"] = {"status": "error", "error": str(exc)}
+
         if report["pocketbase"]["status"] == "ok":
-            for name, store in (
-                ("memory", self.remember_store()),
-                ("history", self.history_store()),
-            ):
-                try:
-                    if name == "memory":
-                        store.list_all(limit=1)
-                    else:
-                        store.list_recent(limit=1)
-                    report[name] = {"status": "ok"}
-                except Exception as exc:
-                    report[name] = {"status": "error", "error": str(exc)}
+            try:
+                self.history_store().list_recent(limit=1)
+                report["history"] = {"status": "ok"}
+            except Exception as exc:
+                report["history"] = {"status": "error", "error": str(exc)}
+
+        if self.config.backend == "memos":
+            memos_url = (self.config.memos_base_url or "http://ds.home:5230").rstrip("/")
+            report["memos"] = {"url": memos_url, "status": "unknown"}
+            try:
+                headers = {}
+                if self.config.memos_token:
+                    headers["Authorization"] = f"Bearer {self.config.memos_token}"
+                res = httpx.get(f"{memos_url}/api/v1/memos?pageSize=1", headers=headers, timeout=3.0)
+                if res.status_code == 200:
+                    report["memos"]["status"] = "ok"
+                else:
+                    report["memos"] = {"status": "error", "error": f"HTTP {res.status_code}"}
+            except Exception as exc:
+                report["memos"] = {"status": "error", "error": str(exc)}
 
         failed = [
             name
-            for name in ("pocketbase", "memory", "history")
+            for name in ("pocketbase", "memory", "history", *([ "memos" ] if self.config.backend == "memos" else []))
             if report.get(name, {}).get("status") != "ok"
         ]
         if failed:

@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 from ..models import BaseRememberStore
 from .mem0 import Mem0RememberStore, extract_mem0_summary_payload
+from .memos import MemosRememberStore, extract_memos_summary_payload
 
 # Registry of available providers
 # Maps backend name to its Store class and summary extractor
@@ -11,6 +12,10 @@ REMEMBER_PROVIDERS: dict[str, dict[str, Any]] = {
     "mem0": {
         "class": Mem0RememberStore,
         "extractor": extract_mem0_summary_payload,
+    },
+    "memos": {
+        "class": MemosRememberStore,
+        "extractor": extract_memos_summary_payload,
     },
 }
 
@@ -34,6 +39,8 @@ def get_remember_summary_extractor(name: str) -> Callable[[Any], dict[str, Any]]
 
 __all__ = [
     "Mem0RememberStore",
+    "MemosRememberStore",
+    "extract_memos_summary_payload",
     "REMEMBER_PROVIDERS",
     "get_remember_provider_class",
     "get_remember_summary_extractor",

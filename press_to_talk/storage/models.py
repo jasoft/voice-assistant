@@ -29,6 +29,11 @@ class StorageConfig:
     reranker_api_key: str = ""
     reranker_base_url: str = "https://api.jina.ai/v1/rerank"
     reranker_model: str = "jina-reranker-v2-base-multilingual"
+    # Memos configuration
+    memos_base_url: str = ""
+    memos_token: str = ""
+    memos_visibility: str = "PRIVATE"
+    memos_tag: str = "voice"
     # Optional clients for dependency injection
     embedding_client: EmbeddingClient | None = None
     keyword_rewriter: KeywordRewriter | None = None
