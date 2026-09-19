@@ -7,7 +7,174 @@ from ..models import BaseRememberStore, RememberItemRecord, StorageConfig
 from ...utils.text import format_local_datetime
 
 
-def create_mem0_client(api_key: str) -> Any:
+import os
+
+
+class LocalMem0Client:
+    """Client for self-hosted local Mem0 server (e.g. mem0-api.docker.home)."""
+
+    def __init__(self, *, base_url: str, api_key: str, timeout: float = 10.0) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.timeout = timeout
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Token {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def _extract_user_id(self, kwargs: dict[str, Any]) -> str:
+        if kwargs.get("user_id"):
+            return str(kwargs["user_id"])
+        filters = kwargs.get("filters")
+        if isinstance(filters, dict):
+            and_list = filters.get("AND")
+            if isinstance(and_list, list):
+                for cond in and_list:
+                    if isinstance(cond, dict) and "user_id" in cond:
+                        return str(cond["user_id"])
+            or_list = filters.get("OR")
+            if isinstance(or_list, list):
+                for branch in or_list:
+                    if isinstance(branch, dict):
+                        for cond in branch.get("AND", []):
+                            if isinstance(cond, dict) and "user_id" in cond:
+                                return str(cond["user_id"])
+        return ""
+
+    def add(
+        self, messages: list[dict[str, Any]], **kwargs: Any
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        payload: dict[str, Any] = {
+            "messages": messages,
+            "user_id": kwargs.get("user_id") or "default",
+            "infer": kwargs.get("infer", False),
+            "async_mode": kwargs.get("async_mode", False),
+        }
+        if "metadata" in kwargs and kwargs["metadata"]:
+            payload["metadata"] = kwargs["metadata"]
+        if "app_id" in kwargs and kwargs["app_id"]:
+            payload["app_id"] = kwargs["app_id"]
+
+        import httpx
+
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.post(
+                f"{self.base_url}/v1/memories/",
+                headers=self.headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict) and "results" in data:
+                return data["results"]
+            return data
+
+    def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:
+        filters = kwargs.get("filters")
+        payload: dict[str, Any] = {
+            "query": query,
+            "top_k": kwargs.get("top_k") or kwargs.get("limit", 20),
+            "rerank": False,
+        }
+        uid = self._extract_user_id(kwargs)
+        if uid:
+            payload["filters"] = {"AND": [{"user_id": uid}]}
+        elif filters:
+            payload["filters"] = filters
+
+        import httpx
+
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.post(
+                f"{self.base_url}/v3/memories/search/",
+                headers=self.headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict) and "results" in data:
+                return data["results"]
+            if isinstance(data, list):
+                return data
+            return []
+
+    def get(self, memory_id: str) -> dict[str, Any]:
+        import httpx
+
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.get(
+                f"{self.base_url}/memories/{memory_id}",
+                headers=self.headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    def get_all(self, **kwargs: Any) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+        user_id = self._extract_user_id(kwargs)
+        if user_id:
+            params["user_id"] = user_id
+        if "app_id" in kwargs and kwargs["app_id"]:
+            params["app_id"] = kwargs["app_id"]
+
+        top_k = kwargs.get("top_k") or kwargs.get("page_size", 5000)
+        params["top_k"] = min(int(top_k), 5000)
+
+        import httpx
+
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.get(
+                f"{self.base_url}/memories",
+                headers=self.headers,
+                params=params,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict) and "results" in data:
+                data["count"] = len(data["results"])
+                return data
+            if isinstance(data, list):
+                return {"results": data, "count": len(data)}
+            return {"results": [], "count": 0}
+
+    def delete(self, memory_id: str) -> dict[str, Any]:
+        import httpx
+
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.delete(
+                f"{self.base_url}/v1/memories/{memory_id}/",
+                headers=self.headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    def update(
+        self, memory_id: str, memory: str, **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        payload: dict[str, Any] = {"text": memory}
+        if "metadata" in kwargs and kwargs["metadata"]:
+            payload["metadata"] = kwargs["metadata"]
+
+        import httpx
+
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.put(
+                f"{self.base_url}/memories/{memory_id}",
+                headers=self.headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            updated_record = self.get(memory_id)
+            return [updated_record]
+
+
+def create_mem0_client(api_key: str, base_url: str = "") -> Any:
+    url = (base_url or os.environ.get("MEM0_BASE_URL") or "").strip()
+    if url and not url.startswith("https://api.mem0.ai"):
+        return LocalMem0Client(base_url=url, api_key=api_key)
     from mem0 import MemoryClient
     return MemoryClient(api_key=api_key)
 
@@ -146,13 +313,15 @@ class Mem0RememberStore(BaseRememberStore):
         self,
         *,
         api_key: str = "",
+        base_url: str = "",
         user_id: str = "default",
         app_id: str = "",
         client: Any | None = None,
     ) -> None:
         if client is None and not api_key.strip():
             raise RuntimeError("mem0 配置缺失：MEM0_API_KEY")
-        self.client = client if client is not None else create_mem0_client(api_key)
+        self.base_url = (base_url or os.environ.get("MEM0_BASE_URL") or "").strip()
+        self.client = client if client is not None else create_mem0_client(api_key, base_url=self.base_url)
         self.user_id = user_id.strip() or "default"
         self.app_id = app_id.strip()
 
@@ -160,6 +329,7 @@ class Mem0RememberStore(BaseRememberStore):
     def from_config(cls, config: StorageConfig, **kwargs) -> Mem0RememberStore:
         return cls(
             api_key=config.mem0_api_key,
+            base_url=getattr(config, "mem0_base_url", ""),
             user_id=config.mem0_user_id,
             app_id=kwargs.get("app_id", config.mem0_app_id),
         )
@@ -171,6 +341,8 @@ class Mem0RememberStore(BaseRememberStore):
         return kwargs
 
     def _read_scope_kwargs(self) -> dict[str, Any]:
+        if isinstance(self.client, LocalMem0Client):
+            return {"filters": {"AND": [{"user_id": self.user_id}]}}
         return {
             "filters": {
                 "OR": [
@@ -213,6 +385,14 @@ class Mem0RememberStore(BaseRememberStore):
                 stored_memory = str(
                     first.get("memory") or first.get("data", {}).get("memory") or memory
                 )
+        elif isinstance(response, dict):
+            results = response.get("results")
+            if isinstance(results, list) and results:
+                first = results[0]
+                if isinstance(first, dict):
+                    stored_memory = str(
+                        first.get("memory") or first.get("data", {}).get("memory") or memory
+                    )
         return f"✅ 已记录：{stored_memory}"
 
 

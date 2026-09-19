@@ -8,6 +8,7 @@ class StorageConfig:
     user_id: str = "default"
     user_token: str | None = None
     mem0_api_key: str = ""
+    mem0_base_url: str = ""
     mem0_user_id: str = "default"
     mem0_app_id: str = "voice-assistant"
     mem0_min_score: float = 0.8

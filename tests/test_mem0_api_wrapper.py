@@ -51,7 +51,7 @@ def test_add_uses_original_text_and_scoped_user(
     _main(["add", "--text", "记住钥匙在白柜子"])
 
     url, payload, headers, method = captured_request[0]
-    assert url == "https://api.mem0.ai/v1/memories/"
+    assert url == "http://mem0-api.docker.home/v1/memories/"
     assert method == "POST"
     assert payload is not None
     assert payload["messages"] == [{"role": "user", "content": "记住钥匙在白柜子"}]
@@ -71,7 +71,7 @@ def test_search_filters_by_fixed_user(
     _main(["search", "--query", "钥匙在哪里", "--limit", "5"])
 
     url, payload, _, method = captured_request[0]
-    assert url == "https://api.mem0.ai/v2/memories/search/"
+    assert url == "http://mem0-api.docker.home/v3/memories/search/"
     assert method == "POST"
     assert payload == {
         "query": "钥匙在哪里",
@@ -87,11 +87,11 @@ def test_list_pages_within_scope(
     _main(["list", "--page", "2", "--page-size", "50"])
 
     url, payload, _headers, method = captured_request[0]
-    assert url.startswith("https://api.mem0.ai/v2/memories/?")
-    assert method == "POST"
-    assert "page=2" in url
-    assert "page_size=50" in url
-    assert payload == {"filters": {"AND": [{"user_id": "soj"}]}}
+    assert url.startswith("http://mem0-api.docker.home/memories?")
+    assert method == "GET"
+    assert "user_id=soj" in url
+    assert "top_k=50" in url
+    assert payload is None
 
 
 def test_delete_uses_memory_id_and_delete_method(
@@ -101,7 +101,7 @@ def test_delete_uses_memory_id_and_delete_method(
     _main(["delete", "--id", "memory-123"])
 
     url, payload, _headers, method = captured_request[0]
-    assert url == "https://api.mem0.ai/v1/memories/memory-123/"
+    assert url == "http://mem0-api.docker.home/v1/memories/memory-123/"
     assert payload is None
     assert method == "DELETE"
     output = json.loads(capsys.readouterr().out)

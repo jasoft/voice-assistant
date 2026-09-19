@@ -14,33 +14,20 @@ import urllib.error
 import urllib.request
 
 
-BASE_URL = "https://api.mem0.ai"
+DEFAULT_BASE_URL = "http://mem0-api.docker.home"
+DEFAULT_API_KEY = "mem0-admin-sk-lan-secure-2026"
 USER_ID = "soj"
 DEFAULT_TIMEOUT_SECONDS = 7.0
 
 
-def _token() -> str:
-    token = os.environ.get("MEM0_API_KEY") or os.environ.get("MEM0_MCP_TOKEN") or ""
-    if not token:
-        token = _token_from_dsh_env()
-    if not token:
-        raise SystemExit("MEM0_API_KEY or MEM0_MCP_TOKEN is required")
-    return token
-
-
-def _token_from_dsh_env() -> str:
-    """Read only the two supported keys from the Harness-managed .env file.
-
-    Harness deliberately scrubs ambient credential-shaped variables before it
-    spawns model shell commands. Keeping the fallback file-local avoids putting
-    the Mem0 token back into every child process environment.
-    """
+def _dsh_env_values() -> dict[str, str]:
+    """Read configuration from the Harness-managed .env file."""
     dsh_home = Path(os.environ.get("DSH_HOME") or (Path.home() / ".dsh"))
     path = dsh_home / ".env"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return ""
+        return {}
 
     values: dict[str, str] = {}
     for raw_line in lines:
@@ -58,7 +45,43 @@ def _token_from_dsh_env() -> str:
             value = value[1:-1]
         values[key] = value
 
-    return values.get("MEM0_API_KEY") or values.get("MEM0_MCP_TOKEN") or ""
+    return values
+
+
+def _base_url() -> str:
+    env_url = (
+        os.environ.get("MEM0_BASE_URL")
+        or os.environ.get("LOCAL_MEM0_API_URL")
+        or os.environ.get("MEM0_HOST")
+        or ""
+    )
+    if not env_url:
+        dsh_values = _dsh_env_values()
+        env_url = (
+            dsh_values.get("MEM0_BASE_URL")
+            or dsh_values.get("LOCAL_MEM0_API_URL")
+            or dsh_values.get("MEM0_HOST")
+            or ""
+        )
+    return (env_url or DEFAULT_BASE_URL).rstrip("/")
+
+
+def _token() -> str:
+    token = (
+        os.environ.get("MEM0_API_KEY")
+        or os.environ.get("LOCAL_MEM0_API_KEY")
+        or os.environ.get("MEM0_MCP_TOKEN")
+        or ""
+    )
+    if not token:
+        dsh_values = _dsh_env_values()
+        token = (
+            dsh_values.get("MEM0_API_KEY")
+            or dsh_values.get("LOCAL_MEM0_API_KEY")
+            or dsh_values.get("MEM0_MCP_TOKEN")
+            or ""
+        )
+    return token or DEFAULT_API_KEY
 
 
 def _request_timeout_seconds() -> float:
@@ -79,7 +102,7 @@ def _request(
     query: dict[str, int] | None = None,
 ) -> object:
     token = _token()
-    url = BASE_URL + path
+    url = _base_url() + path
     if query:
         from urllib.parse import urlencode
 
@@ -177,7 +200,7 @@ def _main(argv: list[str] | None = None) -> None:
     elif args.command == "search":
         result = _compact_result(
             _request(
-                "/v2/memories/search/",
+                "/v3/memories/search/",
                 {
                     "query": args.query,
                     "filters": {"AND": [{"user_id": USER_ID}]},
@@ -187,16 +210,30 @@ def _main(argv: list[str] | None = None) -> None:
             )
         )
     elif args.command == "list":
-        result = _compact_result(
-            _request(
-                "/v2/memories/",
-                {"filters": {"AND": [{"user_id": USER_ID}]}},
-                query={
-                    "page": max(1, args.page),
-                    "page_size": max(1, min(args.page_size, 100)),
-                },
+        is_local = "docker.home" in _base_url() or "localhost" in _base_url() or "127.0.0.1" in _base_url()
+        if is_local:
+            result = _compact_result(
+                _request(
+                    "/memories",
+                    method="GET",
+                    query={
+                        "user_id": USER_ID,
+                        "top_k": max(1, min(args.page_size, 100)),
+                    },
+                )
             )
-        )
+        else:
+            result = _compact_result(
+                _request(
+                    "/v1/memories/",
+                    method="GET",
+                    query={
+                        "user_id": USER_ID,
+                        "page": max(1, args.page),
+                        "page_size": max(1, min(args.page_size, 100)),
+                    },
+                )
+            )
     else:
         memory_id = args.memory_id.strip()
         if not memory_id:

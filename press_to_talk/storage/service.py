@@ -99,6 +99,10 @@ def load_storage_config(
         or env_str("PTT_USER_API_KEY", "").strip()
         or None,
         mem0_api_key=env_str("MEM0_API_KEY", "").strip(),
+        mem0_base_url=env_str(
+            "MEM0_BASE_URL",
+            env_str("LOCAL_MEM0_API_URL", str(mem0_cfg.get("base_url", "http://mem0-api.docker.home"))),
+        ).strip(),
         mem0_user_id=user_id_override
         or str(
             env_str("PTT_USER_ID", str(env_str("MEM0_USER_ID", mem0_config_user_id)))

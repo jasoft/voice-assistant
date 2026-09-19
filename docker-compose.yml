@@ -14,6 +14,8 @@ services:
       PTT_HARNESS_TIMEOUT_SECONDS: "10"
       PTT_HARNESS_ASYNC_TIMEOUT_SECONDS: "60"
       PTT_REMEMBER_BACKEND: mem0
+      MEM0_BASE_URL: http://mem0-api.docker.home
+      MEM0_API_KEY: ${MEM0_API_KEY:-mem0-admin-sk-lan-secure-2026}
       PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast
       PTT_CHAT_TIMEOUT_SECONDS: "30"
       PTT_REMINDER_STORE_PATH: /app/data/reminders.json
@@ -40,6 +42,8 @@ services:
       # this isolated container.
       DSH_PERMISSION_MODE: danger-full-access
       MEM0_REQUEST_TIMEOUT_SECONDS: "3"
+      MEM0_BASE_URL: http://mem0-api.docker.home
+      MEM0_API_KEY: ${MEM0_API_KEY:-mem0-admin-sk-lan-secure-2026}
       REMINDER_API_URL: http://voice-assistant:10031
       PTT_API_KEY: ${PTT_API_KEY}
     command:
