@@ -1,15 +1,21 @@
 """Fast-path handler for memory record/find queries.
 
-Bypasses the DeepSeek Harness Agent entirely:
-  1. Regex-based intent detection (~0 ms)
-  2. Direct Memos REST API call (~1-3 s)
-  3. Single streaming LLM summarization (~2-5 s)
+Pipeline:
+  1. Regex-based intent detection (~0 ms) -> record / find
+  2. For find:
+     a. LLM entity/keyword extraction (~0.8-1.5 s) based on workflow_config.json prompts
+     b. Memos CEL query execution using extracted keywords (`content.contains('词')`) (~0.1-0.3 s)
+     c. LLM summarization on matched memos (~1-2 s)
+  3. For record:
+     Direct Memos REST API insertion (~0.1-0.3 s)
 
-Target: ≤ 8 s end-to-end for the /v1/chat endpoint.
+Total target: ≤ 8 s end-to-end for the /v1/chat endpoint.
+All prompts are strictly loaded from external workflow_config.json.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -18,16 +24,16 @@ from typing import Any
 
 from ..storage.providers.memos import (
     MemosClient,
-    MemosRememberStore,
-    extract_memos_summary_payload,
+    _strip_tags_and_voice_prefix,
 )
+from ..utils.env import load_workflow_config, render_prompt_template
 from ..utils.llm_streaming import build_async_openai_client, stream_chat_completion_text
 from ..utils.logging import log
 from ..utils.text import current_time_text, format_local_datetime, strip_think_tags
 
 
 # ---------------------------------------------------------------------------
-# Intent detection — pure regex, no LLM needed
+# Intent detection — fast regex, no LLM needed
 # ---------------------------------------------------------------------------
 
 _RECORD_PATTERNS = re.compile(
@@ -48,7 +54,7 @@ _FIND_PATTERNS = re.compile(
 
 
 def classify_memory_intent(text: str) -> str | None:
-    """Return 'record', 'find', or None (not a memory query → fall through)."""
+    """Return 'record', 'find', or None (not a memory query -> fall through to Harness)."""
     clean = text.strip()
     if not clean:
         return None
@@ -57,7 +63,7 @@ def classify_memory_intent(text: str) -> str | None:
         return "find"
     if _RECORD_PATTERNS.search(clean):
         return "record"
-    # Default heuristic: short Chinese text that looks like a question → find
+    # Default heuristic: short Chinese text that looks like a question -> find
     if len(clean) <= 60 and clean.endswith(("？", "?", "吗", "呢", "吧")):
         return "find"
     return None
@@ -67,51 +73,30 @@ def classify_memory_intent(text: str) -> str | None:
 # Memos helpers
 # ---------------------------------------------------------------------------
 
-def _build_memos_store() -> MemosRememberStore:
-    """Build a MemosRememberStore from environment variables."""
+def _build_memos_client() -> MemosClient:
+    """Build a MemosClient from environment variables or workflow config."""
+    cfg = load_workflow_config().get("memos", {})
     base_url = (
         os.environ.get("MEMOS_BASE_URL")
         or os.environ.get("MEMOS_API_URL")
+        or cfg.get("base_url")
         or "http://ds.home:5230"
     )
     token = (
         os.environ.get("MEMOS_TOKEN")
         or os.environ.get("MEMOS_ACCESS_TOKEN")
+        or cfg.get("access_token")
         or "memos_pat_voice_assistant_lan_2026"
     )
-    timeout = float(os.environ.get("MEMOS_TIMEOUT", "8"))
-    client = MemosClient(base_url=base_url, token=token, timeout=timeout)
-    return MemosRememberStore(
-        client=client,
-        user_id="soj",
-        visibility="PRIVATE",
-        tag="voice",
-    )
+    timeout = float(os.environ.get("MEMOS_TIMEOUT", "5"))
+    return MemosClient(base_url=base_url, token=token, timeout=timeout)
 
-
-_FIND_STOP_WORDS = [
-    "帮我查一下", "帮我查查", "帮我查找", "帮我查询", "帮我查", "帮我找找", "帮我找",
-    "帮我看看", "帮我看一下", "查一下", "查查", "查询", "查找", "看看", "看一下",
-    "帮我搜一下", "帮我搜索", "搜一下", "搜索",
-    "关于", "有关", "涉及", "有没有", "最新的", "最近的", "最新", "最近",
-    "几篇", "几条", "几个", "文章", "记录", "备忘", "笔记", "动态", "说说", "内容", "信息",
-    "的记录", "的信息", "的事", "的备忘",
-]
 
 _RECORD_STOP_WORDS = [
     "帮我记一下", "帮我记录", "帮我记住", "帮我记下", "帮我存一下", "帮我保存",
     "帮我记个", "帮忙记一下", "帮忙记录", "请记录", "请记住",
     "记一下", "记录一下", "记住", "记下", "存一下", "保存",
 ]
-
-
-def _clean_find_query(text: str) -> str:
-    """Strip command-like prefixes to extract the search kernel."""
-    clean = text.strip()
-    for sw in sorted(_FIND_STOP_WORDS, key=len, reverse=True):
-        clean = clean.replace(sw, "")
-    clean = re.sub(r"[，。！？,.!?\s\"']+", " ", clean).strip("的 ").strip()
-    return clean or text.strip()
 
 
 def _clean_record_content(text: str) -> str:
@@ -123,8 +108,73 @@ def _clean_record_content(text: str) -> str:
     return clean or text.strip()
 
 
+def _record_memo(client: MemosClient, content: str, original_text: str) -> str:
+    """Create a new memo with voice tag in Memos."""
+    parts = [content]
+    if original_text.strip() and original_text.strip() != content:
+        parts.append(f"> 语音原文: {original_text.strip()}")
+    parts.append("#voice")
+    full_content = "\n\n".join(parts)
+    res = client.create_memo(full_content, visibility="PRIVATE")
+    log(f"fast-chat: memo created: {res.get('name')}", level="info")
+    return f"✅ 已记入 Memos：{content}"
+
+
+def _search_memos_cel(client: MemosClient, keywords: list[str], *, page_size: int = 10) -> list[dict[str, Any]]:
+    """Execute CEL query on Memos using extracted keywords."""
+    valid_words = [
+        w.strip() for w in keywords
+        if w.strip() and not any(c in w for c in ("'", '"', "\\", "\n", "\r"))
+    ]
+    if not valid_words:
+        return []
+
+    # Build CEL filter: content.contains('词1') || content.contains('词2')
+    cel_parts = [f"content.contains('{w}')" for w in valid_words]
+    filter_expr = " || ".join(cel_parts)
+
+    try:
+        log(f"fast-chat: CEL query expr: {filter_expr}", level="info")
+        res = client.list_memos(page_size=page_size, filter_expr=filter_expr)
+        raw_memos = res.get("memos", [])
+    except Exception as exc:
+        log(f"fast-chat: CEL query failed: {exc}", level="warn")
+        raw_memos = []
+
+    # Fallback to recent memos search if CEL query returns empty
+    if not raw_memos:
+        try:
+            res = client.list_memos(page_size=30)
+            candidates = res.get("memos", [])
+            for m in candidates:
+                content = str(m.get("content", ""))
+                if any(w in content for w in valid_words):
+                    raw_memos.append(m)
+        except Exception as exc:
+            log(f"fast-chat: fallback list search failed: {exc}", level="warn")
+
+    items: list[dict[str, Any]] = []
+    for memo in raw_memos:
+        content = str(memo.get("content", "")).strip()
+        if not content:
+            continue
+        clean_memory = _strip_tags_and_voice_prefix(content)
+        if not clean_memory:
+            continue
+        created = str(memo.get("createTime", "")).strip()
+        updated = str(memo.get("updateTime", "") or created).strip()
+        items.append({
+            "id": str(memo.get("name", "")),
+            "memory": clean_memory,
+            "raw_content": content,
+            "created_at": created,
+            "updated_at": updated,
+        })
+    return items
+
+
 # ---------------------------------------------------------------------------
-# LLM summarization
+# LLM helpers (Prompts loaded strictly from workflow_config.json)
 # ---------------------------------------------------------------------------
 
 def _build_llm_client() -> Any:
@@ -136,46 +186,106 @@ def _build_llm_client() -> Any:
 
 
 def _llm_model() -> str:
-    return os.environ.get("PTT_MODEL", "").strip() or "gpt-4o-mini"
+    return os.environ.get("PTT_MODEL", "").strip() or "fast"
 
 
-def _build_summary_prompt(user_question: str, memories: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Build the system+user messages for summarization."""
-    now = current_time_text()
-    nickname = os.environ.get("PTT_USER_NICKNAME", "大王")
+def _parse_keywords_json(text: str) -> list[str]:
+    """Parse JSON array or object containing keywords from LLM output."""
+    raw = strip_think_tags(text).strip()
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            if isinstance(data, dict):
+                kws = data.get("keywords")
+                if isinstance(kws, list):
+                    return [str(k).strip() for k in kws if str(k).strip()]
+        except Exception:
+            pass
+    # Fallback if bare list
+    match_arr = re.search(r"\[.*\]", raw, re.DOTALL)
+    if match_arr:
+        try:
+            data = json.loads(match_arr.group(0))
+            if isinstance(data, list):
+                return [str(k).strip() for k in data if str(k).strip()]
+        except Exception:
+            pass
+    return []
 
-    system_prompt = (
-        f"你是一个智能助手。今天是 {now}。"
-        f"人称准则：直接对用户说话，请务必用'{nickname}'称呼用户；"
-        "在回答中涉及用户的行为时，严禁使用\u201c用户\u201d一词，必须一律改用\u201c你\u201d或\u201c您\u201d。\n\n"
-        "【回答规范】\n"
-        "基于检索提供的答案友好回答问题。禁止捏造事实。"
-        "如果结果和问题无关，请直接回答原问题。但不要提及数据是检索来的，你只需要总结数据。\n"
-        "必须保留关键细节。如果涉及多条记录，必须分行列出详情。\n"
-        f"日期：记忆原文的日期如果是今年的（现在是{now}），如果日期是去年的, "
-        "那么说'去年M月D日'，再前面的年份就直接说精确年月日。"
-        "但如果是最近一个月内的, 就不用提到日期。\n"
-        "回复尽量简洁。"
+
+async def _extract_keywords_with_llm(client: Any, query: str) -> list[str]:
+    """Extract search entity keywords using external query_rewrite prompt."""
+    cfg = load_workflow_config()
+    prompts = cfg.get("prompts", {})
+    rewrite_cfg = prompts.get("query_rewrite", {})
+    system_prompt = rewrite_cfg.get(
+        "system_prompt",
+        "你是一个检索词提炼器。请从用户原问句中提炼 1 到 4 个最核心的实体词或短语。不要问句尾巴，只返回 JSON：{\"keywords\":[\"词1\"]}",
     )
 
-    memory_lines: list[str] = []
-    for m in memories:
-        mem_text = str(m.get("memory", "")).strip()
-        if not mem_text:
-            continue
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"问句：{query}"},
+    ]
+
+    try:
+        raw = await stream_chat_completion_text(
+            client,
+            model=_llm_model(),
+            messages=messages,
+            temperature=0,
+        )
+        keywords = _parse_keywords_json(raw)
+        if keywords:
+            return keywords
+    except Exception as exc:
+        log(f"fast-chat: LLM keyword extraction failed: {exc}", level="warn")
+
+    # Fallback to simple regex token if LLM extraction fails
+    fallback_words = re.findall(r"[\u4e00-\u9fa5a-zA-Z0-9]{2,}", query)
+    noise = {"我的", "你的", "是在", "在哪里", "在哪", "什么时候", "怎么", "一下", "帮我"}
+    return [w for w in fallback_words if w not in noise][:3]
+
+
+def _build_summary_messages(
+    user_question: str,
+    memos: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Build summary prompt from workflow_config.json remember_summary template."""
+    cfg = load_workflow_config()
+    prompts = cfg.get("prompts", {})
+    summary_cfg = prompts.get("remember_summary", {})
+
+    now = current_time_text()
+    nickname = os.environ.get("PTT_USER_NICKNAME", "大王")
+    template = summary_cfg.get("system_prompt", "")
+    system_prompt = render_prompt_template(
+        template,
+        {
+            "PTT_CURRENT_TIME": now,
+            "USER_NICKNAME": nickname,
+        },
+    )
+
+    memo_lines: list[str] = []
+    for m in memos:
         ts = str(m.get("updated_at") or m.get("created_at") or "").strip()
-        date_prefix = ""
+        date_str = ""
         if ts:
             localized = format_local_datetime(ts)
             date_match = re.match(r"^(\d{4})年?(\d{1,2})月?(\d{1,2})", localized)
             if date_match:
-                date_prefix = f"{date_match.group(1)}-{int(date_match.group(2)):02d}-{int(date_match.group(3)):02d}: "
-        memory_lines.append(f"{date_prefix}{mem_text}")
+                date_str = f"{date_match.group(1)}-{int(date_match.group(2)):02d}-{int(date_match.group(3)):02d}"
+        mem_text = str(m.get("memory", "")).strip()
+        memo_lines.append(f"[{date_str}] {mem_text}" if date_str else mem_text)
 
+    memos_block = "\n".join(memo_lines)
     user_prompt = (
-        f"我的问题：{user_question}\n"
-        f"命中的记忆原文：\n" + "\n".join(memory_lines)
+        f"用户问题：{user_question}\n"
+        f"相关备忘录：\n{memos_block}"
     )
+
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -205,17 +315,18 @@ async def try_fast_memory_chat(
     log(f"fast-chat: intent={intent} query={query[:80]}", level="info")
 
     try:
-        store = _build_memos_store()
-    except RuntimeError as exc:
-        log(f"fast-chat: cannot build Memos store: {exc}", level="warn")
+        memos_client = _build_memos_client()
+    except Exception as exc:
+        log(f"fast-chat: cannot build Memos client: {exc}", level="warn")
         return None
 
     # -- RECORD --
     if intent == "record":
         content = _clean_record_content(query)
-        t_store = time.monotonic()
         try:
-            result_text = store.add(memory=content, original_text=query)
+            result_text = await asyncio.to_thread(
+                _record_memo, memos_client, content, query,
+            )
         except Exception as exc:
             log(f"fast-chat: Memos add failed: {exc}", level="error")
             return {
@@ -224,9 +335,8 @@ async def try_fast_memory_chat(
                 "query": query,
                 "debug_info": {"backend": "fast-chat", "intent": "record", "error": str(exc)},
             }
-        elapsed_store = time.monotonic() - t_store
         elapsed_total = time.monotonic() - t0
-        log(f"fast-chat: record done store={elapsed_store:.2f}s total={elapsed_total:.2f}s", level="info")
+        log(f"fast-chat: record done in {elapsed_total:.2f}s", level="info")
         return {
             "reply": result_text,
             "memories": [],
@@ -239,103 +349,97 @@ async def try_fast_memory_chat(
         }
 
     # -- FIND --
-    search_query = _clean_find_query(query)
-    log(f"fast-chat: search_query={search_query}", level="info")
-
-    # Step 1: Memos search (async-wrapped sync call)
-    t_search = time.monotonic()
-    try:
-        import asyncio
-        raw_results = await asyncio.to_thread(
-            store.find, query=search_query,
-        )
-    except Exception as exc:
-        log(f"fast-chat: Memos search failed: {exc}", level="error")
-        return {
-            "reply": "查询记忆时出错，请稍后再试。",
-            "memories": [],
-            "query": query,
-            "debug_info": {"backend": "fast-chat", "intent": "find", "error": str(exc)},
-        }
-    elapsed_search = time.monotonic() - t_search
-    log(f"fast-chat: Memos search done in {elapsed_search:.2f}s", level="info")
-
-    # Parse results
-    summary_payload = extract_memos_summary_payload(raw_results)
-    items = summary_payload.get("items", [])
-
-    if not items:
-        elapsed_total = time.monotonic() - t0
-        return {
-            "reply": "没有找到匹配的记忆信息。",
-            "memories": [],
-            "query": query,
-            "debug_info": {
-                "backend": "fast-chat",
-                "intent": "find",
-                "search_query": search_query,
-                "elapsed_s": round(elapsed_total, 2),
-            },
-        }
-
-    # Step 2: LLM summarization
-    t_llm = time.monotonic()
     client = None
     try:
         client = _build_llm_client()
-        messages = _build_summary_prompt(query, items)
-        raw_summary = await stream_chat_completion_text(
+
+        # Step 1: LLM tokenize/extract keywords (~0.8-1.5s)
+        t_kw = time.monotonic()
+        keywords = await _extract_keywords_with_llm(client, query)
+        elapsed_kw = time.monotonic() - t_kw
+        log(f"fast-chat: LLM extracted keywords in {elapsed_kw:.2f}s: {keywords}", level="info")
+
+        # Step 2: Memos CEL query (~0.1-0.3s)
+        t_search = time.monotonic()
+        memos_items = await asyncio.to_thread(
+            _search_memos_cel, memos_client, keywords, page_size=10,
+        )
+        elapsed_search = time.monotonic() - t_search
+        log(f"fast-chat: CEL search in {elapsed_search:.2f}s, found {len(memos_items)} memos", level="info")
+
+        if not memos_items:
+            elapsed_total = time.monotonic() - t0
+            return {
+                "reply": f"大王，没有找到与“{'、'.join(keywords) if keywords else query}”相关的备忘记录。",
+                "memories": [],
+                "query": query,
+                "debug_info": {
+                    "backend": "fast-chat",
+                    "intent": "find",
+                    "keywords": keywords,
+                    "elapsed_s": round(elapsed_total, 2),
+                    "elapsed_kw_s": round(elapsed_kw, 2),
+                    "elapsed_search_s": round(elapsed_search, 2),
+                },
+            }
+
+        # Step 3: LLM summarization (~1-2s)
+        t_sum = time.monotonic()
+        messages = _build_summary_messages(query, memos_items)
+        raw_reply = await stream_chat_completion_text(
             client,
             model=_llm_model(),
             messages=messages,
             temperature=0,
             callback=stream_callback,
         )
-        reply = strip_think_tags(str(raw_summary or "")).strip() or "处理完成。"
+        reply = strip_think_tags(str(raw_reply or "")).strip() or "处理完成。"
+        elapsed_sum = time.monotonic() - t_sum
+        elapsed_total = time.monotonic() - t0
+        log(
+            f"fast-chat: find complete total={elapsed_total:.2f}s "
+            f"(kw={elapsed_kw:.2f}s, search={elapsed_search:.2f}s, sum={elapsed_sum:.2f}s)",
+            level="info",
+        )
+
+        # Build memories payload for API response
+        memories_out = [
+            {
+                "id": str(m.get("id", "")),
+                "memory": str(m.get("memory", "")),
+                "created_at": str(m.get("created_at", "")),
+                "score": 1.0,
+            }
+            for m in memos_items
+        ]
+
+        return {
+            "reply": reply,
+            "memories": memories_out,
+            "query": query,
+            "debug_info": {
+                "backend": "fast-chat",
+                "intent": "find",
+                "keywords": keywords,
+                "memo_count": len(memos_items),
+                "elapsed_s": round(elapsed_total, 2),
+                "elapsed_kw_s": round(elapsed_kw, 2),
+                "elapsed_search_s": round(elapsed_search, 2),
+                "elapsed_sum_s": round(elapsed_sum, 2),
+            },
+        }
+
     except Exception as exc:
-        log(f"fast-chat: LLM summarization failed: {exc}", level="warn")
-        # Graceful degradation: return raw memories as bullet points
-        lines = []
-        for item in items[:5]:
-            mem = str(item.get("memory", "")).strip()
-            if mem:
-                lines.append(f"\u2022 {mem}")
-        reply = "\n".join(lines) or "找到了记录，但总结失败。"
+        log(f"fast-chat: find error: {exc}", level="error")
+        return {
+            "reply": "查询记忆时出错，请稍后再试。",
+            "memories": [],
+            "query": query,
+            "debug_info": {"backend": "fast-chat", "intent": "find", "error": str(exc)},
+        }
     finally:
         if client is not None:
             try:
                 await client.close()
             except Exception:
                 pass
-    elapsed_llm = time.monotonic() - t_llm
-    elapsed_total = time.monotonic() - t0
-    log(
-        f"fast-chat: find done search={elapsed_search:.2f}s llm={elapsed_llm:.2f}s "
-        f"total={elapsed_total:.2f}s items={len(items)}",
-        level="info",
-    )
-
-    # Build memory items for response
-    memory_items = []
-    for item in items:
-        memory_items.append({
-            "id": str(item.get("id", "")),
-            "memory": str(item.get("memory", "")),
-            "created_at": str(item.get("created_at", "")),
-            "score": 0.0,
-        })
-
-    return {
-        "reply": reply,
-        "memories": memory_items,
-        "query": query,
-        "debug_info": {
-            "backend": "fast-chat",
-            "intent": "find",
-            "search_query": search_query,
-            "elapsed_s": round(elapsed_total, 2),
-            "elapsed_search_s": round(elapsed_search, 2),
-            "elapsed_llm_s": round(elapsed_llm, 2),
-            "result_count": len(items),
-        },
-    }
