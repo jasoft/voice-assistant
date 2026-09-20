@@ -328,12 +328,22 @@ async def try_fast_memory_chat(
                 _record_memo, memos_client, content, query,
             )
         except Exception as exc:
-            log(f"fast-chat: Memos add failed: {exc}", level="error")
+            import traceback
+            tb = traceback.format_exc()
+            err_type = type(exc).__name__
+            log(f"fast-chat [STAGE: RECORD] Memos creation failed: {err_type}: {exc}\n{tb}", level="error")
             return {
                 "reply": "记录失败，请稍后再试。",
                 "memories": [],
                 "query": query,
-                "debug_info": {"backend": "fast-chat", "intent": "record", "error": str(exc)},
+                "debug_info": {
+                    "backend": "fast-chat",
+                    "intent": "record",
+                    "stage": "record_memo",
+                    "error_type": err_type,
+                    "error_detail": str(exc) or err_type,
+                    "traceback": tb.splitlines()[-3:],
+                },
             }
         elapsed_total = time.monotonic() - t0
         log(f"fast-chat: record done in {elapsed_total:.2f}s", level="info")
@@ -350,22 +360,32 @@ async def try_fast_memory_chat(
 
     # -- FIND --
     client = None
+    stage = "init"
+    keywords: list[str] = []
+    memos_items: list[dict[str, Any]] = []
+    elapsed_kw = 0.0
+    elapsed_search = 0.0
+    elapsed_sum = 0.0
+
     try:
+        stage = "build_llm_client"
         client = _build_llm_client()
 
         # Step 1: LLM tokenize/extract keywords (~0.8-1.5s)
+        stage = "llm_extract_keywords"
         t_kw = time.monotonic()
         keywords = await _extract_keywords_with_llm(client, query)
         elapsed_kw = time.monotonic() - t_kw
-        log(f"fast-chat: LLM extracted keywords in {elapsed_kw:.2f}s: {keywords}", level="info")
+        log(f"fast-chat [STAGE: KEYWORDS] extracted in {elapsed_kw:.2f}s: {keywords}", level="info")
 
         # Step 2: Memos CEL query (~0.1-0.3s)
+        stage = "memos_cel_query"
         t_search = time.monotonic()
         memos_items = await asyncio.to_thread(
             _search_memos_cel, memos_client, keywords, page_size=10,
         )
         elapsed_search = time.monotonic() - t_search
-        log(f"fast-chat: CEL search in {elapsed_search:.2f}s, found {len(memos_items)} memos", level="info")
+        log(f"fast-chat [STAGE: CEL_SEARCH] completed in {elapsed_search:.2f}s, found {len(memos_items)} memos", level="info")
 
         if not memos_items:
             elapsed_total = time.monotonic() - t0
@@ -384,6 +404,7 @@ async def try_fast_memory_chat(
             }
 
         # Step 3: LLM summarization (~1-2s)
+        stage = "llm_summarization"
         t_sum = time.monotonic()
         reply = ""
         try:
@@ -398,7 +419,13 @@ async def try_fast_memory_chat(
             )
             reply = strip_think_tags(str(raw_reply or "")).strip()
         except Exception as sum_exc:
-            log(f"fast-chat: LLM summarization failed/timed out: {type(sum_exc).__name__}: {sum_exc}", level="warn")
+            import traceback
+            sum_err_type = type(sum_exc).__name__
+            log(
+                f"fast-chat [STAGE: SUMMARIZATION_WARN] LLM summarization failed/timed out: "
+                f"{sum_err_type}: {sum_exc}\n{traceback.format_exc()}",
+                level="warn",
+            )
 
         # Fallback if LLM summary failed or returned empty: directly present the matched memo text
         if not reply:
@@ -412,7 +439,7 @@ async def try_fast_memory_chat(
         elapsed_sum = time.monotonic() - t_sum
         elapsed_total = time.monotonic() - t0
         log(
-            f"fast-chat: find complete total={elapsed_total:.2f}s "
+            f"fast-chat [STAGE: COMPLETE] find finished in {elapsed_total:.2f}s "
             f"(kw={elapsed_kw:.2f}s, search={elapsed_search:.2f}s, sum={elapsed_sum:.2f}s)",
             level="info",
         )
@@ -446,7 +473,14 @@ async def try_fast_memory_chat(
 
     except Exception as exc:
         import traceback
-        log(f"fast-chat: find error: {type(exc).__name__}: {exc}\n{traceback.format_exc()}", level="error")
+        tb = traceback.format_exc()
+        err_type = type(exc).__name__
+        err_msg = str(exc) or "(no error message provided)"
+        log(
+            f"fast-chat [STAGE: {stage.upper()}_ERROR] Find failed at stage '{stage}': "
+            f"{err_type}: {err_msg}\n{tb}",
+            level="error",
+        )
         return {
             "reply": "查询记忆时出错，请稍后再试。",
             "memories": [],
@@ -454,7 +488,12 @@ async def try_fast_memory_chat(
             "debug_info": {
                 "backend": "fast-chat",
                 "intent": "find",
-                "error": f"{type(exc).__name__}: {exc}",
+                "stage": stage,
+                "error_type": err_type,
+                "error_detail": err_msg,
+                "traceback": tb.splitlines()[-4:],
+                "keywords": keywords,
+                "memo_count": len(memos_items),
             },
         }
     finally:
