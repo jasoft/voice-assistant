@@ -285,17 +285,24 @@ app.add_middleware(LoggingMiddleware)
 
 # -------------------------------
 
+from ..version import get_version
+
 @app.get("/healthy", tags=["System"])
 async def healthy():
     """Liveness probe: returns 200 OK if the server is running."""
-    return {"status": "ok"}
+    return {"status": "ok", "version": get_version()}
 
 @app.get("/ready", tags=["System"])
 async def ready():
     """Readiness probe: returns 200 OK if the configurations are loaded."""
     if base_config is None:
         raise HTTPException(status_code=503, detail="Configuration not loaded")
-    return {"status": "ready"}
+    return {"status": "ready", "version": get_version()}
+
+@app.get("/v1/version", tags=["System"])
+async def get_version_endpoint():
+    """Returns the current application version."""
+    return {"version": get_version()}
 
 
 

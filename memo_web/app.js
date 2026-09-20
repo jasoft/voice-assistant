@@ -83,3 +83,22 @@ instruction.addEventListener('keydown', (event) => {
     sendInstruction();
   }
 });
+
+async function loadAppVersion() {
+  const versionEl = document.querySelector('#app-version');
+  if (!versionEl) return;
+  try {
+    const res = await fetch('/api/version');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.version) {
+        versionEl.textContent = `v${data.version}`;
+      }
+    }
+  } catch (_) {
+    // 忽略版本加载错误
+  }
+}
+
+loadAppVersion();
+

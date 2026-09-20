@@ -83,3 +83,16 @@ def test_memo_web_hides_memo_ids(monkeypatch) -> None:
     assert "memos/" not in reply
     assert "护照在书房抽屉里" in reply
     assert "身份证在钱包里" in reply
+
+
+def test_memo_web_serves_version(monkeypatch) -> None:
+    fake_client = FakeHarnessClient()
+    monkeypatch.setattr(memo_web.DeepSeekHarnessClient, "from_env", lambda: fake_client)
+
+    with TestClient(memo_web.app) as client:
+        response = client.get("/api/version")
+
+    assert response.status_code == 200
+    assert "version" in response.json()
+    assert response.json()["version"] != ""
+

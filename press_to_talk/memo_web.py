@@ -58,11 +58,21 @@ def _harness_client() -> DeepSeekHarnessClient:
     return client
 
 
+from .version import get_version
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     """Return a lightweight liveness response for LAN checks."""
 
-    return {"status": "ok"}
+    return {"status": "ok", "version": get_version()}
+
+
+@app.get("/api/version")
+async def version() -> dict[str, str]:
+    """Return the current service version."""
+
+    return {"version": get_version()}
 
 
 @app.post("/api/query", response_model=MemoQueryResponse)

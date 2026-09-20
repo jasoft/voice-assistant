@@ -40,9 +40,15 @@ audio_tmp_dir = Path("tmp") / "web_audio"
 audio_tmp_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/audio", StaticFiles(directory=str(audio_tmp_dir)), name="audio")
 
+from .version import get_version
+
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "version": get_version()}
+
+@app.get("/api/version")
+async def get_app_version():
+    return {"version": get_version()}
 
 @app.post("/stt")
 async def speech_to_text(audio: UploadFile = File(...)):

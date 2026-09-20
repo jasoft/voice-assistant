@@ -166,3 +166,20 @@ class TestAPIResponseFormat:
         assert response.status_code == 200
         data = response.json()
         assert "reply" in data
+
+
+class TestVersionEndpoint:
+    """测试版本端点"""
+
+    def test_version_endpoint(self, client):
+        response = client.get("/v1/version")
+        assert response.status_code == 200
+        assert "version" in response.json()
+        assert response.json()["version"] != ""
+
+    def test_healthy_includes_version(self, client):
+        response = client.get("/healthy")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+        assert "version" in response.json()
+

@@ -9,7 +9,7 @@
 
 set -e
 
-# 1. Local Sync
+# 1. Local Sync & Version Bump
 echo "🚀 Step 1: Checking local workspace..."
 if [[ -n $(git status --porcelain) ]]; then
     echo "❌ Local workspace is dirty. Refusing to stage unrelated files."
@@ -17,8 +17,17 @@ if [[ -n $(git status --porcelain) ]]; then
     git status --short
     exit 1
 else
-    echo "✅ Local workspace is clean, everything up-to-date."
+    echo "✅ Local workspace is clean."
 fi
+
+# Automatically bump version (e.g. 0.1.0 -> 0.1.1) and push
+NEW_VERSION=$(python3 scripts/bump_version.py)
+echo "🏷️  Bumped version to: v${NEW_VERSION}"
+git add VERSION pyproject.toml
+git commit -m "chore(release): bump version to v${NEW_VERSION}"
+git push origin main
+echo "✅ Pushed release commit to GitHub."
+
 
 # 2. Remote Deploy
 echo "🌐 Step 2: Triggering remote deployment on 'docker' host..."
