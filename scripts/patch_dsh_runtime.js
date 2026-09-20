@@ -99,4 +99,12 @@ patchFile('*/@deepseek-ai/dsh-api-session-controller/lib/index.js', (code) => {
   return code;
 });
 
+// 5. 兼容 DeepSeek / thinking 模式多轮工具回传时的 reasoning_content 字段同步
+patchFile('*/@earendil-works/pi-ai/dist/api/openai-completions.js', (code) => {
+  return code.replace(
+    'if (compat.requiresReasoningContentOnAssistantMessages &&',
+    'if (assistantMsg.reasoning_content === undefined && typeof assistantMsg.reasoning === "string") { assistantMsg.reasoning_content = assistantMsg.reasoning; }\n            if (compat.requiresReasoningContentOnAssistantMessages &&'
+  );
+});
+
 console.log('All dsh patches applied successfully!');
