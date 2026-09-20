@@ -2,42 +2,103 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#101827">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b1120">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Memo">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="manifest" href="/manifest.json">
   <title>Memo Agent</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <main class="shell">
-    <header class="hero">
-      <div class="badge">M</div>
-      <div>
-        <p class="eyebrow">DEEPSEEK HARNESS <span id="app-version" class="version-tag"></span></p>
-        <h1>Memo Agent</h1>
-        <p class="subtitle">问它一件事，等它查完记忆后回答。</p>
+  <div class="app-layout">
+    <!-- 顶部导航栏 -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="badge">M</div>
+        <div class="brand-text">
+          <div class="title-row">
+            <h1>Memo Agent</h1>
+            <span id="app-version" class="version-tag"></span>
+          </div>
+          <p class="subtitle">DeepSeek Harness 智能记忆检索</p>
+        </div>
       </div>
+      <button id="clear-btn" class="icon-btn" type="button" title="清空对话" aria-label="清空对话">
+        <svg viewBox="0 0 24 24" width="18" height="18">
+          <path fill="currentColor" d="M19 4h-3.5l-1-1h-5l-1 1H5v2h14M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12Z"/>
+        </svg>
+      </button>
     </header>
 
-    <section class="composer" aria-labelledby="composer-title">
-      <label id="composer-title" for="instruction">发送指令</label>
-      <textarea id="instruction" rows="5" maxlength="10000" autofocus
-        placeholder="例如：我的护照放在哪里？"></textarea>
-      <div class="composer-footer">
-        <span id="hint">⌘/Ctrl + Enter 发送</span>
-        <button id="send" type="button">发送</button>
-      </div>
-    </section>
+    <!-- 中部滚动内容区 -->
+    <main id="chat-container" class="chat-container" role="region" aria-label="记忆问答内容">
+      <!-- 欢迎卡片 -->
+      <section id="welcome-card" class="welcome-card">
+        <div class="welcome-icon">🔍</div>
+        <h2>随时查询您的重要个人记忆</h2>
+        <p>问它一件事，例如证件存放、重要账号、日常提醒，等它查完记忆后回答。</p>
+      </section>
 
-    <section id="status" class="status" role="status" aria-live="polite">准备好了</section>
+      <!-- 回复展示区 -->
+      <section id="reply-card" class="reply-card" hidden aria-labelledby="reply-title">
+        <div class="reply-header">
+          <div class="reply-heading">
+            <span class="reply-dot"></span>
+            <h2 id="reply-title">检索结果</h2>
+          </div>
+          <div class="card-actions">
+            <button id="copy-btn" class="action-chip" type="button">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1Zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2Zm0 16H8V7h11v14Z"/>
+              </svg>
+              <span>复制</span>
+            </button>
+          </div>
+        </div>
+        <div id="reply" class="reply markdown-body" aria-live="polite"></div>
+      </section>
 
-    <section id="reply-card" class="reply-card" hidden aria-labelledby="reply-title">
-      <div class="reply-heading">
-        <span class="reply-dot"></span>
-        <h2 id="reply-title">Memo 回复</h2>
+      <!-- 处理中骨架/指示器 -->
+      <div id="loading-indicator" class="loading-indicator" hidden>
+        <div class="pulse-bar"></div>
+        <span id="loading-text">DeepSeek 正在理解意图并检索 Memos…</span>
       </div>
-      <div id="reply" class="reply markdown-body" aria-live="polite"></div>
-    </section>
-  </main>
+    </main>
+
+    <!-- 底部区域：包含快捷问题 Chips 与吸底输入框 -->
+    <footer class="bottom-panel">
+      <!-- 快捷提问横向滚动条 -->
+      <div class="quick-chips-wrapper" aria-label="快捷提问推荐">
+        <div class="quick-chips">
+          <button class="chip" type="button">我的护照在哪里？</button>
+          <button class="chip" type="button">身份证放在哪里？</button>
+          <button class="chip" type="button">户口本放在哪？</button>
+          <button class="chip" type="button">家里备用钥匙在哪里？</button>
+          <button class="chip" type="button">医保社保卡放在哪？</button>
+        </div>
+      </div>
+
+      <!-- 输入栏 -->
+      <div class="composer-box">
+        <textarea id="instruction" rows="1" maxlength="10000"
+          placeholder="问问记在 memo 里的事…" enterkeyhint="send"></textarea>
+        <button id="send" type="button" aria-label="发送">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="status-tip" id="status" role="status" aria-live="polite">准备好了</div>
+    </footer>
+
+    <!-- 轻量 Toast 提示 -->
+    <div id="toast" class="toast" role="alert" aria-live="assertive" hidden>已复制到剪贴板</div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script>
     const script = document.createElement('script');

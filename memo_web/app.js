@@ -1,15 +1,63 @@
 const instruction = document.querySelector('#instruction');
 const sendButton = document.querySelector('#send');
-const status = document.querySelector('#status');
+const statusTip = document.querySelector('#status');
+const welcomeCard = document.querySelector('#welcome-card');
 const replyCard = document.querySelector('#reply-card');
 const reply = document.querySelector('#reply');
+const copyButton = document.querySelector('#copy-btn');
+const clearButton = document.querySelector('#clear-btn');
+const loadingIndicator = document.querySelector('#loading-indicator');
+const chatContainer = document.querySelector('#chat-container');
+const toastEl = document.querySelector('#toast');
+const chips = document.querySelectorAll('.chip');
+
+let lastReplyText = '';
+let toastTimer = null;
+
+// 动态自适应调整 Textarea 高度
+function autoResizeTextarea() {
+  instruction.style.height = 'auto';
+  const newHeight = Math.min(instruction.scrollHeight, 120);
+  instruction.style.height = `${Math.max(newHeight, 24)}px`;
+}
+
+instruction.addEventListener('input', autoResizeTextarea);
 
 function setBusy(busy) {
   sendButton.disabled = busy;
   instruction.disabled = busy;
-  sendButton.textContent = busy ? '等待中…' : '发送';
-  status.textContent = busy ? 'Memo 正在处理…' : '准备好了';
-  status.classList.toggle('busy', busy);
+  chips.forEach(chip => chip.disabled = busy);
+  if (busy) {
+    loadingIndicator.hidden = false;
+    statusTip.textContent = 'DeepSeek Harness 正在查询…';
+    statusTip.classList.add('busy');
+    scrollToBottom();
+  } else {
+    loadingIndicator.hidden = true;
+    statusTip.textContent = '准备好了';
+    statusTip.classList.remove('busy');
+  }
+}
+
+function scrollToBottom() {
+  requestAnimationFrame(() => {
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+  });
+}
+
+function showToast(message) {
+  if (toastTimer) clearTimeout(toastTimer);
+  toastEl.textContent = message;
+  toastEl.hidden = false;
+  // 触觉反馈（移动端震动）
+  if (navigator.vibrate) {
+    try {
+      navigator.vibrate(40);
+    } catch (_) {}
+  }
+  toastTimer = setTimeout(() => {
+    toastEl.hidden = true;
+  }, 2000);
 }
 
 function hideMemoIds(text) {
@@ -30,23 +78,28 @@ function hideMemoIds(text) {
 
 function renderReply(rawText) {
   const cleanedText = hideMemoIds(rawText);
+  lastReplyText = cleanedText;
   if (window.marked) {
     reply.innerHTML = marked.parse(cleanedText || 'Memo 没有返回文字。');
   } else {
     reply.textContent = cleanedText || 'Memo 没有返回文字。';
   }
+  scrollToBottom();
 }
 
 function showError(message) {
   replyCard.hidden = false;
+  welcomeCard.hidden = true;
   reply.textContent = message;
   reply.classList.add('error');
+  scrollToBottom();
 }
 
-async function sendInstruction() {
-  const text = instruction.value.trim();
+async function sendInstruction(customText) {
+  const text = (customText !== undefined ? customText : instruction.value).trim();
   if (!text || sendButton.disabled) return;
 
+  welcomeCard.hidden = true;
   replyCard.hidden = true;
   reply.classList.remove('error');
   setBusy(true);
@@ -63,27 +116,81 @@ async function sendInstruction() {
     }
     replyCard.hidden = false;
     renderReply(payload.reply || '');
-    status.textContent = '已完成';
-    status.classList.remove('busy');
+    statusTip.textContent = '检索完成';
+    statusTip.classList.remove('busy');
+    // 发送成功后清空输入框并重置高度
+    instruction.value = '';
+    autoResizeTextarea();
   } catch (error) {
     showError(error instanceof Error ? error.message : '请求失败，请稍后重试。');
-    status.textContent = '请求失败';
-    status.classList.remove('busy');
+    statusTip.textContent = '请求失败';
+    statusTip.classList.remove('busy');
   } finally {
-    sendButton.disabled = false;
-    instruction.disabled = false;
-    sendButton.textContent = '发送';
+    setBusy(false);
   }
 }
 
-sendButton.addEventListener('click', sendInstruction);
+// 绑定快捷气泡点击一键发送
+chips.forEach(chip => {
+  chip.addEventListener('click', () => {
+    const query = chip.textContent.trim();
+    if (query) {
+      instruction.value = query;
+      autoResizeTextarea();
+      sendInstruction(query);
+    }
+  });
+});
+
+// 发送按钮与回车事件
+sendButton.addEventListener('click', () => sendInstruction());
+
 instruction.addEventListener('keydown', (event) => {
-  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-    event.preventDefault();
-    sendInstruction();
+  if (event.key === 'Enter') {
+    // 桌面/外接键盘：Enter 或 ⌘/Ctrl+Enter 发送；手机端虚拟键盘：若为非换行习惯，Enter 直接发送
+    if (!event.shiftKey) {
+      event.preventDefault();
+      sendInstruction();
+    }
   }
 });
 
+// 一键复制
+if (copyButton) {
+  copyButton.addEventListener('click', async () => {
+    if (!lastReplyText) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(lastReplyText);
+      } else {
+        const temp = document.createElement('textarea');
+        temp.value = lastReplyText;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+      }
+      showToast('已复制到剪贴板');
+    } catch (_) {
+      showToast('复制失败，请手动选择');
+    }
+  });
+}
+
+// 清空对话
+if (clearButton) {
+  clearButton.addEventListener('click', () => {
+    replyCard.hidden = true;
+    welcomeCard.hidden = false;
+    lastReplyText = '';
+    instruction.value = '';
+    autoResizeTextarea();
+    statusTip.textContent = '已清空';
+    showToast('已重置');
+  });
+}
+
+// 获取版本号并展示在 Header
 async function loadAppVersion() {
   const versionEl = document.querySelector('#app-version');
   if (!versionEl) return;
@@ -95,10 +202,14 @@ async function loadAppVersion() {
         versionEl.textContent = `v${data.version}`;
       }
     }
-  } catch (_) {
-    // 忽略版本加载错误
-  }
+  } catch (_) {}
 }
 
 loadAppVersion();
 
+// 软键盘弹起优化 (iOS & Android visualViewport)
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    scrollToBottom();
+  });
+}
