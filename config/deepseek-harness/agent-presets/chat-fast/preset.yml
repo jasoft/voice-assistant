@@ -1,3 +1,3 @@
-name: 极速聊天记忆
-description: 一次性判断记忆与常规问题；Mem0 记忆读写加 Brave 单次联网搜索。
+name: 极速助手
+description: 极速响应助手，仅保留 Web 搜索与 Bash 执行能力，纯净无冗余规则。
 order: 10

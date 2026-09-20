@@ -128,12 +128,9 @@ def test_fast_chat_preset_routes_memory_and_brave_without_skills() -> None:
     ]
     persona = entries[0]["config"].get("prefix") or entries[0]["config"].get("text", "")
     web = entries[2]["config"]
-    assert "明确要求记住、记录、保存、记一下" in persona
-    assert "python3 /app/scripts/reminder_http_create.py create --text <完整用户原话>" in persona
-    assert "search --query <完整用户问题> --limit 5" in persona
     assert "web_search" in persona
     assert "web_fetch" in persona
-    assert "不要从不匹配的片段推断" in persona
+    assert "bash" in persona
     assert "不追问" in persona
     assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
     assert entries[3]["name"] == "@deepseek-ai/dsh-skill-filesystem"
