@@ -33,6 +33,7 @@ from ..reminders import (
 )
 from ..storage.models import SessionHistoryRecord
 from ..storage.providers.mem0 import Mem0RememberStore
+from .fast_chat import try_fast_memory_chat
 
 
 
@@ -570,9 +571,58 @@ async def _execute_harness_query(
 
 
 async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
-    """Run a stateless one-shot request with the dedicated fast chat Agent."""
+    """Run a stateless one-shot request.
+
+    Fast path (≤ 8 s): memory record/find queries are handled directly via
+    Mem0 + a single LLM summarization call, bypassing the Harness Agent.
+
+    Slow path: everything else goes through the DeepSeek Harness chat-fast
+    Agent as before.
+    """
     if base_config is None:
         raise HTTPException(status_code=500, detail="Server configuration error")
+
+    # --- Fast path: direct memory operations ---
+    try:
+        fast_result = await try_fast_memory_chat(req.query)
+        if fast_result is not None:
+            log(
+                f"fast-chat: served in {fast_result.get('debug_info', {}).get('elapsed_s', '?')}s",
+                level="info",
+            )
+            # Persist to history
+            try:
+                _persist_harness_history(
+                    user_id=user_id,
+                    query=req.query,
+                    reply=str(fast_result.get("reply", "")),
+                    mode="chat-fast",
+                    harness_session_id=None,
+                )
+            except Exception as exc:
+                log(f"fast-chat: history persistence failed: {exc}", level="warn")
+
+            memories_out: list[MemoryItem] = []
+            for m in fast_result.get("memories", []):
+                memories_out.append(MemoryItem(
+                    id=str(m.get("id", "")),
+                    memory=str(m.get("memory", "")),
+                    created_at=str(m.get("created_at", "")),
+                    photo_path=None,
+                    photo_url=None,
+                    score=float(m.get("score") or 0.0),
+                ))
+            return QueryResponse(
+                reply=str(fast_result.get("reply", "")),
+                memories=memories_out,
+                images=[],
+                query=fast_result.get("query") or req.query,
+                debug_info=fast_result.get("debug_info"),
+            )
+    except Exception as exc:
+        log(f"fast-chat: fast path failed, falling back to Harness: {exc}", level="warn")
+
+    # --- Slow path: Harness Agent fallback ---
     if not _uses_harness_backend():
         raise HTTPException(status_code=404, detail="聊天端点仅在 Harness 模式可用")
 
