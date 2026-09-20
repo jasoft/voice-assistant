@@ -574,7 +574,7 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
     """Run a stateless one-shot request.
 
     Fast path (≤ 8 s): memory record/find queries are handled directly via
-    Mem0 + a single LLM summarization call, bypassing the Harness Agent.
+    Memos REST API + a single LLM summarization call, bypassing the Harness Agent.
 
     Slow path: everything else goes through the DeepSeek Harness chat-fast
     Agent as before.

@@ -2,7 +2,7 @@
 
 Bypasses the DeepSeek Harness Agent entirely:
   1. Regex-based intent detection (~0 ms)
-  2. Direct Mem0 API call (~1-3 s)
+  2. Direct Memos REST API call (~1-3 s)
   3. Single streaming LLM summarization (~2-5 s)
 
 Target: ≤ 8 s end-to-end for the /v1/chat endpoint.
@@ -16,10 +16,10 @@ import re
 import time
 from typing import Any
 
-from ..storage.providers.mem0 import (
-    Mem0RememberStore,
-    create_mem0_client,
-    extract_mem0_summary_payload,
+from ..storage.providers.memos import (
+    MemosClient,
+    MemosRememberStore,
+    extract_memos_summary_payload,
 )
 from ..utils.llm_streaming import build_async_openai_client, stream_chat_completion_text
 from ..utils.logging import log
@@ -64,21 +64,28 @@ def classify_memory_intent(text: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Mem0 helpers
+# Memos helpers
 # ---------------------------------------------------------------------------
 
-def _build_mem0_store() -> Mem0RememberStore:
-    api_key = os.environ.get("MEM0_API_KEY", "").strip()
-    base_url = os.environ.get("MEM0_BASE_URL", "").strip()
-    user_id = os.environ.get("MEM0_USER_ID", "soj").strip()
-    app_id = os.environ.get("MEM0_APP_ID", "voice-assistant").strip()
-    if not api_key:
-        raise RuntimeError("MEM0_API_KEY is required for fast-path memory operations")
-    return Mem0RememberStore(
-        api_key=api_key,
-        base_url=base_url,
-        user_id=user_id,
-        app_id=app_id,
+def _build_memos_store() -> MemosRememberStore:
+    """Build a MemosRememberStore from environment variables."""
+    base_url = (
+        os.environ.get("MEMOS_BASE_URL")
+        or os.environ.get("MEMOS_API_URL")
+        or "http://ds.home:5230"
+    )
+    token = (
+        os.environ.get("MEMOS_TOKEN")
+        or os.environ.get("MEMOS_ACCESS_TOKEN")
+        or "memos_pat_voice_assistant_lan_2026"
+    )
+    timeout = float(os.environ.get("MEMOS_TIMEOUT", "8"))
+    client = MemosClient(base_url=base_url, token=token, timeout=timeout)
+    return MemosRememberStore(
+        client=client,
+        user_id="soj",
+        visibility="PRIVATE",
+        tag="voice",
     )
 
 
@@ -198,9 +205,9 @@ async def try_fast_memory_chat(
     log(f"fast-chat: intent={intent} query={query[:80]}", level="info")
 
     try:
-        store = _build_mem0_store()
+        store = _build_memos_store()
     except RuntimeError as exc:
-        log(f"fast-chat: cannot build Mem0 store: {exc}", level="warn")
+        log(f"fast-chat: cannot build Memos store: {exc}", level="warn")
         return None
 
     # -- RECORD --
@@ -210,7 +217,7 @@ async def try_fast_memory_chat(
         try:
             result_text = store.add(memory=content, original_text=query)
         except Exception as exc:
-            log(f"fast-chat: Mem0 add failed: {exc}", level="error")
+            log(f"fast-chat: Memos add failed: {exc}", level="error")
             return {
                 "reply": "记录失败，请稍后再试。",
                 "memories": [],
@@ -235,7 +242,7 @@ async def try_fast_memory_chat(
     search_query = _clean_find_query(query)
     log(f"fast-chat: search_query={search_query}", level="info")
 
-    # Step 1: Mem0 search (async-wrapped sync call)
+    # Step 1: Memos search (async-wrapped sync call)
     t_search = time.monotonic()
     try:
         import asyncio
@@ -243,7 +250,7 @@ async def try_fast_memory_chat(
             store.find, query=search_query,
         )
     except Exception as exc:
-        log(f"fast-chat: Mem0 search failed: {exc}", level="error")
+        log(f"fast-chat: Memos search failed: {exc}", level="error")
         return {
             "reply": "查询记忆时出错，请稍后再试。",
             "memories": [],
@@ -251,10 +258,10 @@ async def try_fast_memory_chat(
             "debug_info": {"backend": "fast-chat", "intent": "find", "error": str(exc)},
         }
     elapsed_search = time.monotonic() - t_search
-    log(f"fast-chat: Mem0 search done in {elapsed_search:.2f}s", level="info")
+    log(f"fast-chat: Memos search done in {elapsed_search:.2f}s", level="info")
 
     # Parse results
-    summary_payload = extract_mem0_summary_payload(raw_results)
+    summary_payload = extract_memos_summary_payload(raw_results)
     items = summary_payload.get("items", [])
 
     if not items:
@@ -273,6 +280,7 @@ async def try_fast_memory_chat(
 
     # Step 2: LLM summarization
     t_llm = time.monotonic()
+    client = None
     try:
         client = _build_llm_client()
         messages = _build_summary_prompt(query, items)
@@ -291,13 +299,14 @@ async def try_fast_memory_chat(
         for item in items[:5]:
             mem = str(item.get("memory", "")).strip()
             if mem:
-                lines.append(f"• {mem}")
+                lines.append(f"\u2022 {mem}")
         reply = "\n".join(lines) or "找到了记录，但总结失败。"
     finally:
-        try:
-            await client.close()
-        except Exception:
-            pass
+        if client is not None:
+            try:
+                await client.close()
+            except Exception:
+                pass
     elapsed_llm = time.monotonic() - t_llm
     elapsed_total = time.monotonic() - t0
     log(
@@ -313,7 +322,7 @@ async def try_fast_memory_chat(
             "id": str(item.get("id", "")),
             "memory": str(item.get("memory", "")),
             "created_at": str(item.get("created_at", "")),
-            "score": float(item.get("score") or 0.0),
+            "score": 0.0,
         })
 
     return {
