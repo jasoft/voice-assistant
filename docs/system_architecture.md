@@ -54,7 +54,7 @@ graph LR
     - `/storage`: PocketBase 存储适配器。
     - `/audio`: 录音、STT 与 TTS 逻辑。
 - `/scripts`: 启动脚本（PocketBase 下载与运行、部署脚本等）。
-- `/web_gui`: 基于 HTML/JS 的前端交互界面。
+- `/memo_web`: 基于 HTML/JS 的移动端前端界面（由 `ptt-memo-web` 提供）。
 - `/mac_gui`: Swift 实现的 macOS 原生浮窗客户端。
 - `/data`: 宿主机持久化目录（数据库文件、照片附件）。
 

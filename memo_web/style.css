@@ -65,6 +65,7 @@ body {
   flex-direction: column;
   overflow: hidden;
   position: relative;
+}
 
 /* 顶部导航栏 */
 .app-header {
