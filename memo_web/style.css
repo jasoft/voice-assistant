@@ -85,6 +85,14 @@ body {
     border: none;
     box-shadow: none;
   }
+
+  .app-header {
+    /* 专为灵动岛 (Dynamic Island ~54px) 及刘海屏适配，留出从容清晰的留白，避免任何遮挡 */
+    padding-top: calc(env(safe-area-inset-top, 0px) + 22px);
+    padding-bottom: 14px;
+    padding-left: max(18px, env(safe-area-inset-left));
+    padding-right: max(18px, env(safe-area-inset-right));
+  }
 }
 
 /* 顶部导航栏 */
@@ -93,7 +101,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: max(14px, env(safe-area-inset-top)) 18px 14px;
+  padding: 18px 22px 14px;
   background: rgba(15, 23, 42, 0.75);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
