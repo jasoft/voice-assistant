@@ -12,6 +12,31 @@ function setBusy(busy) {
   status.classList.toggle('busy', busy);
 }
 
+function hideMemoIds(text) {
+  if (!text) return '';
+  let cleaned = String(text);
+  // 1. 匹配带括号包围的 ID：(ID: memos/xxx), (id: memos/xxx), [ID: memos/xxx], (memos/xxx), 【ID: memos/xxx】等
+  cleaned = cleaned.replace(/[\(（\[【]\s*(?:ID[:：]\s*)?(?:memos\/[A-Za-z0-9_-]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*[\)）\]】]/gi, '');
+  // 2. 匹配如 ID: memos/xxx, 编号: memos/xxx
+  cleaned = cleaned.replace(/(?:ID|编号|id)[:：]\s*(?:memos\/[A-Za-z0-9_-]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/gi, '');
+  // 3. 匹配裸露的 memos/xxx
+  cleaned = cleaned.replace(/\bmemos\/[A-Za-z0-9_-]+\b/g, '');
+  // 4. 清理多余空括号
+  cleaned = cleaned.replace(/[\(（]\s*[\)）]/g, '');
+  // 5. 清理每行尾部多余空白
+  cleaned = cleaned.split('\n').map(line => line.replace(/[ \t]+$/, '')).join('\n').trim();
+  return cleaned;
+}
+
+function renderReply(rawText) {
+  const cleanedText = hideMemoIds(rawText);
+  if (window.marked) {
+    reply.innerHTML = marked.parse(cleanedText || 'Memo 没有返回文字。');
+  } else {
+    reply.textContent = cleanedText || 'Memo 没有返回文字。';
+  }
+}
+
 function showError(message) {
   replyCard.hidden = false;
   reply.textContent = message;
@@ -37,7 +62,7 @@ async function sendInstruction() {
       throw new Error(payload.detail || `请求失败（${response.status}）`);
     }
     replyCard.hidden = false;
-    reply.textContent = payload.reply || 'Memo 没有返回文字。';
+    renderReply(payload.reply || '');
     status.textContent = '已完成';
     status.classList.remove('busy');
   } catch (error) {

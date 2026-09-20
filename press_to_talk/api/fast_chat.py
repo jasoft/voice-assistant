@@ -436,6 +436,24 @@ async def try_fast_memory_chat(
                     bullet_lines.append(f"- {txt}")
             reply = "大王，找到了相关备忘记录：\n" + "\n".join(bullet_lines) if bullet_lines else "处理完成。"
 
+        # 确保对外输出的回答中不包含无意义的 memo ID
+        cleaned_reply = re.sub(
+            r'[\(（\[【]\s*(?:ID[:：]\s*)?(?:memos\/[A-Za-z0-9_-]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*[\)）\]】]',
+            '',
+            reply,
+            flags=re.IGNORECASE,
+        )
+        cleaned_reply = re.sub(
+            r'(?:ID|编号|id)[:：]\s*(?:memos\/[A-Za-z0-9_-]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b',
+            '',
+            cleaned_reply,
+            flags=re.IGNORECASE,
+        )
+        cleaned_reply = re.sub(r'\bmemos\/[A-Za-z0-9_-]+\b', '', cleaned_reply)
+        cleaned_reply = re.sub(r'[\(（]\s*[\)）]', '', cleaned_reply)
+        lines = [re.sub(r'[ \t]+$', '', line) for line in cleaned_reply.splitlines()]
+        reply = '\n'.join(lines).strip() or reply
+
         elapsed_sum = time.monotonic() - t_sum
         elapsed_total = time.monotonic() - t0
         log(

@@ -64,8 +64,70 @@ button:disabled { cursor: wait; opacity: .65; }
 .reply-heading { display: flex; align-items: center; gap: 9px; }
 .reply-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-strong); box-shadow: 0 0 14px var(--accent-strong); }
 h2 { margin: 0; font-size: 14px; }
-.reply { margin-top: 14px; white-space: pre-wrap; overflow-wrap: anywhere; color: #e8eef9; }
-.reply.error { color: var(--danger); }
+.reply { margin-top: 14px; overflow-wrap: anywhere; color: #e8eef9; }
+.reply.error { color: var(--danger); white-space: pre-wrap; }
+
+/* Markdown rendering styles */
+.markdown-body {
+  word-break: break-word;
+  line-height: 1.65;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  margin-top: 14px;
+  margin-bottom: 8px;
+  font-weight: 700;
+  color: var(--text);
+}
+.markdown-body h1 { font-size: 1.3em; }
+.markdown-body h2 { font-size: 1.15em; }
+.markdown-body h3 { font-size: 1.05em; }
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+.markdown-body ul, .markdown-body ol {
+  padding-left: 20px;
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+.markdown-body li {
+  margin-top: 4px;
+}
+.markdown-body strong {
+  color: #fff;
+  font-weight: 700;
+}
+.markdown-body code {
+  padding: 2px 6px;
+  margin: 0;
+  font-size: 85%;
+  background-color: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+.markdown-body pre {
+  padding: 12px;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  background-color: rgba(5, 12, 26, 0.8);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.markdown-body pre code {
+  background-color: transparent;
+  padding: 0;
+}
+.markdown-body blockquote {
+  padding: 0 1em;
+  color: var(--muted);
+  border-left: 3px solid var(--accent);
+  margin: 0 0 10px 0;
+}
 
 @media (min-width: 640px) {
   body { padding-top: 8vh; }

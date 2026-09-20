@@ -83,10 +83,31 @@ async def query(request: MemoQueryRequest) -> MemoQueryResponse:
         log(f"Memo Web Harness query setup failed: {exc}", level="error")
         raise HTTPException(status_code=502, detail="无法连接 DeepSeek Harness") from exc
 
+    raw_reply = str(result.get("reply", ""))
     debug_info = result.get("debug_info")
     session_id = debug_info.get("session_id") if isinstance(debug_info, dict) else None
+
+    # 清除回复中对人类无意义的 memo ID（如 memos/Zd8VQWwWqvnNXWX3BDYapD 或 ID: memos/xxx）
+    import re
+    cleaned_reply = re.sub(
+        r'[\(（\[【]\s*(?:ID[:：]\s*)?(?:memos\/[A-Za-z0-9_-]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*[\)）\]】]',
+        '',
+        raw_reply,
+        flags=re.IGNORECASE,
+    )
+    cleaned_reply = re.sub(
+        r'(?:ID|编号|id)[:：]\s*(?:memos\/[A-Za-z0-9_-]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b',
+        '',
+        cleaned_reply,
+        flags=re.IGNORECASE,
+    )
+    cleaned_reply = re.sub(r'\bmemos\/[A-Za-z0-9_-]+\b', '', cleaned_reply)
+    cleaned_reply = re.sub(r'[\(（]\s*[\)）]', '', cleaned_reply)
+    lines = [re.sub(r'[ \t]+$', '', line) for line in cleaned_reply.splitlines()]
+    final_reply = '\n'.join(lines).strip() or raw_reply
+
     return MemoQueryResponse(
-        reply=str(result.get("reply", "")),
+        reply=final_reply,
         agent=os.environ.get("PTT_HARNESS_AGENT_PRESET", "memo-mem0"),
         session_id=str(session_id) if session_id else None,
     )

@@ -60,3 +60,26 @@ def test_memo_web_serves_mobile_shell(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert "Memo Agent" in response.text
+
+
+def test_memo_web_hides_memo_ids(monkeypatch) -> None:
+    class FakeHarnessWithIds:
+        agent_preset = "memo-mem0"
+        async def query(self, instruction: str) -> dict:
+            return {
+                "reply": "找到记录：\n- 护照在书房抽屉里 (memos/Zd8VQWwWqvnNXWX3BDYapD)\n- 身份证在钱包里 (ID: memos/MBvA6rmWupfKmLy6bf8kom)",
+                "debug_info": {"session_id": "memo-session-id-clean"},
+            }
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(memo_web.DeepSeekHarnessClient, "from_env", lambda: FakeHarnessWithIds())
+
+    with TestClient(memo_web.app) as client:
+        response = client.post("/api/query", json={"instruction": "我的证件在哪里？"})
+
+    assert response.status_code == 200
+    reply = response.json()["reply"]
+    assert "memos/" not in reply
+    assert "护照在书房抽屉里" in reply
+    assert "身份证在钱包里" in reply
