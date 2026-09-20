@@ -385,15 +385,30 @@ async def try_fast_memory_chat(
 
         # Step 3: LLM summarization (~1-2s)
         t_sum = time.monotonic()
-        messages = _build_summary_messages(query, memos_items)
-        raw_reply = await stream_chat_completion_text(
-            client,
-            model=_llm_model(),
-            messages=messages,
-            temperature=0,
-            callback=stream_callback,
-        )
-        reply = strip_think_tags(str(raw_reply or "")).strip() or "处理完成。"
+        reply = ""
+        try:
+            messages = _build_summary_messages(query, memos_items)
+            raw_reply = await stream_chat_completion_text(
+                client,
+                model=_llm_model(),
+                messages=messages,
+                temperature=0,
+                idle_timeout=10.0,
+                callback=stream_callback,
+            )
+            reply = strip_think_tags(str(raw_reply or "")).strip()
+        except Exception as sum_exc:
+            log(f"fast-chat: LLM summarization failed/timed out: {type(sum_exc).__name__}: {sum_exc}", level="warn")
+
+        # Fallback if LLM summary failed or returned empty: directly present the matched memo text
+        if not reply:
+            bullet_lines = []
+            for m in memos_items[:3]:
+                txt = str(m.get("memory", "")).strip()
+                if txt:
+                    bullet_lines.append(f"- {txt}")
+            reply = "大王，找到了相关备忘记录：\n" + "\n".join(bullet_lines) if bullet_lines else "处理完成。"
+
         elapsed_sum = time.monotonic() - t_sum
         elapsed_total = time.monotonic() - t0
         log(
@@ -430,12 +445,17 @@ async def try_fast_memory_chat(
         }
 
     except Exception as exc:
-        log(f"fast-chat: find error: {exc}", level="error")
+        import traceback
+        log(f"fast-chat: find error: {type(exc).__name__}: {exc}\n{traceback.format_exc()}", level="error")
         return {
             "reply": "查询记忆时出错，请稍后再试。",
             "memories": [],
             "query": query,
-            "debug_info": {"backend": "fast-chat", "intent": "find", "error": str(exc)},
+            "debug_info": {
+                "backend": "fast-chat",
+                "intent": "find",
+                "error": f"{type(exc).__name__}: {exc}",
+            },
         }
     finally:
         if client is not None:
