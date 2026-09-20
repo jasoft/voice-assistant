@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="manifest" href="/manifest.json">
   <title>Memo Agent</title>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css?v=20260920.2">
 </head>
 <body>
   <div class="app-layout">
@@ -38,13 +38,19 @@
     <main id="chat-container" class="chat-container" role="region" aria-label="记忆问答内容">
       <!-- 欢迎卡片 -->
       <section id="welcome-card" class="welcome-card">
-        <div class="welcome-icon">🔍</div>
+        <div class="welcome-icon-box">
+          <span class="welcome-icon">🔍</span>
+        </div>
         <h2>随时查询您的重要个人记忆</h2>
         <p>问它一件事，例如证件存放、重要账号、日常提醒，等它查完记忆后回答。</p>
       </section>
 
       <!-- 回复展示区 -->
       <section id="reply-card" class="reply-card" hidden aria-labelledby="reply-title">
+        <div id="user-query-box" class="user-query-box" hidden>
+          <span class="user-query-icon">💬</span>
+          <span id="user-query-text" class="user-query-text"></span>
+        </div>
         <div class="reply-header">
           <div class="reply-heading">
             <span class="reply-dot"></span>

@@ -10,6 +10,8 @@ const loadingIndicator = document.querySelector('#loading-indicator');
 const chatContainer = document.querySelector('#chat-container');
 const toastEl = document.querySelector('#toast');
 const chips = document.querySelectorAll('.chip');
+const userQueryBox = document.querySelector('#user-query-box');
+const userQueryText = document.querySelector('#user-query-text');
 
 let lastReplyText = '';
 let toastTimer = null;
@@ -102,6 +104,10 @@ async function sendInstruction(customText) {
   welcomeCard.hidden = true;
   replyCard.hidden = true;
   reply.classList.remove('error');
+  if (userQueryBox && userQueryText) {
+    userQueryText.textContent = text;
+    userQueryBox.hidden = false;
+  }
   setBusy(true);
 
   try {
@@ -181,6 +187,7 @@ if (copyButton) {
 if (clearButton) {
   clearButton.addEventListener('click', () => {
     replyCard.hidden = true;
+    if (userQueryBox) userQueryBox.hidden = true;
     welcomeCard.hidden = false;
     lastReplyText = '';
     instruction.value = '';
