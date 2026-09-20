@@ -136,14 +136,16 @@ async function sendInstruction(customText) {
   }
 }
 
-// 绑定快捷气泡点击一键发送
+// 绑定快捷气泡点击填入输入框（不自动提交）
 chips.forEach(chip => {
   chip.addEventListener('click', () => {
-    const query = chip.textContent.trim();
-    if (query) {
-      instruction.value = query;
+    const text = chip.getAttribute('data-text') || chip.textContent.trim();
+    if (text) {
+      instruction.value = text;
       autoResizeTextarea();
-      sendInstruction(query);
+      instruction.focus();
+      // 将光标定位至末尾，方便用户继续输入或补充内容
+      instruction.setSelectionRange(instruction.value.length, instruction.value.length);
     }
   });
 });

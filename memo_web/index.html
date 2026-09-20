@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="manifest" href="/manifest.json">
   <title>Memo Agent</title>
-  <link rel="stylesheet" href="/style.css?v=20260920.2">
+  <link rel="stylesheet" href="/style.css?v=20260920.3">
 </head>
 <body>
   <div class="app-layout">
@@ -41,8 +41,8 @@
         <div class="welcome-icon-box">
           <span class="welcome-icon">🔍</span>
         </div>
-        <h2>随时查询您的重要个人记忆</h2>
-        <p>问它一件事，例如证件存放、重要账号、日常提醒，等它查完记忆后回答。</p>
+        <h2>随时记录与查询您的个人记忆</h2>
+        <p>告诉它一件事让它记住，或随时查询证件存放、重要账号、日常备忘等。</p>
       </section>
 
       <!-- 回复展示区 -->
@@ -78,8 +78,9 @@
     <!-- 底部区域：包含快捷问题 Chips 与吸底输入框 -->
     <footer class="bottom-panel">
       <!-- 快捷提问横向滚动条 -->
-      <div class="quick-chips-wrapper" aria-label="快捷提问推荐">
+      <div class="quick-chips-wrapper" aria-label="快捷推荐">
         <div class="quick-chips">
+          <button class="chip chip-action" type="button" data-text="帮我记录：">✍️ 帮我记录</button>
           <button class="chip" type="button">我的护照在哪里？</button>
           <button class="chip" type="button">身份证放在哪里？</button>
           <button class="chip" type="button">户口本放在哪？</button>

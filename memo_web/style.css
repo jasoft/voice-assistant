@@ -526,6 +526,19 @@ body {
   transform: scale(0.96);
 }
 
+.chip.chip-action {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: rgba(52, 211, 153, 0.35);
+  font-weight: 600;
+}
+
+.chip.chip-action:hover {
+  background: rgba(16, 185, 129, 0.22);
+  color: #fff;
+  border-color: rgba(52, 211, 153, 0.5);
+}
+
 /* 输入框组合 */
 .composer-box {
   display: flex;
