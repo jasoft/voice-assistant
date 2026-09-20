@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="manifest" href="/manifest.json">
   <title>Memo Agent</title>
-  <link rel="stylesheet" href="/style.css?v=20260920.4">
+  <link rel="stylesheet" href="/style.css?v=20260920.5">
 </head>
 <body>
   <div class="app-layout">
@@ -24,7 +24,7 @@
             <h1>Memo Agent</h1>
             <span id="app-version" class="version-tag"></span>
           </div>
-          <p class="subtitle">DeepSeek Harness 智能记忆检索</p>
+          <p class="subtitle">随心记录 · 随心查询</p>
         </div>
       </div>
       <button id="clear-btn" class="icon-btn" type="button" title="清空对话" aria-label="清空对话">
@@ -39,10 +39,10 @@
       <!-- 欢迎卡片 -->
       <section id="welcome-card" class="welcome-card">
         <div class="welcome-icon-box">
-          <span class="welcome-icon">🔍</span>
+          <span class="welcome-icon">✨</span>
         </div>
-        <h2>随时记录与查询您的个人记忆</h2>
-        <p>告诉它一件事让它记住，或随时查询证件存放、重要账号、日常备忘等。</p>
+        <h2>随心记录，随心查询</h2>
+        <p>随便写点什么吧，或者问我。</p>
       </section>
 
       <!-- 回复展示区 -->
@@ -75,24 +75,20 @@
       </div>
     </main>
 
-    <!-- 底部区域：包含快捷问题 Chips 与吸底输入框 -->
+    <!-- 底部区域：包含快捷操作与吸底输入框 -->
     <footer class="bottom-panel">
-      <!-- 快捷提问横向滚动条 -->
-      <div class="quick-chips-wrapper" aria-label="快捷推荐">
+      <!-- 快捷操作胶囊 -->
+      <div class="quick-chips-wrapper" aria-label="快捷操作">
         <div class="quick-chips">
-          <button class="chip chip-action" type="button" data-text="帮我记录：">✍️ 帮我记录</button>
-          <button class="chip" type="button">我的护照在哪里？</button>
-          <button class="chip" type="button">身份证放在哪里？</button>
-          <button class="chip" type="button">户口本放在哪？</button>
-          <button class="chip" type="button">家里备用钥匙在哪里？</button>
-          <button class="chip" type="button">医保社保卡放在哪？</button>
+          <button class="chip chip-record" type="button" data-text="帮我记录：">帮我记录</button>
+          <button class="chip chip-query" type="button" data-text="帮我查询：">帮我查询</button>
         </div>
       </div>
 
       <!-- 输入栏 -->
       <div class="composer-box">
         <textarea id="instruction" rows="1" maxlength="10000"
-          placeholder="问问记在 memo 里的事…" enterkeyhint="send"></textarea>
+          placeholder="随便写点什么吧，或者问我…" enterkeyhint="send"></textarea>
         <button id="send" type="button" aria-label="发送">
           <svg viewBox="0 0 24 24" width="20" height="20">
             <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
