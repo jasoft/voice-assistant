@@ -99,8 +99,14 @@ patchFile('*/@deepseek-ai/dsh-api-session-controller/lib/index.js', (code) => {
   return code;
 });
 
-// 5. 兼容 DeepSeek / thinking 模式多轮工具回传时的 reasoning_content 字段同步
+// 5. 兼容 cliproxy / thinking 模式：
+//    a) 剥离 pi-ai 注入的 reasoning_details（cliproxy 不认 -> 400 reasoning_details is unsupported）
+//    b) assistant 消息有 reasoning 文本时同步到 reasoning_content 字段
 patchFile('*/@earendil-works/pi-ai/dist/api/openai-completions.js', (code) => {
+  code = code.replace(
+    /if \(preservedReasoningDetails\) \{\n\s*assistantMsg\.reasoning_details = preservedReasoningDetails;\n\s*\}/,
+    '// reasoning_details stripped for cliproxy compat (fast model 400)'
+  );
   return code.replace(
     'if (compat.requiresReasoningContentOnAssistantMessages &&',
     'if (assistantMsg.reasoning_content === undefined && typeof assistantMsg.reasoning === "string") { assistantMsg.reasoning_content = assistantMsg.reasoning; }\n            if (compat.requiresReasoningContentOnAssistantMessages &&'

@@ -78,6 +78,9 @@ services:
       PTT_HARNESS_API_URL: http://deepseek-harness:3080
       PTT_HARNESS_AGENT_PRESET: memo-minimal
       PTT_HARNESS_TIMEOUT_SECONDS: "20"
+      # fast-path 拆词/回答走 chat-fast（可能触发 freeserp 网络搜索，耗时更长）
+      PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast
+      PTT_CHAT_TIMEOUT_SECONDS: "45"
     entrypoint: ["uv"]
     command:
       - run

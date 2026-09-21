@@ -35,7 +35,7 @@ class AgentFriendlyArgumentParser(argparse.ArgumentParser):
         invalid_choice_match = re.search(r"invalid choice: '([^']+)' \(choose from ([^)]+)\)", message)
         if invalid_choice_match:
             offered = invalid_choice_match.group(1)
-            choices = [c.strip() for c in invalid_choice_match.group(2).split(",")]
+            choices = [c.strip().strip("'\"") for c in invalid_choice_match.group(2).split(",")]
             matches = difflib.get_close_matches(offered, choices, n=1, cutoff=0.6)
             if matches:
                 full_message = f"invalid choice: '{offered}'. Did you mean '{matches[0]}'?\n\n"
