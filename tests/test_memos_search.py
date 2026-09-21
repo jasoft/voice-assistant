@@ -7,7 +7,7 @@ slow CEL query.
 
 from unittest.mock import patch
 
-from press_to_talk.api.fast_chat import _search_memos_cel
+from press_to_talk.api.fast_chat import MemosQueryUnavailableError, _search_memos_cel
 from press_to_talk.storage.providers.memos import MemosClient
 
 
@@ -76,3 +76,21 @@ def test_fallback_stops_at_next_token_empty():
 
     assert fake.full_calls == 1         # single page covers everything
     assert items == []                  # nothing matched locally
+
+
+def test_all_paths_down_raises_unavailable():
+    """When CEL and the full fallback both fail, signal callers to fall back to Harness."""
+    calls = {"n": 0}
+
+    def down_list(**kwargs):
+        calls["n"] += 1
+        raise RuntimeError("Memos totally down")
+
+    client = MemosClient()
+    client.list_memos = down_list  # type: ignore[method-assign]
+    try:
+        _search_memos_cel(client, ["护照"])
+    except MemosQueryUnavailableError:
+        assert calls["n"] >= 1
+    else:
+        raise AssertionError("expected MemosQueryUnavailableError to be raised")

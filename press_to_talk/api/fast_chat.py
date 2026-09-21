@@ -121,6 +121,10 @@ def _record_memo(client: MemosClient, content: str, original_text: str) -> str:
     return f"✅ 已记入 Memos：{content}"
 
 
+class MemosQueryUnavailableError(RuntimeError):
+    """Memos 全链路不可用（CEL 与 fallback 均失败），调用方应回退 Harness。"""
+
+
 def _search_memos_cel(client: MemosClient, keywords: list[str], *, page_size: int = 10) -> list[dict[str, Any]]:
     """Execute CEL query on Memos using extracted keywords.
 
@@ -143,6 +147,7 @@ def _search_memos_cel(client: MemosClient, keywords: list[str], *, page_size: in
     cel_parts = [f"content.contains('{w}')" for w in valid_words]
     filter_expr = " || ".join(cel_parts)
 
+    cel_ok = False
     try:
         log(f"fast-chat: CEL query expr: {filter_expr}", level="info")
         res = client.list_memos(
@@ -151,11 +156,13 @@ def _search_memos_cel(client: MemosClient, keywords: list[str], *, page_size: in
             timeout=query_timeout,
         )
         raw_memos = res.get("memos", [])
+        cel_ok = True
     except Exception as exc:
         log(f"fast-chat: CEL query failed: {exc}", level="warn")
         raw_memos = []
 
     # Fallback: 全量翻页 + 本地匹配（避免 CEL 抖动/失败时再等一个长超时）
+    fallback_ok = False
     if not raw_memos:
         try:
             candidates: list[dict[str, Any]] = []
@@ -182,6 +189,7 @@ def _search_memos_cel(client: MemosClient, keywords: list[str], *, page_size: in
                             break
                     else:
                         break
+                fallback_ok = True
                 page_memos = res.get("memos", [])
                 candidates.extend(page_memos)
                 page_token = str(res.get("nextPageToken") or "")
@@ -193,6 +201,11 @@ def _search_memos_cel(client: MemosClient, keywords: list[str], *, page_size: in
                     raw_memos.append(m)
         except Exception as exc:
             log(f"fast-chat: fallback list search failed: {exc}", level="warn")
+
+    # 所有查询路径都失败说明 Memos 临时不可用：此刻“没有找到”是假否定，
+    # 抛出让上层回退 Harness（Harness 的 MEMOS_REQUEST_TIMEOUT_SECONDS 更宽容）。
+    if not raw_memos and not cel_ok and not fallback_ok:
+        raise MemosQueryUnavailableError("CEL 与 fallback 均失败（超时或异常）")
 
     items: list[dict[str, Any]] = []
     for memo in raw_memos:
@@ -455,9 +468,13 @@ async def try_fast_memory_chat(
         # Step 2: Memos CEL query (~0.1-0.3s)
         stage = "memos_cel_query"
         t_search = time.monotonic()
-        memos_items = await asyncio.to_thread(
-            _search_memos_cel, memos_client, keywords, page_size=10,
-        )
+        try:
+            memos_items = await asyncio.to_thread(
+                _search_memos_cel, memos_client, keywords, page_size=10,
+            )
+        except MemosQueryUnavailableError as exc:
+            log(f"fast-chat [STAGE: CEL_SEARCH] Memos 查询不可用，回退 Harness: {exc}", level="warn")
+            return None
         elapsed_search = time.monotonic() - t_search
         log(f"fast-chat [STAGE: CEL_SEARCH] completed in {elapsed_search:.2f}s, found {len(memos_items)} memos", level="info")
 
