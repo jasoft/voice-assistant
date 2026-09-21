@@ -8,7 +8,7 @@
 
 - **🚀 零阻塞启动**：极简初始化路径，确保程序启动后瞬间进入录音状态。
 - **🌲 行为树引擎**：采用 Behavior Tree (BT) 架构，逻辑清晰，拒绝臃肿的 `if-else` 链路。
-- **🛡️ 存储隔离**：通过独立的 `ptt-storage` 模块进行数据操作，支持 SQLite FTS5 (本地) 与 Mem0 (云端) 双引擎。
+- **🛡️ 存储隔离**：通过独立的 `ptt-storage` 模块进行数据操作，记忆以自托管 Memos 为主后端，旧 SQLite 文件仅作历史存档。
 - **👥 多用户隔离**：内置 API Key 鉴权机制，严格隔离不同用户的会话历史与记忆数据。
 - **🔌 灵活扩展**：支持 MCP (Model Context Protocol) 工具调用（如 Brave Search），TTS 默认集成 `qwen-tts`。
 - **🖥️ 多端支持**：提供 Rich 动态终端 UI，并支持编译高性能的 Swift Mac GUI。
@@ -36,10 +36,10 @@ PTT_API_KEY=your_default_user_token
 ```dotenv
 PTT_QUERY_BACKEND=deepseek-harness
 PTT_HARNESS_API_URL=http://127.0.0.1:3080
-PTT_HARNESS_AGENT_PRESET=memo-mem0
+PTT_HARNESS_AGENT_PRESET=memo-minimal
 ```
 
-此模式下由 Harness 的 `memo-mem0` preset 读取和写入 Mem0，语音助手不直接访问 Mem0。详见 [DeepSeek Harness 查询后端](docs/deepseek-harness-backend.md)。
+此模式下由 Harness 的 `memo-minimal` preset 通过 `memo_api.py` 读取和写入 Memos，语音助手不直接访问 Memos。详见 [DeepSeek Harness 查询后端](docs/deepseek-harness-backend.md)。
 
 ### 2. 常用运行命令
 
@@ -50,7 +50,7 @@ PTT_HARNESS_AGENT_PRESET=memo-mem0
 | **实时交互** | `uv run press-to-talk` | 启动语音交互链路 (或 `ptt-voice`) |
 | **文本测试** | `uv run press-to-talk --text-input "你好"` | 跳过录音进行逻辑测试 |
 | **API 服务** | `uv run ptt-api` | 启动 FastAPI 后端服务 (端口 10031) |
-| **Memo 手机页面** | `./scripts/start_memo_web.sh --host 0.0.0.0 --port 10032` | 启动只调用 `memo-mem0` Agent 的移动端 Web 外壳 |
+| **Memo 手机页面** | `./scripts/start_memo_web.sh --host 0.0.0.0 --port 10032` | 启动调用 `memo-minimal` Agent 的移动端 Web 外壳 |
 | **存储管理** | `uv run ptt-storage` | 管理历史记录与记忆 (物理隔离层) |
 | **令牌管理** | `uv run ptt-token` | 管理多用户 API Keys |
 
@@ -72,7 +72,7 @@ graph TD
     end
     
     Chat -->|子进程调用| Storage[ptt-storage]
-    Storage --> DB[(SQLite FTS5 / Mem0)]
+    Storage --> DB[(Memos / SQLite 存档)]
     
     BT -->|结果生成| TTS[qwen-tts]
     TTS -->|音频输出| Speaker[System Speaker]

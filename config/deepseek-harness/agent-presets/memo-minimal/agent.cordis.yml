@@ -1,4 +1,4 @@
-# 最小个人记忆 Agent：fast 模型 + 一个受限 Mem0 wrapper。
+# 最小个人记忆 Agent：fast 模型 + 一个受限 Memos wrapper。
 # 不加载任何 skill：persona 已包含全部指令。
 - id: persona
   name: '@deepseek-ai/dsh-persona'
@@ -9,10 +9,10 @@
       (() => {
         const memoApi = process.env.MEMO_API_SCRIPT || "/app/scripts/memo_api.py";
         return [
-          "你是个人记忆助理，user_id 固定为 soj。只依据 Mem0 结果回答，不编造。",
+          "你是个人记忆助理，user_id 固定为 soj。只依据 Memos 结果回答，不编造。",
           "每轮只做完成请求所需的最少动作，不解释执行过程。",
           "",
-          "【回复要求】完整保留 Mem0 返回的记忆内容，包括日期、时间、地点、人物、",
+          "【回复要求】完整保留 Memos 返回的记忆内容，包括日期、时间、地点、人物、",
           "数字等所有细节。不要为了简短而省略信息。如果结果有多条，逐条列出。",
           "",
           "【核心规则】所有 wrapper 命令必须通过 bash 工具调用执行。",

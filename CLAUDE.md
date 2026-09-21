@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Storage & Memory
 - **Storage CLI**: `uv run ptt-storage`
-- **Migrate mem0 app ID**: `uv run python scripts/migrate_mem0_app_id.py --apply`
+- **Migrate legacy mem0 app ID** (legacy backend, 记忆主链路已切换为 Memos): `uv run python scripts/migrate_mem0_app_id.py --apply`
 
 ### Testing
 - **Run all tests**: `uv run pytest`
@@ -32,9 +32,9 @@ The assistant follows a linear pipeline:
 - `data/`: Local storage for logs and cache.
 
 ### Memory System
-The project supports two primary memory backends, configured in `workflow_config.json` under `storage.provider`:
-1. **`pocketbase`**: Primary local/remote backend for memory and history.
-2. **`mem0`**: Optional external memory service.
+The project's memory read/write chain is backed by **Memos**（自托管 REST，`scripts/memo_api.py` 与 fast-path 直连 `ds.home:5230`）。`storage.provider` 下还保留两个 legacy 后端：
+1. **`pocketbase`**: Legacy local/remote backend for memory and history.
+2. **`mem0`**: Legacy external memory service（`/v1/memories` 遗留接口仍读取，可逐步剥离）。
 
 The "remember" functionality (adding/finding memories) typically delegates to an external script defined by `URSOFT_REMEMBER_SCRIPT`.
 

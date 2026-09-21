@@ -51,7 +51,7 @@ def test_minimal_preset_blocks_all_skill_loading() -> None:
     assert not (MINIMAL_DIR / "skills").exists()
 
 
-def test_minimal_preset_uses_direct_compact_mem0_wrapper() -> None:
+def test_minimal_preset_uses_direct_compact_memos_wrapper() -> None:
     text = MINIMAL_PRESET.read_text(encoding="utf-8")
 
     assert "process.env.MEMO_API_SCRIPT" in text
@@ -61,7 +61,7 @@ def test_minimal_preset_uses_direct_compact_mem0_wrapper() -> None:
     assert "`python3 ${memoApi} list --page 1 --page-size 20`" in text
     assert "`python3 ${memoApi} delete --id <memory-id>`" in text
     assert "--limit 3" in text
-    assert "完整保留 Mem0 返回的记忆内容" in text
+    assert "完整保留 Memos 返回的记忆内容" in text
 
 
 def test_local_dsh_startup_pins_wrapper_and_refreshes_presets() -> None:

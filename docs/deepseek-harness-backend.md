@@ -1,6 +1,6 @@
 # DeepSeek Harness 查询后端
 
-语音助手的 `/v1/query` 可以把完整的自然语言请求转交给 DeepSeek Harness。语音助手只负责接收文本（以及可选图片）并等待回复；意图判断、工具调用、Mem0 读写和后续能力都由 Harness 的 Agent preset 负责。
+语音助手的 `/v1/query` 可以把完整的自然语言请求转交给 DeepSeek Harness。语音助手只负责接收文本（以及可选图片）并等待回复；意图判断、工具调用、Memos 读写和后续能力都由 Harness 的 Agent preset 负责。
 
 ## 配置
 
@@ -32,22 +32,22 @@ macOS 上不要把 Node 版 dsh 直接作为 launchd 子进程运行：该上下
 
 该脚本默认使用 `voice-assistant-dsh` 会话、`0.0.0.0:3080`，重复执行不会创建重复实例；可用 `tmux attach -t voice-assistant-dsh` 查看 dsh 输出。
 
-Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取；Mem0 凭据不写入本项目。
+Harness 的模型、MCP 凭据和 preset 仍从运行机器的 `DSH_HOME` 读取；Memos 凭据不写入本项目。
 
-默认的 `memo-minimal` preset 不挂载 MCP、Web 或 skill loader 工具；它保留 bash，并通过 `/app/scripts/memo_api.py` 直接调用 Mem0 REST API，避免请求再次绕回语音助手 API。它的 skill 目录被显式隔离：`includeDefaultRoots=false` 关闭项目、DSH home、agents home 和内置根目录，只在 preset 作用域发现自带 `skills/remember`，不加载系统全局 skill。旧的多轮 MCP preset 仍保留在 `memo-mem0`，便于回退。
+默认的 `memo-minimal` preset 不挂载 MCP、Web 或 skill loader 工具；它保留 bash，并通过 `/app/scripts/memo_api.py` 直接调用 Memos REST API，避免请求再次绕回语音助手 API。它的 skill 目录被显式隔离：`includeDefaultRoots=false` 关闭项目、DSH home、agents home 和内置根目录，只在 preset 作用域发现自带 `skills/remember`，不加载系统全局 skill。旧的多轮 MCP preset 仍保留在 `memo-mem0`，便于回退。
 
 项目内的记忆 preset 策略源文件是
 `config/deepseek-harness/agent-presets/memo-minimal/agent.cordis.yml`。它要求当前用户明确说出“记住/记录/保存”等意图才允许写入；普通陈述、关键词和查询只能读取。wrapper 路径由 DSH 启动器注入的 `MEMO_API_SCRIPT` 决定：Docker 中是 `/app/scripts/memo_api.py`，本机开发是仓库里的同名脚本，因此本地和容器共用同一份 preset 源。`scripts/start_dsh.sh` 还会在本地启动前刷新 `$DSH_HOME/.agent-presets` 里来自项目的 preset，避免旧会话目录继续保留昨天的提示词或 skill。
 
-preset 固定了唯一允许的四条 wrapper 命令（`add`、`search`、`list`、`delete`）。搜索使用 Mem0 v2 的 `top_k`，关闭额外 rerank，并只向模型返回 `id`、记忆正文、分数和创建时间，避免完整 Mem0 元数据撑大第二次模型调用。删除必须基于准确 memory id；自然语言不明确时先返回候选，不允许猜测删除。
+preset 固定了唯一允许的四条 wrapper 命令（`add`、`search`、`list`、`delete`）。搜索先按候选词拼接 Memos CEL 过滤（`content.contains(...)`），结果为空时退回全量翻页本地评分；只向模型返回 `id`、记忆正文、分数和创建时间，避免完整 Memos 元数据撑大第二次模型调用。删除必须基于准确记忆 id；自然语言不明确时先返回候选，不允许猜测删除。
 
 `add` 和 `delete` 成功后由 bash 工具的部署级命令前缀策略标记 `concludesTurn`，Harness 直接以 wrapper JSON 中的 `reply` 结束回合，不再额外调用模型生成“已记录/已删除”。`search` 仍保留第二次 fast 模型调用，把召回结果整理成自然语言答案。
 
-项目 preset 由 Compose 直接挂载到 `${DSH_HOME:-~/.dsh}/.agent-presets`。运行环境需要提供 `MEM0_MCP_TOKEN`（或兼容已有的 `MEM0_API_KEY`）。不要把 token 写入 git。
+项目 preset 由 Compose 直接挂载到 `${DSH_HOME:-~/.dsh}/.agent-presets`。`memo-minimal` 运行环境需要提供 `MEMOS_BASE_URL` 和 `MEMOS_TOKEN`（由 Compose 的 `MEMOS_BASE_URL` / `MEMOS_TOKEN` 注入）；旧 `memo-mem0` preset 则需要 `MEM0_MCP_TOKEN`（或兼容已有的 `MEM0_API_KEY`）。不要把 token 写入 git。
 
-Compose 给一次性 Harness 容器设置 `DSH_PERMISSION_MODE=danger-full-access`。这是容器内执行 Mem0 REST wrapper 所需的部署选择；不要把同一配置照搬到本机开发或非隔离环境。
+Compose 给一次性 Harness 容器设置 `DSH_PERMISSION_MODE=danger-full-access`。这是容器内执行 Memos REST wrapper 所需的部署选择；不要把同一配置照搬到本机开发或非隔离环境。
 
-Harness 会主动清洗子进程里凭据形状的环境变量，所以 wrapper 在环境变量缺失时会从 `$DSH_HOME/.env` 读取 `MEM0_API_KEY` 或 `MEM0_MCP_TOKEN`。这样 token 仍留在机器本地凭据文件中，不会进入模型 shell 的进程环境。Skill Markdown 不是模板：`<PTT_API_KEY>` 这类占位符不会被 DSH 替换；只有最终交给 bash 的命令里的 `$VAR` 会按普通 shell 规则展开。极简记忆 Agent 不走 `/v1/query`，因此不需要 `PTT_API_KEY`，它的 Mem0 token 只由 `memo_api.py` 读取。
+Harness 会主动清洗子进程里凭据形状的环境变量，所以 wrapper 在环境变量缺失时会从 `$DSH_HOME/.env` 读取 `MEMOS_TOKEN`（或兼容的 `MEMOS_ACCESS_TOKEN`）。这样 token 仍留在机器本地凭据文件中，不会进入模型 shell 的进程环境。Skill Markdown 不是模板：`<PTT_API_KEY>` 这类占位符不会被 DSH 替换；只有最终交给 bash 的命令里的 `$VAR` 会按普通 shell 规则展开。极简记忆 Agent 不走 `/v1/query`，因此不需要 `PTT_API_KEY`，它的 Memos token 只由 `memo_api.py` 读取。
 
 Harness Web API 使用 `POST /api/session.create`、`POST /api/session.prompt` 和 `POST /api/session.history`。语音助手会为每个认证用户保持一个 Harness 会话，并串行等待本轮最终助手消息。
 
@@ -55,9 +55,9 @@ PTT API 默认只启动一个 uvicorn worker。异步任务表和 Harness 客户
 
 ## 持久化分工
 
-- DeepSeek Harness 负责自然语言编排、工具调用和 Mem0 写入。
+- DeepSeek Harness 负责自然语言编排、工具调用和 Memos 写入。
 - PocketBase 是会话历史持久层。每次 `/v1/query` 成功返回后，语音助手会把用户问题和最终回复写入 `session_histories`，`/v1/history` 从这里读取最近 20 条。
-- `/v1/memories` 在 Harness 模式下直接读取当前用户的全部 Mem0 记录，不再返回空的兼容数组。
+- `/v1/memories` 在 Harness 模式下直接读取当前用户的全部 Mem0 记录（遗留 Mem0 后端，记忆主链路已切换为 Memos），不再返回空的兼容数组。
 - SQLite 不在当前查询链路中使用；旧 SQLite 文件只作为历史存档保留。
 - 默认模型和默认 Agent 由运行机 `config/deepseek-harness/runtime/settings.yaml` 控制。部署脚本用 `./scripts/set_dsh_model.sh fast` 设置 `agent-default-model.model` 和 `agent-presets.default=memo-minimal`，并把 `fast.maxTokens` 固定到 256（可用 `DSH_FAST_MAX_TOKENS` 覆盖）；同时固定 `agent-default-model.reasoningEffort=off`。这样 DSH 网页直接新建会话时也使用极简记忆 Agent，而不是旧的 MCP preset。Qwen 网关即使请求省略 reasoning 参数也会默认思考，所以 `fast` 还声明 `reasoningEfforts.off="none"` 和 `supportsReasoningEffort=true`，让每次请求显式携带 `reasoning_effort=none`；该网关的聊天模板不认识 `developer` 角色，因此同时固定 `supportsDeveloperRole=false`，把系统提示以 `system` 发送。`reasoningEfforts: false` 只适合网关本身不会默认思考的模型；DeepSeek 官方适配器的部署锁则是 `thinking: disabled`。同步 Harness 等待上限为 10 秒，后台任务上限为 60 秒；这既让连续的添加、查询、删除保持在 Groq 免费 tier 的 8000 TPM 窗口内，也避免交互请求再次等待一分钟。
 
@@ -73,7 +73,7 @@ Docker Compose 会同时启动 `deepseek-harness`（内部端口 3080）和 `mem
 
 打开 `http://<这台电脑的局域网 IP>:10032/`，输入一条指令后，外壳会由服务器调用当前配置的 Harness Agent，等待 `session.history` 返回最终助手消息，再把纯文本结果显示在页面上。页面不直接加载 Harness 前端，也不依赖浏览器的 `crypto.randomUUID()`。
 
-## Mem0 用户隔离
+## 用户隔离
 
 `soj` 固定在极简 Agent 提示词和 `scripts/memo_api.py` 中，避免模型每轮选择错误作用域。
 
@@ -81,8 +81,8 @@ Docker Compose 会同时启动 `deepseek-harness`（内部端口 3080）和 `mem
 
 ## 召回问题的判定
 
-召回失败要区分两类：如果 Mem0 中本来没有该条记录，多轮搜索也不会凭空找回；如果记录存在但一次语义搜索没有返回，才是查询策略问题。当前对本地 Markdown 的对照已经确认：护照和 Google 存放位置存在于 Mem0 并能稳定找回，而“老年交通卡放在手提包里”只存在于本地 Markdown 导出，当前 `user_id=soj` 的 Mem0 返回为 0 条。因此交通卡问题首先是数据未同步，不是阈值继续调低就能解决。
+召回失败要区分两类：如果 Memos 中本来没有该条记录，多轮搜索也不会凭空找回；如果记录存在但一次 CEL 查询没有返回，才是查询策略问题。当前对本地 Markdown 的对照已经确认：护照和 Google 存放位置存在于 Memos 并能稳定找回，而“老年交通卡放在手提包里”只存在于本地 Markdown 导出，当前 `user_id=soj` 的 Memos 返回为 0 条。因此交通卡问题首先是数据未同步，不是阈值继续调低就能解决。
 
 ## 失败行为
 
-Harness 不可达、会话创建失败、Agent 返回错误或等待超时，会由 `/v1/query` 返回 HTTP 502；不会静默退回本地 PocketBase 或直接调用 Mem0，避免同一次请求走两套记忆系统。
+Harness 不可达、会话创建失败、Agent 返回错误或等待超时，会由 `/v1/query` 返回 HTTP 502；不会静默退回本地 PocketBase 或直接调用 Memos，避免同一次请求走两套记忆系统。
