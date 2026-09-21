@@ -101,16 +101,24 @@ patchFile('*/@deepseek-ai/dsh-api-session-controller/lib/index.js', (code) => {
 
 // 5. 兼容 cliproxy / thinking 模式：
 //    a) 剥离 pi-ai 注入的 reasoning_details（cliproxy 不认 -> 400 reasoning_details is unsupported）
-//    b) assistant 消息有 reasoning 文本时同步到 reasoning_content 字段
+//    b) 仅 DeepSeek（requiresReasoningContentOnAssistantMessages）回传 reasoning_content：
+//       groq/qwen 等 OpenAI 兼容 API 禁止该字段（400: property 'reasoning_content' is unsupported）
 patchFile('*/@earendil-works/pi-ai/dist/api/openai-completions.js', (code) => {
   code = code.replace(
     /if \(preservedReasoningDetails\) \{\n\s*assistantMsg\.reasoning_details = preservedReasoningDetails;\n\s*\}/,
     '// reasoning_details stripped for cliproxy compat (fast model 400)'
   );
-  return code.replace(
-    'if (compat.requiresReasoningContentOnAssistantMessages &&',
-    'if (assistantMsg.reasoning_content === undefined && typeof assistantMsg.reasoning === "string") { assistantMsg.reasoning_content = assistantMsg.reasoning; }\n            if (compat.requiresReasoningContentOnAssistantMessages &&'
+  // b1) thinking 块转存：非 DeepSeek 时不用 reasoning_content 签名
+  code = code.replace(
+    'if (signature && isOpenAICompletionsReasoningField(signature)) {',
+    'if (signature && isOpenAICompletionsReasoningField(signature) && (compat.requiresReasoningContentOnAssistantMessages || signature !== "reasoning_content")) {'
   );
+  // b2) reasoning -> reasoning_content 同步：仅 DeepSeek
+  code = code.replace(
+    'if (assistantMsg.reasoning_content === undefined && typeof assistantMsg.reasoning === "string") {',
+    'if (compat.requiresReasoningContentOnAssistantMessages && assistantMsg.reasoning_content === undefined && typeof assistantMsg.reasoning === "string") {'
+  );
+  return code;
 });
 
 console.log('All dsh patches applied successfully!');
