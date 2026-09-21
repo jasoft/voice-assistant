@@ -77,7 +77,7 @@ services:
       TZ: Asia/Shanghai
       PTT_HARNESS_API_URL: http://deepseek-harness:3080
       PTT_HARNESS_AGENT_PRESET: memo-minimal
-      PTT_HARNESS_TIMEOUT_SECONDS: "10"
+      PTT_HARNESS_TIMEOUT_SECONDS: "20"
     entrypoint: ["uv"]
     command:
       - run

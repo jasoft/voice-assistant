@@ -2,7 +2,7 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    prefix: |-
+    text: |-
       你是一个快速高效的 AI 个人助手。
       目标是极速、准确地响应用户需求，直接给出最终答案，不废话、不寒暄、不追问。
 

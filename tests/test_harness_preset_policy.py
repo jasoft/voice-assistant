@@ -94,7 +94,9 @@ def test_compose_uses_minimal_preset_and_mounts_presets() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     assert compose.count("PTT_HARNESS_AGENT_PRESET: memo-minimal") == 2
-    assert compose.count('PTT_HARNESS_TIMEOUT_SECONDS: "10"') == 2
+    # 主链路 10s；memo-web 放宽到 20s（fast-path 拆词/回答共用该超时）
+    assert compose.count('PTT_HARNESS_TIMEOUT_SECONDS: "10"') == 1
+    assert compose.count('PTT_HARNESS_TIMEOUT_SECONDS: "20"') == 1
     assert 'PTT_HARNESS_ASYNC_TIMEOUT_SECONDS: "60"' in compose
     assert "./config/deepseek-harness/agent-presets/memo-minimal:/root/.dsh/.agent-presets/memo-minimal" in compose
     assert "./config/deepseek-harness/agent-presets/memo-mem0:/root/.dsh/.agent-presets/memo-mem0" in compose
