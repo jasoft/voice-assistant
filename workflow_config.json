@@ -214,5 +214,27 @@
         "app_id": "voice-assistant",
         "min_score": 0.7,
         "max_items": 20
+    },
+    "typesafe": {
+        "api_url": "https://api.typesafe.ai/v1/systemone",
+        "model": "jev-latest",
+        "timeout_seconds": 3.0,
+        "noul_threshold": 0.6,
+        "max_keywords": 6,
+        "max_candidates": 14,
+        "intent_question": {
+            "type": "choice",
+            "instructions": "这句用户的话属于哪个意图？",
+            "criteria": {
+                "record": "用户想记录、保存一条新的信息到个人备忘",
+                "find": "用户想查询、查找已有的记忆或备忘",
+                "other": "寒暄、闲聊或与个人备忘无关的请求"
+            }
+        },
+        "keyword_question": {
+            "type": "noul",
+            "instructions_template": "用户想检索个人备忘，候选词\"%%KEYWORD%%\"是否是该备忘的核心检索词？是则返回1，否则返回0"
+        },
+        "candidate_stopwords": ["我的", "你的", "他的", "她的", "我们的", "放在", "放到", "在", "了", "吗", "呢", "吧", "是", "不是", "有没有", "没有", "什么", "时候", "哪里", "哪儿", "在哪", "怎么", "为何", "为什么", "请", "帮我", "一下", "请问", "那", "这", "上次", "最近", "前天", "昨天", "今天", "明天", "上周", "下周", "多少", "谁", "哪些", "哪个", "第", "个", "买的", "里"]
     }
 }

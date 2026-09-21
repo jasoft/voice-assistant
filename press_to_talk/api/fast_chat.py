@@ -30,6 +30,7 @@ from ..utils.env import load_workflow_config, render_prompt_template
 from ..utils.llm_streaming import build_async_openai_client, stream_chat_completion_text
 from ..utils.logging import log
 from ..utils.text import current_time_text, format_local_datetime, strip_think_tags
+from ..utils.typesafe import ask_intent_and_keywords
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +309,22 @@ async def try_fast_memory_chat(
     (caller should fall back to the Harness Agent).
     """
     t0 = time.monotonic()
-    intent = classify_memory_intent(query)
+
+    # -- TypeSafe 毫秒级意图判断优先；未配置/失败/other 时降级正则 --
+    t_ts = time.monotonic()
+    ts_result = ask_intent_and_keywords(query)
+    elapsed_ts = time.monotonic() - t_ts
+    intent: str | None = None
+    ts_keywords: list[str] = []
+    if ts_result is not None and ts_result.get("intent") in ("record", "find"):
+        intent = ts_result["intent"]
+        ts_keywords = list(ts_result.get("keywords") or [])
+        log(
+            f"fast-chat: typesafe intent={intent} kw={ts_keywords} in {elapsed_ts:.2f}s",
+            level="info",
+        )
+    else:
+        intent = classify_memory_intent(query)
     if intent is None:
         return None
 
@@ -355,6 +371,7 @@ async def try_fast_memory_chat(
                 "backend": "fast-chat",
                 "intent": "record",
                 "elapsed_s": round(elapsed_total, 2),
+                "typesafe_s": round(elapsed_ts, 2),
             },
         }
 
@@ -371,12 +388,17 @@ async def try_fast_memory_chat(
         stage = "build_llm_client"
         client = _build_llm_client()
 
-        # Step 1: LLM tokenize/extract keywords (~0.8-1.5s)
-        stage = "llm_extract_keywords"
+        # Step 1: 关键词拆分 —— TypeSafe Noul 优先（毫秒级），LLM 兜底
+        stage = "extract_keywords"
         t_kw = time.monotonic()
-        keywords = await _extract_keywords_with_llm(client, query)
-        elapsed_kw = time.monotonic() - t_kw
-        log(f"fast-chat [STAGE: KEYWORDS] extracted in {elapsed_kw:.2f}s: {keywords}", level="info")
+        if ts_keywords:
+            keywords = list(ts_keywords)
+            elapsed_kw = 0.0
+            log(f"fast-chat [STAGE: KEYWORDS] from TypeSafe: {keywords}", level="info")
+        else:
+            keywords = await _extract_keywords_with_llm(client, query)
+            elapsed_kw = time.monotonic() - t_kw
+            log(f"fast-chat [STAGE: KEYWORDS] extracted in {elapsed_kw:.2f}s: {keywords}", level="info")
 
         # Step 2: Memos CEL query (~0.1-0.3s)
         stage = "memos_cel_query"
@@ -398,6 +420,7 @@ async def try_fast_memory_chat(
                     "intent": "find",
                     "keywords": keywords,
                     "elapsed_s": round(elapsed_total, 2),
+                    "typesafe_s": round(elapsed_ts, 2),
                     "elapsed_kw_s": round(elapsed_kw, 2),
                     "elapsed_search_s": round(elapsed_search, 2),
                 },
@@ -478,15 +501,16 @@ async def try_fast_memory_chat(
             "memories": memories_out,
             "query": query,
             "debug_info": {
-                "backend": "fast-chat",
-                "intent": "find",
-                "keywords": keywords,
-                "memo_count": len(memos_items),
-                "elapsed_s": round(elapsed_total, 2),
-                "elapsed_kw_s": round(elapsed_kw, 2),
-                "elapsed_search_s": round(elapsed_search, 2),
-                "elapsed_sum_s": round(elapsed_sum, 2),
-            },
+                    "backend": "fast-chat",
+                    "intent": "find",
+                    "keywords": keywords,
+                    "memo_count": len(memos_items),
+                    "elapsed_s": round(elapsed_total, 2),
+                    "typesafe_s": round(elapsed_ts, 2),
+                    "elapsed_kw_s": round(elapsed_kw, 2),
+                    "elapsed_search_s": round(elapsed_search, 2),
+                    "elapsed_sum_s": round(elapsed_sum, 2),
+                },
         }
 
     except Exception as exc:
