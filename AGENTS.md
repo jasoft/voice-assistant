@@ -14,3 +14,9 @@
 - Python 测试用 pytest，选择受影响的用例；涉及录音或后端行为时再做对应链路验证。
 - CLI 操作、Docker 部署和场景压测分别查 `.agents/skills/` 下的 `ptt-voice`、`deploy-to-docker`、`vibe-report`。
 - 历史架构和旧命令见 `docs/agent-context-reference.md`；不把其中的旧后端快照当作当前运行状态。
+
+## TypeSafe 意图与关键词
+
+- fast-path（`fast_chat.py`）的意图判断与关键词拆分优先走 TypeSafe（Jev System One）：一次 `POST /v1/systemone` 并行完成意图 Choice + 逐候选词 Noul，约 0.6s，输出 `debug_info.typesafe_s`。
+- 提示词、阈值、候选停用词在 `workflow_config.json` 的 `typesafe` 段（占位符用 `%%KEYWORD%%`，避免被 `${ENV}` 展开吞掉）；API key 在 `.env` 的 `TYPESAFE_API_KEY`（gitignore，远程 docker 机器需手动补写）。
+- 未配置 key、网络失败或 intent=other 时静默降级：意图回正则、关键词回 LLM。
