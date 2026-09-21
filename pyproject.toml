@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "press-to-talk"
-version = "0.1.12"
+version = "0.1.13"
 description = "Push-to-talk recorder that sends transcript to OpenClaw and speaks replies with qwen-tts."
 readme = "README.md"
 requires-python = ">=3.13"
