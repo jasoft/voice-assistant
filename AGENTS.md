@@ -15,12 +15,13 @@
 - CLI 操作、Docker 部署和场景压测分别查 `.agents/skills/` 下的 `ptt-voice`、`deploy-to-docker`、`vibe-report`。
 - 历史架构和旧命令见 `docs/agent-context-reference.md`；不把其中的旧后端快照当作当前运行状态。
 
-## TypeSafe 意图与关键词
+## fast-path 简化链路（TypeSafe + Harness + Memos）
 
-- fast-path（`fast_chat.py`）的意图判断与关键词拆分优先走 TypeSafe（Jev System One）：一次 `POST /v1/systemone` 并行完成意图 Choice + 逐候选词 Noul，约 0.6s，输出 `debug_info.typesafe_s`。
-- 提示词、阈值、候选停用词在 `workflow_config.json` 的 `typesafe` 段（占位符用 `%%KEYWORD%%`，避免被 `${ENV}` 展开吞掉）；API key 在 `.env` 的 `TYPESAFE_API_KEY`（gitignore，远程 docker 机器需手动补写）。
-- 未配置 key、网络失败或 intent=other 时静默降级：意图回正则、关键词回 LLM。
+- fast-path（`fast_chat.py`）先一次 TypeSafe（Jev System One）`POST /v1/systemone` 二分意图：`ask_is_record(query)` 返回 `record` / `other` / `None`，输出 `debug_info.typesafe_s`。
+- `record` → 直写 Memos；`other`（询问/闲聊）→ Harness（chat-fast preset）拆词 → 一次 Memos CEL 查询（`memos.query_timeout_seconds` 默认 1.5s 短超时，异常/空 = 无上下文）→ Harness（chat-fast）带上下文回答，无匹配则正常闲聊（可 web_search）。
+- 提示词在 `workflow_config.json`：`typesafe` 段（`intent_question` 二选一）与 `prompts` 段（`harness_keyword_extract` / `harness_answer`，占位符用 `%%QUERY%%`/`%%MEMOS%%`，避免被 `${ENV}` 展开吞掉）；TypeSafe API key 在 `.env` 的 `TYPESAFE_API_KEY`（gitignore，远程 docker 机器需手动补写）。
+- 未配置 key、网络失败或意图无法二分（返回 None）时静默降级：fast-path 返回 None，memo_web / main.py 回退 Harness Agent 兜底。
 
 ## Memos 查询
 
-- find 链路 Memos 查询（`_search_memos_cel`）对服务偶发抖动免疫：CEL 与 fallback 均用短超时（`memos.query_timeout_seconds`，默认 1.5s），CEL 失败/空结果时全量翻页（`search_page_size` × `max_fallback_pages`）+ 本地子串匹配。Memos API 正常仅 0.15s，偶发超时不会拖垮 ≤8s 目标。
+- 询问链路 Memos 查询（`_search_memos_cel`）只做**单次** CEL：`content.contains('词1') || ...`，`memos.query_timeout_seconds` 默认 1.5s 短超时；失败/空结果一律视为"无上下文"（返回 `[]`）继续闲聊，不做 fallback 翻页/重试/不可用异常。Memos API 正常仅 0.15s，不会拖垮 ≤8s 目标。

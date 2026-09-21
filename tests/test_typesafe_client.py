@@ -1,7 +1,7 @@
 """TypeSafe (Jev System One) client unit tests.
 
-No network: the systemone HTTP call is mocked; candidate generation and
-response parsing are exercised directly.
+No network: the systemone HTTP call is mocked; response parsing is exercised
+directly.
 """
 
 import os
@@ -20,51 +20,12 @@ def _typesafe_env():
     os.environ.pop("TYPESAFE_API_KEY", None)
 
 
-# ---------------------------------------------------------------------------
-# Candidate generation
-# ---------------------------------------------------------------------------
+def _fake_response(payload: dict):
+    resp = MagicMock()
+    resp.json.return_value = payload
+    resp.raise_for_status.return_value = None
+    return resp
 
-def test_gen_candidates_strips_stopwords():
-    cands = typesafe.gen_candidates(
-        "我的护照在哪里",
-        ["我的", "在哪里", "的", "哪里"],
-        max_candidates=14,
-    )
-    assert cands == ["护照"]
-
-
-def test_gen_candidates_keeps_short_phrases():
-    cands = typesafe.gen_candidates(
-        "壮壮上次打球什么时候",
-        ["上次", "什么时候"],
-        max_candidates=14,
-    )
-    assert cands == ["壮壮", "打球"]
-
-
-def test_gen_candidates_splits_long_block():
-    cands = typesafe.gen_candidates(
-        "护照在书房白柜子第一个抽屉里",
-        ["在", "里", "第", "个"],
-        max_candidates=14,
-    )
-    # 长块“书房白柜子第一个抽屉”按“第/个”二次切分为子片段
-    assert "护照" in cands
-    assert "抽屉" in cands
-
-
-def test_gen_candidates_respects_max():
-    cands = typesafe.gen_candidates(
-        "甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳",
-        [],
-        max_candidates=3,
-    )
-    assert len(cands) <= 3
-
-
-# ---------------------------------------------------------------------------
-# Disabled / degraded behaviour
-# ---------------------------------------------------------------------------
 
 def _client_post_mock(mock_client_cls, *, payload=None, side_effect=None):
     """httpx.Client 以上下文管理器使用：post 挂在 __enter__ 返回值上。"""
@@ -76,16 +37,20 @@ def _client_post_mock(mock_client_cls, *, payload=None, side_effect=None):
     return mock_client
 
 
+# ---------------------------------------------------------------------------
+# Disabled / degraded behaviour
+# ---------------------------------------------------------------------------
+
 def test_returns_none_without_key():
     os.environ.pop("TYPESAFE_API_KEY", None)
     assert typesafe.is_configured() is False
-    assert typesafe.ask_intent_and_keywords("我的护照在哪里") is None
+    assert typesafe.ask_is_record("我的护照在哪里") is None
 
 
 def test_returns_none_on_http_failure():
     with patch("httpx.Client") as mock_client_cls:
         _client_post_mock(mock_client_cls, side_effect=RuntimeError("network down"))
-        result = typesafe.ask_intent_and_keywords("我的护照在哪里")
+        result = typesafe.ask_is_record("我的护照在哪里")
     assert result is None
 
 
@@ -93,50 +58,57 @@ def test_returns_none_on_http_failure():
 # Response parsing
 # ---------------------------------------------------------------------------
 
-def _fake_response(payload: dict):
-    resp = MagicMock()
-    resp.json.return_value = payload
-    resp.raise_for_status.return_value = None
-    return resp
-
-
-def test_parses_intent_and_keywords():
+def test_returns_record():
     payload = {
-        "model": "jev-1.13.0",
+        "model": "jev-latest",
         "answers": {
-            "intent": {
-                "type": "choice",
-                "choice": "find",
-                "confidence": 0.98,
-                "probabilities": {"find": 1.0, "record": 0.0, "other": 0.0},
-            },
-            "kw_0": {"type": "noul", "noul": 0.84},
-            "kw_1": {"type": "noul", "noul": 0.22},
+            "intent": {"type": "choice", "choice": "record", "confidence": 0.99},
         },
     }
     with patch("httpx.Client") as mock_client_cls:
         _client_post_mock(mock_client_cls, payload=payload)
-        result = typesafe.ask_intent_and_keywords("我的护照在哪里")
-
-    assert result is not None
-    assert result["intent"] == "find"
-    assert result["intent_confidence"] == 0.98
-    # kw_0（护照）>= 0.6 阈值被保留；kw_1 被过滤
-    assert result["keywords"] == ["护照"]
+        result = typesafe.ask_is_record("帮我记一下护照在书房")
+    assert result == "record"
 
 
-def test_drops_low_confidence_keywords():
+def test_returns_other():
     payload = {
-        "model": "jev-1.13.0",
+        "model": "jev-latest",
         "answers": {
-            "intent": {"type": "choice", "choice": "other", "confidence": 1.0},
-            "kw_0": {"type": "noul", "noul": 0.3},
+            "intent": {"type": "choice", "choice": "other", "confidence": 0.99},
         },
     }
     with patch("httpx.Client") as mock_client_cls:
         _client_post_mock(mock_client_cls, payload=payload)
-        result = typesafe.ask_intent_and_keywords("你好呀")
+        result = typesafe.ask_is_record("你好呀")
+    assert result == "other"
 
-    assert result is not None
-    assert result["intent"] == "other"
-    assert result["keywords"] == []
+
+def test_returns_none_on_unexpected_choice():
+    """旧三态返回 find 时视为无法二分，返回 None 交由上层回退。"""
+    payload = {
+        "model": "jev-latest",
+        "answers": {
+            "intent": {"type": "choice", "choice": "find", "confidence": 0.99},
+        },
+    }
+    with patch("httpx.Client") as mock_client_cls:
+        _client_post_mock(mock_client_cls, payload=payload)
+        result = typesafe.ask_is_record("我的护照在哪里")
+    assert result is None
+
+
+def test_sends_only_intent_question():
+    """一次调用只带一个 intent Choice，不带任何关键词 Noul 问题。"""
+    payload = {
+        "model": "jev-latest",
+        "answers": {"intent": {"type": "choice", "choice": "other", "confidence": 0.5}},
+    }
+    with patch("httpx.Client") as mock_client_cls:
+        mock_client = _client_post_mock(mock_client_cls, payload=payload)
+        typesafe.ask_is_record("你好呀")
+        call = mock_client.post.call_args
+        body = call.kwargs.get("json") or call.args[1]
+    assert set(body["questions"].keys()) == {"intent"}
+    assert body["questions"]["intent"]["type"] == "choice"
+    assert "kw_" not in body["questions"]
