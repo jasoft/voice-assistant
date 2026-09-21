@@ -96,7 +96,7 @@ def _build_memos_client() -> MemosClient:
 _RECORD_STOP_WORDS = [
     "帮我记一下", "帮我记录", "帮我记住", "帮我记下", "帮我存一下", "帮我保存",
     "帮我记个", "帮忙记一下", "帮忙记录", "请记录", "请记住",
-    "记一下", "记录一下", "记住", "记下", "存一下", "保存",
+    "记一下", "记录一下", "记住", "记下", "存一下", "保存", "记录",
 ]
 
 
@@ -105,7 +105,7 @@ def _clean_record_content(text: str) -> str:
     clean = text.strip()
     for sw in sorted(_RECORD_STOP_WORDS, key=len, reverse=True):
         clean = clean.replace(sw, "")
-    clean = re.sub(r"^[，。,.\s]+", "", clean).strip()
+    clean = re.sub(r"^[：:，。,.\s]+", "", clean).strip()
     return clean or text.strip()
 
 

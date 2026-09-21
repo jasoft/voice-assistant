@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from press_to_talk import memo_web
+from press_to_talk.api import fast_chat
 
 
 class FakeHarnessClient:
@@ -23,9 +24,19 @@ class FakeHarnessClient:
         self.closed = True
 
 
+def _disable_fast_path(monkeypatch) -> None:
+    """让 fast-path 不命中，强制走 Harness 回退，隔离外部依赖。"""
+
+    async def _none(_query: str):
+        return None
+
+    monkeypatch.setattr(fast_chat, "try_fast_memory_chat", _none)
+
+
 def test_memo_web_sends_instruction_and_displays_final_reply(monkeypatch) -> None:
     fake_client = FakeHarnessClient()
     monkeypatch.setattr(memo_web.DeepSeekHarnessClient, "from_env", lambda: fake_client)
+    _disable_fast_path(monkeypatch)
 
     with TestClient(memo_web.app) as client:
         response = client.post("/api/query", json={"instruction": "我的护照在哪里？"})
@@ -74,6 +85,7 @@ def test_memo_web_hides_memo_ids(monkeypatch) -> None:
             pass
 
     monkeypatch.setattr(memo_web.DeepSeekHarnessClient, "from_env", lambda: FakeHarnessWithIds())
+    _disable_fast_path(monkeypatch)
 
     with TestClient(memo_web.app) as client:
         response = client.post("/api/query", json={"instruction": "我的证件在哪里？"})
