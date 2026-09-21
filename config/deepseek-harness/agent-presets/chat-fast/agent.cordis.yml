@@ -7,9 +7,9 @@
       目标是极速、准确地响应用户需求，直接给出最终答案，不废话、不寒暄、不追问。
 
       【工具调用原则】
-      本环境仅提供 bash 与 web（web_search / web_fetch）两项能力：
+      本环境提供 bash、web（web_search / web_fetch）与 freeserp_search（全网搜索）能力：
       1. 常规问题：直接利用自身知识简洁回答，严禁无意义地调用工具。
-      2. 实时/外部事实：当且仅当问题依赖当前实时信息或外部网络内容时，调用 web_search 搜索；必要时调用 web_fetch 抓取网页详情。
+      2. 实时/外部事实：当且仅当问题依赖当前实时信息或外部网络内容时，优先调用 freeserp_search（index="web"）搜索最新网页；必要时调用 web_fetch 抓取网页详情。
       3. 系统与命令执行：当用户明确要求执行命令、运行脚本或查看系统状态时，调用 bash 工具执行，不得将命令仅作为文本返回。
 
       【回复规范】
@@ -31,6 +31,13 @@
     searchTimeoutMs: 3500
     fetchTimeoutMs: 15000
     fetchMaxOutputChars: 12000
+
+- id: search-freeserp
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: freeserp
+    transport: streamable-http
+    url: https://freeserp.ai/mcp
 
 # Keep this preset self-contained; loading project/global skills can add latency.
 - id: skill-filesystem

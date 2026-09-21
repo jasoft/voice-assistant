@@ -126,17 +126,23 @@ def test_fast_chat_preset_routes_memory_and_brave_without_skills() -> None:
         "persona",
         "memory-shell",
         "tool-web",
+        "search-freeserp",
         "skill-filesystem",
     ]
     persona = entries[0]["config"].get("prefix") or entries[0]["config"].get("text", "")
     web = entries[2]["config"]
+    mcp = entries[3]
     assert "web_search" in persona
     assert "web_fetch" in persona
+    assert "freeserp_search" in persona
     assert "bash" in persona
     assert "不追问" in persona
     assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
-    assert entries[3]["name"] == "@deepseek-ai/dsh-skill-filesystem"
-    assert entries[3]["config"]["includeDefaultRoots"] is False
+    assert mcp["name"] == "@deepseek-ai/dsh-mcp-client"
+    assert mcp["config"]["transport"] == "streamable-http"
+    assert mcp["config"]["url"] == "https://freeserp.ai/mcp"
+    assert entries[4]["name"] == "@deepseek-ai/dsh-skill-filesystem"
+    assert entries[4]["config"]["includeDefaultRoots"] is False
     assert web["searchMaxResults"] == 3
     assert web["searchTimeoutMs"] <= 3500
     assert web["fetch"] is True
