@@ -93,6 +93,7 @@ async def query(request: MemoQueryRequest) -> MemoQueryResponse:
     instruction = request.instruction.strip()
     if not instruction:
         raise HTTPException(status_code=422, detail="指令不能为空")
+    log(f"Memo Web 收到指令: {instruction[:80]}", level="info")
 
     # Fast path: TypeSafe 毫秒级意图判断 + Memos 直写/直查（≤2s）。
     # 不命中（闲聊等）或失败时再回退 Harness Agent。
@@ -102,7 +103,7 @@ async def query(request: MemoQueryRequest) -> MemoQueryResponse:
         fast_result = await try_fast_memory_chat(instruction)
         if fast_result is not None:
             log(
-                f"Memo Web fast-path served in "
+                f"Memo Web fast-path 命中（agent=fast-chat），耗时 "
                 f"{fast_result.get('debug_info', {}).get('elapsed_s', '?')}s",
                 level="info",
             )
@@ -110,10 +111,12 @@ async def query(request: MemoQueryRequest) -> MemoQueryResponse:
                 reply=str(fast_result.get("reply", "")),
                 agent="fast-chat",
             )
+        log("Memo Web fast-path 未命中（fast_result=None），回退 Harness Agent", level="info")
     except Exception as exc:
-        log(f"Memo Web fast path failed, falling back to Harness: {exc}", level="warn")
+        log(f"Memo Web fast-path 异常，回退 Harness Agent: {exc}", level="warn")
 
     client = _harness_client()
+    log(f"Memo Web 走 Harness Agent: {instruction[:80]}", level="info")
     try:
         result = await client.query(instruction)
     except HarnessError as exc:

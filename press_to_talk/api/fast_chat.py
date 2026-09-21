@@ -349,6 +349,7 @@ async def try_fast_memory_chat(
     (caller should fall back to the Harness Agent).
     """
     t0 = time.monotonic()
+    log(f"fast-chat: 收到查询 query={query[:80]}", level="info")
 
     # -- TypeSafe 毫秒级意图判断优先；未配置/失败/other 时降级正则 --
     t_ts = time.monotonic()
@@ -364,8 +365,19 @@ async def try_fast_memory_chat(
             level="info",
         )
     else:
+        ts_reason = (
+            f"intent={ts_result.get('intent')}"
+            if ts_result is not None
+            else "typesafe 未启用或调用失败"
+        )
+        log(f"fast-chat: TypeSafe 未命中（{ts_reason}），降级正则意图判断", level="info")
         intent = classify_memory_intent(query)
     if intent is None:
+        log(
+            f"fast-chat: 意图判断为 None（与记忆 record/find 无关），"
+            f"fast-path 不处理，交由 Harness Agent 回退",
+            level="info",
+        )
         return None
 
     log(f"fast-chat: intent={intent} query={query[:80]}", level="info")
