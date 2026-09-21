@@ -73,6 +73,20 @@ def gen_candidates(query: str, stopwords: list[str], max_candidates: int) -> lis
         out.append(c)
         if len(out) >= max_candidates:
             break
+
+    # 对 3 字以上候选补头尾 2 字窗口，保证人名/实体词进池。
+    # 例：“壮壮喜欢什么”切出 4 字块“壮壮喜欢”后，窗口“壮壮”“喜欢”
+    # 才有机会被 Jev 选中；“壮喜”这类中间碎词由 Noul 阈值丢弃。
+    for c in out:
+        if len(c) >= 3:
+            for w in (c[:2], c[-2:]):
+                if len(w) >= 2 and w not in seen:
+                    seen.add(w)
+                    out.append(w)
+                    if len(out) >= max_candidates:
+                        break
+        if len(out) >= max_candidates:
+            break
     return out
 
 
