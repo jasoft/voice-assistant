@@ -64,6 +64,7 @@ class MemosClient:
         page_size: int = 50,
         page_token: str = "",
         filter_expr: str = "",
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         import httpx
 
@@ -74,7 +75,7 @@ class MemosClient:
         if filter_expr:
             params["filter"] = filter_expr
 
-        with httpx.Client(timeout=self.timeout) as client:
+        with httpx.Client(timeout=timeout or self.timeout) as client:
             resp = client.get(url, headers=self.headers, params=params)
             resp.raise_for_status()
             return resp.json()

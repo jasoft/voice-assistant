@@ -207,7 +207,10 @@
         "base_url": "http://ds.home:5230",
         "access_token": "memos_pat_voice_assistant_lan_2026",
         "visibility": "PRIVATE",
-        "tag": "voice"
+        "tag": "voice",
+        "query_timeout_seconds": 1.5,
+        "search_page_size": 100,
+        "max_fallback_pages": 3
     },
     "mem0": {
         "user_id": "soj",

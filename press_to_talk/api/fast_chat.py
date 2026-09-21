@@ -122,7 +122,16 @@ def _record_memo(client: MemosClient, content: str, original_text: str) -> str:
 
 
 def _search_memos_cel(client: MemosClient, keywords: list[str], *, page_size: int = 10) -> list[dict[str, Any]]:
-    """Execute CEL query on Memos using extracted keywords."""
+    """Execute CEL query on Memos using extracted keywords.
+
+    查询链路对 Memos 偶发抖动免疫：CEL 与 fallback 都用短超时，
+    fallback 直接全量翻页 + 本地匹配，几十条数据秒回。
+    """
+    cfg = load_workflow_config().get("memos", {})
+    query_timeout = float(os.environ.get("MEMOS_QUERY_TIMEOUT", cfg.get("query_timeout_seconds", 1.5)))
+    search_page_size = int(cfg.get("search_page_size", 100))
+    max_pages = int(cfg.get("max_fallback_pages", 3))
+
     valid_words = [
         w.strip() for w in keywords
         if w.strip() and not any(c in w for c in ("'", '"', "\\", "\n", "\r"))
@@ -136,17 +145,32 @@ def _search_memos_cel(client: MemosClient, keywords: list[str], *, page_size: in
 
     try:
         log(f"fast-chat: CEL query expr: {filter_expr}", level="info")
-        res = client.list_memos(page_size=page_size, filter_expr=filter_expr)
+        res = client.list_memos(
+            page_size=page_size,
+            filter_expr=filter_expr,
+            timeout=query_timeout,
+        )
         raw_memos = res.get("memos", [])
     except Exception as exc:
         log(f"fast-chat: CEL query failed: {exc}", level="warn")
         raw_memos = []
 
-    # Fallback to recent memos search if CEL query returns empty
+    # Fallback: 全量翻页 + 本地匹配（避免 CEL 抖动/失败时再等一个长超时）
     if not raw_memos:
         try:
-            res = client.list_memos(page_size=30)
-            candidates = res.get("memos", [])
+            candidates: list[dict[str, Any]] = []
+            page_token = ""
+            for _ in range(max_pages):
+                res = client.list_memos(
+                    page_size=search_page_size,
+                    page_token=page_token,
+                    timeout=query_timeout,
+                )
+                memos = res.get("memos", [])
+                candidates.extend(memos)
+                page_token = str(res.get("nextPageToken") or "")
+                if not page_token:
+                    break
             for m in candidates:
                 content = str(m.get("content", ""))
                 if any(w in content for w in valid_words):
