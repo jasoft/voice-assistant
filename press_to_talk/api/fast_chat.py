@@ -161,13 +161,29 @@ def _search_memos_cel(client: MemosClient, keywords: list[str], *, page_size: in
             candidates: list[dict[str, Any]] = []
             page_token = ""
             for _ in range(max_pages):
-                res = client.list_memos(
-                    page_size=search_page_size,
-                    page_token=page_token,
-                    timeout=query_timeout,
-                )
-                memos = res.get("memos", [])
-                candidates.extend(memos)
+                try:
+                    res = client.list_memos(
+                        page_size=search_page_size,
+                        page_token=page_token,
+                        timeout=query_timeout,
+                    )
+                except Exception as exc:
+                    log(f"fast-chat: fallback page failed: {exc}", level="warn")
+                    # Memos 偶发抖动通常是瞬时的：首包失败重试一次
+                    if page_token == "":
+                        try:
+                            res = client.list_memos(
+                                page_size=search_page_size,
+                                page_token="",
+                                timeout=query_timeout,
+                            )
+                        except Exception as retry_exc:
+                            log(f"fast-chat: fallback page retry failed: {retry_exc}", level="warn")
+                            break
+                    else:
+                        break
+                page_memos = res.get("memos", [])
+                candidates.extend(page_memos)
                 page_token = str(res.get("nextPageToken") or "")
                 if not page_token:
                     break

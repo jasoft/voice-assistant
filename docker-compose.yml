@@ -72,6 +72,7 @@ services:
     image: voice-assistant:local
     depends_on:
       - deepseek-harness
+    env_file: .env
     environment:
       TZ: Asia/Shanghai
       PTT_HARNESS_API_URL: http://deepseek-harness:3080

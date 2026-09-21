@@ -94,6 +94,25 @@ async def query(request: MemoQueryRequest) -> MemoQueryResponse:
     if not instruction:
         raise HTTPException(status_code=422, detail="指令不能为空")
 
+    # Fast path: TypeSafe 毫秒级意图判断 + Memos 直写/直查（≤2s）。
+    # 不命中（闲聊等）或失败时再回退 Harness Agent。
+    try:
+        from .api.fast_chat import try_fast_memory_chat
+
+        fast_result = await try_fast_memory_chat(instruction)
+        if fast_result is not None:
+            log(
+                f"Memo Web fast-path served in "
+                f"{fast_result.get('debug_info', {}).get('elapsed_s', '?')}s",
+                level="info",
+            )
+            return MemoQueryResponse(
+                reply=str(fast_result.get("reply", "")),
+                agent="fast-chat",
+            )
+    except Exception as exc:
+        log(f"Memo Web fast path failed, falling back to Harness: {exc}", level="warn")
+
     client = _harness_client()
     try:
         result = await client.query(instruction)
