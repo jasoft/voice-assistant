@@ -20,3 +20,7 @@
 - fast-path（`fast_chat.py`）的意图判断与关键词拆分优先走 TypeSafe（Jev System One）：一次 `POST /v1/systemone` 并行完成意图 Choice + 逐候选词 Noul，约 0.6s，输出 `debug_info.typesafe_s`。
 - 提示词、阈值、候选停用词在 `workflow_config.json` 的 `typesafe` 段（占位符用 `%%KEYWORD%%`，避免被 `${ENV}` 展开吞掉）；API key 在 `.env` 的 `TYPESAFE_API_KEY`（gitignore，远程 docker 机器需手动补写）。
 - 未配置 key、网络失败或 intent=other 时静默降级：意图回正则、关键词回 LLM。
+
+## Memos 查询
+
+- find 链路 Memos 查询（`_search_memos_cel`）对服务偶发抖动免疫：CEL 与 fallback 均用短超时（`memos.query_timeout_seconds`，默认 1.5s），CEL 失败/空结果时全量翻页（`search_page_size` × `max_fallback_pages`）+ 本地子串匹配。Memos API 正常仅 0.15s，偶发超时不会拖垮 ≤8s 目标。
