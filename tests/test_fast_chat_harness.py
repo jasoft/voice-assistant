@@ -237,3 +237,34 @@ def test_parse_keywords_json_formats():
     assert fast_chat._parse_keywords_json('["护照", "书房"]') == ["护照", "书房"]
     assert fast_chat._parse_keywords_json('```json\n{"keywords":["护照"]}\n```') == ["护照"]
     assert fast_chat._parse_keywords_json("没有关键词") == []
+
+
+@pytest.mark.anyio
+async def test_ask_chain_carries_selection_as_context():
+    fake = _FakeMemos([])
+    captured: dict = {}
+
+    async def fake_extract(query: str, selection: str = "") -> list[str]:
+        captured["extract_selection"] = selection
+        return ["函数"]
+
+    async def fake_answer(query: str, memos: list[dict], selection: str = "") -> str:
+        captured["answer_selection"] = selection
+        return f"这段选中文本是一个计算平方根的实现。"
+
+    with (
+        patch.object(
+            fast_chat,
+            "ask_intent_and_delivery",
+            return_value={"intent": "other", "delivery": "speak"},
+        ),
+        patch.object(fast_chat, "_build_memos_client", return_value=fake),
+        patch.object(fast_chat, "_extract_keywords_with_harness", new=fake_extract),
+        patch.object(fast_chat, "_answer_with_harness", new=fake_answer),
+    ):
+        result = await fast_chat.try_fast_memory_chat("这个函数是干嘛的", selected_text="def sqrt(x): return math.sqrt(x)")
+
+    assert result is not None
+    assert captured["answer_selection"] == "def sqrt(x): return math.sqrt(x)"
+    assert "平方根" in result["reply"]
+    assert result["action"] == "speak"

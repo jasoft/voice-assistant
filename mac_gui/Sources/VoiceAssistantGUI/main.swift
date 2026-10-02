@@ -56,8 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hosting.layer?.masksToBounds = true
         window.contentView = hosting
         positionBottomRight(window: window)
-        // 启动时不强行夺取前台应用的焦点，保留前台应用的文本选区与状态
-        window.orderFront(nil)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         self.window = window
 
         // 输出阶段窗口放大、回到空闲时收起；底边锚定、水平居中，向上生长。
@@ -72,6 +72,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             if event.keyCode == 36 { // Enter
+                // 1. 如果正在录音，按回车立即结束录音并触发查询/生成
+                if self.model.isRecording {
+                    self.model.stopRecording()
+                    return nil
+                }
+                // 2. 如果是空闲且没有打字，按回车开始录音
                 if self.model.canStartRecording && self.model.screenMode == .live && self.model.draftInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     self.model.startRecording()
                     return nil

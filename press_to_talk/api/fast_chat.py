@@ -84,17 +84,22 @@ def _prompt(template_key: str) -> str:
     return str((cfg.get("prompts", {}).get(template_key) or {}).get("system_prompt", ""))
 
 
-async def _extract_keywords_with_harness(query: str) -> list[str]:
-    """Harness(chat-fast) 拆词：从问句提炼检索关键词。失败返回空列表。"""
+async def _extract_keywords_with_harness(query: str, selection: str = "") -> list[str]:
+    """Harness(chat-fast) 拆词：从问句（及可选选中文本上下文）提炼检索关键词。失败返回空列表。"""
+    query_text = query
+    if selection.strip() and len(query.strip()) <= 15:
+        # 问句极短或含代词时，附带截取的部分选中文本帮助精准提取实体
+        query_text = f"{query} （参考选中文本：{selection[:200]}）"
+
     prompt = _prompt("harness_keyword_extract")
     if not prompt:
         prompt = (
             "从下面这句用户问句中提炼 2 到 5 个最核心、最可能命中个人备忘的检索词"
             "（人名、物品、地点、事件等具体实体）。只返回 JSON："
-            "{\"keywords\":[\"词1\",\"词2\"]}\n\n用户问句：%s" % query
+            "{\"keywords\":[\"词1\",\"词2\"]}\n\n用户问句：%s" % query_text
         )
     else:
-        prompt = prompt.replace("%%QUERY%%", query)
+        prompt = prompt.replace("%%QUERY%%", query_text)
 
     client = _chat_harness_client()
     try:
@@ -109,14 +114,23 @@ async def _extract_keywords_with_harness(query: str) -> list[str]:
         await client.close()
 
 
-async def _answer_with_harness(query: str, memos: list[dict[str, Any]]) -> str:
-    """Harness(chat-fast) 回答：有匹配备忘则基于备忘回答，无则正常闲聊。"""
+async def _answer_with_harness(query: str, memos: list[dict[str, Any]], selection: str = "") -> str:
+    """Harness(chat-fast) 回答：有匹配备忘则基于备忘回答，有选中文本则作为上下文，无则正常闲聊。"""
     prompt = _prompt("harness_answer")
     memo_lines = [str(m.get("memory", "")).strip() for m in memos if str(m.get("memory", "")).strip()]
     memos_block = "\n".join(memo_lines) or "（无相关备忘）"
+    selection_block = selection.strip() or "（无选中文本）"
     if not prompt:
-        prompt = "根据相关备忘回答用户问题；若无相关备忘则直接根据你的知识回答。"
-    prompt = prompt.replace("%%QUERY%%", query).replace("%%MEMOS%%", memos_block)
+        prompt = (
+            "根据用户问题、相关备忘以及用户当前选中的文本上下文回答用户问题；"
+            "若无相关备忘则直接根据你的知识回答。\n\n"
+            "用户问题：%%QUERY%%\n\n"
+            "用户当前选中的文本（上下文）：\n%%SELECTION%%\n\n"
+            "相关备忘：\n%%MEMOS%%"
+        )
+    prompt = prompt.replace("%%QUERY%%", query).replace("%%MEMOS%%", memos_block).replace("%%SELECTION%%", selection_block)
+    if selection.strip() and "%%SELECTION%%" not in _prompt("harness_answer") and selection_block not in prompt:
+        prompt += f"\n\n【用户当前选中的文本（上下文）】\n{selection.strip()}"
 
     client = _chat_harness_client()
     try:
@@ -296,6 +310,11 @@ async def try_fast_memory_chat(
     # -- RECORD：直写 Memos --
     if intent == "record":
         content = _clean_record_content(query)
+        if selection:
+            if not content or content in ("这段话", "这个", "这段内容", "选中文本"):
+                content = selection
+            else:
+                content = f"{content}\n\n【选中文本】\n{selection}"
         try:
             result_text = await asyncio.to_thread(
                 _record_memo, memos_client, content, query,
@@ -385,7 +404,10 @@ async def try_fast_memory_chat(
     try:
         stage = "extract_keywords"
         t_kw = time.monotonic()
-        keywords = await _extract_keywords_with_harness(query)
+        try:
+            keywords = await _extract_keywords_with_harness(query, selection=selection)
+        except TypeError:
+            keywords = await _extract_keywords_with_harness(query)
         elapsed_kw = time.monotonic() - t_kw
         log(f"fast-chat [STAGE: KEYWORDS] in {elapsed_kw:.2f}s: {keywords}", level="info")
 
@@ -400,7 +422,10 @@ async def try_fast_memory_chat(
 
         stage = "harness_answer"
         t_ans = time.monotonic()
-        reply = await _answer_with_harness(query, memos_items)
+        try:
+            reply = await _answer_with_harness(query, memos_items, selection=selection)
+        except TypeError:
+            reply = await _answer_with_harness(query, memos_items)
         elapsed_ans = time.monotonic() - t_ans
         reply = str(reply or "").strip()
         if not reply:

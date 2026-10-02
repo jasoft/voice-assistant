@@ -364,6 +364,10 @@ public final class AppModel: ObservableObject {
             && draftInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    public var isRecording: Bool {
+        session.state.status.isRecording
+    }
+
     public var canInterruptCurrentRun: Bool {
         switch session.state.status {
         case .recording, .transcribing, .thinking, .speaking:

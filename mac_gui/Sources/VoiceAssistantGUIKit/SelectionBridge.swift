@@ -123,6 +123,12 @@ public enum SelectionBridge {
         if let original, !original.isEmpty {
             pasteboard.setString(original, forType: .string)
         }
+
+        // 探测完成后，交还焦点给 VoiceAssistantGUI，确保窗口保持 key 状态接收回车与按键
+        if !isAlreadyFront {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
         guard let captured, !captured.isEmpty else { return nil }
         return captured
     }
