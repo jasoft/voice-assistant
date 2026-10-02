@@ -1,9 +1,13 @@
 """Fast-path handler for record/ask chat.
 
 Pipeline:
-  1. TypeSafe once: ask_is_record(query) -> "record" | "other" | None
+  1. TypeSafe once: ask_intent_and_delivery(query, selected_text)
+     - intent: "record" | "other"
+     - delivery: "paste" | "speak" | None（期望产出是粘贴内容还是播报回答）
   2. record -> direct Memos REST API insertion (~0.1-0.3s)
-  3. other (询问):
+  3. other + delivery=paste -> Harness(chat-fast) 按"指令 + 可选选中文本"产出
+     最终内容（改写/生成），调用方直接粘贴到光标处（action="paste"）
+  4. other + 其他（询问）:
      a. Harness(chat-fast) 拆词 (keywords JSON)
      b. 一次 Memos CEL 查询 (~0.1-0.3s)，异常/空 = 无上下文
      c. Harness(chat-fast) 带上下文回答（无匹配则正常闲聊，可 web_search）
@@ -28,7 +32,9 @@ from ..storage.providers.memos import (
 )
 from ..utils.env import load_workflow_config
 from ..utils.logging import log
-from ..utils.typesafe import ask_is_record
+from ..utils.typesafe import ask_intent_and_delivery
+
+_MAX_SELECTION_CHARS = 20000
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +122,33 @@ async def _answer_with_harness(query: str, memos: list[dict[str, Any]]) -> str:
     try:
         result = await client.query(prompt)
         return str(result.get("reply", "")).strip()
+    finally:
+        await client.close()
+
+
+async def _compose_with_harness(query: str, selection: str) -> str | None:
+    """Harness(chat-fast) 产出要粘贴的最终内容（改写/生成）。失败返回 None。"""
+    selection_block = selection or "（无选中文本，按指令直接生成）"
+    prompt = _prompt("harness_compose")
+    if not prompt:
+        prompt = (
+            "根据用户指令直接输出要替换选中文本、或粘贴到光标处的最终内容本身，"
+            "不要任何解释、前缀或代码围栏。若提供了选中文本且指令是对它的加工，"
+            "以选中文本为基础完成。\n\n用户指令：%s\n\n用户当前选中的文本（可能为空）：\n%s"
+            % (query, selection_block)
+        )
+    else:
+        prompt = prompt.replace("%%INSTRUCTION%%", query).replace("%%SELECTION%%", selection_block)
+
+    client = _chat_harness_client()
+    try:
+        result = await client.query(prompt)
+        reply = str(result.get("reply", "")).strip()
+        log(f"fast-chat: harness 产出粘贴内容 {len(reply)} 字", level="info")
+        return reply or None
+    except Exception as exc:
+        log(f"fast-chat: harness 产出内容失败: {type(exc).__name__}: {exc}", level="warn")
+        return None
     finally:
         await client.close()
 
@@ -227,24 +260,32 @@ async def try_fast_memory_chat(
     query: str,
     *,
     stream_callback: Any | None = None,
+    selected_text: str | None = None,
 ) -> dict[str, Any] | None:
     """Attempt a fast-path memory operation.
 
-    Returns a dict with ``reply``, ``memories``, ``query``, ``debug_info``
-    on success, or *None* if the fast path cannot serve this query
-    (TypeSafe disabled/failed or 询问链路异常——caller falls back to Harness).
+    Returns a dict with ``reply``, ``action`` ("speak"|"paste"), ``memories``,
+    ``query``, ``debug_info`` on success, or *None* if the fast path cannot
+    serve this query (TypeSafe disabled/failed or 询问链路异常——caller falls
+    back to Harness).
     """
     t0 = time.monotonic()
-    log(f"fast-chat: 收到查询 query={query[:80]}", level="info")
+    selection = (selected_text or "").strip()
+    if len(selection) > _MAX_SELECTION_CHARS:
+        log(f"fast-chat: 选中文本过长（{len(selection)} 字符），截断至 {_MAX_SELECTION_CHARS}", level="info")
+        selection = selection[:_MAX_SELECTION_CHARS]
+    log(f"fast-chat: 收到查询 query={query[:80]} selection_len={len(selection)}", level="info")
 
-    # -- Step 1: TypeSafe 一次调用，二分"记录 / 其他（询问）" --
+    # -- Step 1: TypeSafe 一次调用，二分"记录 / 其他（询问）"+ 期望产出方式 --
     t_ts = time.monotonic()
-    intent = ask_is_record(query)
+    decision = ask_intent_and_delivery(query, selection or None)
     elapsed_ts = time.monotonic() - t_ts
-    if intent is None:
+    if decision is None:
         log(f"fast-chat: TypeSafe 未启用或调用失败，交由 Harness Agent 回退", level="info")
         return None
-    log(f"fast-chat: typesafe intent={intent} in {elapsed_ts:.2f}s", level="info")
+    intent = decision["intent"]
+    delivery = decision.get("delivery")
+    log(f"fast-chat: typesafe intent={intent} delivery={delivery} in {elapsed_ts:.2f}s", level="info")
 
     try:
         memos_client = _build_memos_client()
@@ -264,6 +305,7 @@ async def try_fast_memory_chat(
             log(f"fast-chat [STAGE: RECORD] Memos creation failed: {err_type}: {exc}", level="error")
             return {
                 "reply": "记录失败，请稍后再试。",
+                "action": "speak",
                 "memories": [],
                 "query": query,
                 "debug_info": {
@@ -278,6 +320,7 @@ async def try_fast_memory_chat(
         log(f"fast-chat: record done in {elapsed_total:.2f}s", level="info")
         return {
             "reply": result_text,
+            "action": "speak",
             "memories": [],
             "query": query,
             "debug_info": {
@@ -287,6 +330,52 @@ async def try_fast_memory_chat(
                 "typesafe_s": round(elapsed_ts, 2),
             },
         }
+
+    # -- OTHER + PASTE：Harness 按"指令 + 可选选中文本"产出内容，调用方回贴 --
+    if delivery == "paste":
+        try:
+            stage = "compose"
+            t_comp = time.monotonic()
+            reply = await _compose_with_harness(query, selection)
+            elapsed_comp = time.monotonic() - t_comp
+            if not reply:
+                log("fast-chat: compose 产出为空，降级为播报", level="warn")
+                return {
+                    "reply": "内容生成失败，请稍后再试。",
+                    "action": "speak",
+                    "memories": [],
+                    "query": query,
+                    "debug_info": {
+                        "backend": "fast-chat",
+                        "intent": "compose",
+                        "stage": "compose_empty",
+                    },
+                }
+            elapsed_total = time.monotonic() - t0
+            log(f"fast-chat: compose done in {elapsed_total:.2f}s", level="info")
+            return {
+                "reply": reply,
+                "action": "paste",
+                "memories": [],
+                "query": query,
+                "debug_info": {
+                    "backend": "fast-chat",
+                    "intent": "compose",
+                    "has_selection": bool(selection),
+                    "elapsed_s": round(elapsed_total, 2),
+                    "typesafe_s": round(elapsed_ts, 2),
+                    "elapsed_compose_s": round(elapsed_comp, 2),
+                },
+            }
+        except Exception as exc:
+            import traceback
+            tb = traceback.format_exc()
+            log(
+                f"fast-chat [STAGE: COMPOSE_ERROR] 产出链路失败: "
+                f"{type(exc).__name__}: {exc}\n{tb}",
+                level="error",
+            )
+            return None
 
     # -- OTHER（询问）：Harness 拆词 → 一次 CEL → Harness 回答 --
     stage = "extract_keywords"
@@ -343,6 +432,7 @@ async def try_fast_memory_chat(
     ]
     return {
         "reply": reply,
+        "action": "speak",
         "memories": memories_out,
         "query": query,
         "debug_info": {

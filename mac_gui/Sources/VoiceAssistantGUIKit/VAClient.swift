@@ -3,6 +3,8 @@ import Foundation
 public struct VAQueryResponse: Decodable {
     public let reply: String
     public let query: String?
+    /// "speak"（默认，语音播报）或 "paste"（reply 应粘贴到目标窗口光标处）。
+    public let action: String?
 }
 
 public struct VAHistoryItem: Decodable {
@@ -33,7 +35,8 @@ public final class VAClient: Sendable {
     }
     
     /// Send a stateless one-shot request through the dedicated fast chat Agent.
-    public func chat(text: String) async throws -> VAQueryResponse {
+    /// `selectedText` 是窗口激活前捕获的选中文本；提供后后端可走 改写/生成→粘贴 链路。
+    public func chat(text: String, selectedText: String? = nil) async throws -> VAQueryResponse {
         let url = Self.makeChatURL(base: config.serverURL)
 
         var request = URLRequest(url: url)
@@ -42,7 +45,10 @@ public final class VAClient: Sendable {
         request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let body: [String: Any] = ["query": text]
+        var body: [String: Any] = ["query": text]
+        if let selectedText, !selectedText.isEmpty {
+            body["selected_text"] = selectedText
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)

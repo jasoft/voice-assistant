@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -28,6 +29,18 @@ public final class AppModel: ObservableObject {
     private var ttsProcess: Process?
     private(set) var isShuttingDown = false
 
+    // MARK: 选中文本 / 回贴（改写与生成功能）
+
+    /// 窗口激活前的目标应用（选中文本来源，也是粘贴目标）。
+    private(set) var selectionTarget: NSRunningApplication?
+    /// 捕获到的选中文本；AX 失败时剪贴板兜底会稍后异步补上。
+    private(set) var selectionText: String?
+    /// 辅助功能未授权时给用户的提示。
+    @Published public private(set) var selectionNotice: String?
+    /// 与上一个应用交换焦点期间（读剪贴板兜底 / 回贴），resign-active 不触发退出。
+    public private(set) var isFocusExchangeInFlight = false
+    private var postPasteExitTask: Task<Void, Never>?
+
     public init(forwardedArgs: [String], workingDirectory: URL) {
         let session = SessionViewModel()
         self.session = session
@@ -49,6 +62,8 @@ public final class AppModel: ObservableObject {
             self.vaClient = nil
             self.serviceManager = nil
         }
+
+        captureSelectionFromPreviousApp()
 
         session.objectWillChange
             .sink { [weak self] _ in
@@ -93,20 +108,84 @@ public final class AppModel: ObservableObject {
 
     private func performRemoteQuery(text: String) {
         applySessionEvent(["type": "status", "phase": "thinking"])
+        let selectedText = selectionText
         Task { @MainActor in
             do {
                 guard let client = vaClient else { return }
-                let response = try await client.chat(text: text)
+                let response = try await client.chat(text: text, selectedText: selectedText)
                 guard !isShuttingDown else { return }
                 applySessionEvent(["type": "reply", "text": response.reply])
-                applySessionEvent(["type": "status", "phase": "done", "auto_close_seconds": 5])
-
-                // Optional: Play TTS locally
-                speakLocally(text: response.reply)
+                if response.action == "paste" {
+                    let note = await deliverPaste(response.reply)
+                    applySessionEvent(["type": "status", "phase": "done", "auto_close_seconds": 5, "note": note])
+                } else {
+                    applySessionEvent(["type": "status", "phase": "done", "auto_close_seconds": 5])
+                    // Optional: Play TTS locally
+                    speakLocally(text: response.reply)
+                }
             } catch {
                 applySessionEvent(["type": "error", "message": "API Error: \(error.localizedDescription)"])
             }
         }
+    }
+
+    // MARK: 选中文本捕获与回贴
+
+    /// 窗口激活前定位上一个前台应用并读取选中文本。
+    /// AX 同步读取优先（无焦点切换）；失败时若已授权，用剪贴板兜底异步补齐。
+    private func captureSelectionFromPreviousApp() {
+        guard SelectionBridge.isAXTrusted else {
+            selectionNotice = "未授予「辅助功能」权限：无法读取选中文本与自动粘贴（系统设置 → 隐私与安全性 → 辅助功能，添加 VoiceAssistantGUI）"
+            return
+        }
+        guard let target = SelectionBridge.previousUserApp() else { return }
+        selectionTarget = target
+        if let text = SelectionBridge.readSelectedText(pid: target.processIdentifier) {
+            selectionText = SelectionBridge.truncateSelection(text)
+            return
+        }
+        isFocusExchangeInFlight = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let captured = await SelectionBridge.captureViaClipboard(app: target)
+            self.isFocusExchangeInFlight = false
+            if let captured {
+                self.selectionText = SelectionBridge.truncateSelection(captured)
+            }
+        }
+    }
+
+    /// 把生成内容回贴到目标窗口；无法回贴时降级为"留在剪贴板"。
+    private func deliverPaste(_ text: String) async -> String {
+        guard let target = selectionTarget, SelectionBridge.isAXTrusted else {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            return "已复制到剪贴板，请手动 Command+V 粘贴"
+        }
+        isFocusExchangeInFlight = true
+        defer { isFocusExchangeInFlight = false }
+        let ok = await SelectionBridge.pasteText(text, to: target)
+        if ok {
+            schedulePostPasteExit()
+            return "已粘贴到 \(target.localizedName ?? "上一个窗口")"
+        }
+        return "已复制到剪贴板，请手动 Command+V 粘贴"
+    }
+
+    /// 粘贴完成后焦点已交还目标应用，窗口静置一段时间自动退出；任何交互都会取消。
+    private func schedulePostPasteExit() {
+        postPasteExitTask?.cancel()
+        postPasteExitTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            guard let self, !Task.isCancelled, !self.isShuttingDown else { return }
+            NSApp.terminate(nil)
+        }
+    }
+
+    private func cancelPostPasteExit() {
+        postPasteExitTask?.cancel()
+        postPasteExitTask = nil
     }
 
     private func applySessionEvent(_ payload: [String: Any]) {
@@ -157,6 +236,7 @@ public final class AppModel: ObservableObject {
     }
 
     public func startRecording() {
+        cancelPostPasteExit()
         session.stopCountdown()
         session.resetForNewSession()
         screenMode = .live
@@ -181,6 +261,7 @@ public final class AppModel: ObservableObject {
     }
 
     public func submitTextInput(_ prompt: String) {
+        cancelPostPasteExit()
         session.stopCountdown()
         session.resetForNewSession()
         screenMode = .live
@@ -225,6 +306,7 @@ public final class AppModel: ObservableObject {
     }
 
     public func keepWindowOpen() {
+        cancelPostPasteExit()
         session.pinOpen()
     }
 
@@ -295,6 +377,7 @@ public final class AppModel: ObservableObject {
 
         isShuttingDown = true
         historySearchTask?.cancel()
+        postPasteExitTask?.cancel()
 
         // Stop the launcher first so a run cannot start another TTS child.
         bridge.stop()

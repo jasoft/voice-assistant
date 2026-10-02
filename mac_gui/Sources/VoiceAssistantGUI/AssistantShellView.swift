@@ -62,10 +62,19 @@ struct AssistantShellView: View {
             quickActions
                 .padding(.horizontal, 18)
                 .padding(.top, 14)
-                .padding(.bottom, 18)
+
+            if let notice = model.selectionNotice {
+                Text(notice)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color(red: 0.63, green: 0.65, blue: 0.71))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 10)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, 44)
+        .padding(.bottom, 18)
     }
 
     private var centerStageContent: some View {
@@ -135,6 +144,10 @@ struct AssistantShellView: View {
 
                     if showReplyCard {
                         replyCard
+                    }
+
+                    if !model.session.state.note.isEmpty {
+                        pasteNoteView
                     }
 
                     if let errorMessage = visibleErrorMessage {
@@ -350,6 +363,20 @@ struct AssistantShellView: View {
                 )
                 .shadow(color: Color.black.opacity(0.04), radius: 14, x: 0, y: 8)
         )
+    }
+
+    private var pasteNoteView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.down.doc.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(red: 0.23, green: 0.51, blue: 0.87))
+            Text(model.session.state.note)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(red: 0.23, green: 0.51, blue: 0.87))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(Capsule(style: .continuous).fill(Color(red: 0.91, green: 0.95, blue: 1.00)))
     }
 
     private var speechToggleButton: some View {

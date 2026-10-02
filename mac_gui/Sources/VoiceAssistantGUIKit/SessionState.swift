@@ -35,6 +35,8 @@ public struct SessionState: Equatable {
     public var transcript: String = ""
     public var errorMessage: String = ""
     public var autoCloseSeconds: Int = 0
+    /// 附加在本轮结果上的提示（如"已粘贴到 Safari"）。
+    public var note: String = ""
     
     // 内部存储，用于在非录音状态下也保持某些数值同步
     private var lastAudioLevel: Double = 0.0
@@ -97,6 +99,9 @@ public struct SessionState: Equatable {
         
         if let seconds = payload["auto_close_seconds"] as? Int {
             autoCloseSeconds = max(0, seconds)
+        }
+        if let note = payload["note"] as? String {
+            self.note = note
         }
     }
 

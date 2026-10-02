@@ -352,6 +352,14 @@ class QueryRequest(BaseModel):
         None, 
         description="可选的图片附件。若提供，系统会将其持久化并与当前会话关联。空值将被安全忽略。"
     )
+    selected_text: Optional[str] = Field(
+        None,
+        description=(
+            "可选的选中文本上下文（GUI 在窗口激活前从上一个前台应用捕获）。"
+            "提供后请求可走 改写/生成→粘贴 链路：当模型判定用户期望产出一段要插入"
+            "光标处的内容时，回复的 action 为 'paste'，reply 即应粘贴的最终内容。"
+        )
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -395,6 +403,14 @@ class QueryResponse(BaseModel):
     查询执行结果响应对象。
     """
     reply: str = Field(..., description="助手生成的最终文本回复。")
+    action: str = Field(
+        "speak",
+        description=(
+            "建议的输出方式：'speak' 为常规回答（语音播报/展示）；"
+            "'paste' 表示 reply 是应替换选中文本、或粘贴到目标窗口光标处的内容，"
+            "调用方（如 Mac GUI）应以 Cmd+V 回贴而不是朗读。"
+        )
+    )
     memories: List[MemoryItem] = Field(
         default_factory=list, 
         description="执行过程中检索到的相关记忆列表。按相关性降序排列。"
@@ -591,7 +607,7 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
 
     # --- Fast path: direct memory operations ---
     try:
-        fast_result = await try_fast_memory_chat(req.query)
+        fast_result = await try_fast_memory_chat(req.query, selected_text=req.selected_text)
         if fast_result is not None:
             log(
                 f"fast-chat: served in {fast_result.get('debug_info', {}).get('elapsed_s', '?')}s",
@@ -621,6 +637,7 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
                 ))
             return QueryResponse(
                 reply=str(fast_result.get("reply", "")),
+                action=str(fast_result.get("action") or "speak"),
                 memories=memories_out,
                 images=[],
                 query=fast_result.get("query") or req.query,
@@ -632,6 +649,15 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
     # --- Slow path: Harness Agent fallback ---
     if not _uses_harness_backend():
         raise HTTPException(status_code=404, detail="聊天端点仅在 Harness 模式可用")
+
+    # 慢路径没有 delivery 判定，退化为把选中文本作为上下文拼进问句（播报回答）。
+    if req.selected_text and req.selected_text.strip():
+        selection = req.selected_text.strip()
+        if len(selection) > 20000:
+            selection = selection[:20000]
+        req = req.model_copy(update={
+            "query": f"{req.query}\n\n【用户当前选中的文本】\n{selection}",
+        })
 
     try:
         client = _chat_harness_client_for(user_id)
