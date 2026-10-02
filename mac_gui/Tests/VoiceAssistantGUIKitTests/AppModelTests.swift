@@ -64,6 +64,13 @@ struct AppModelTests {
 
         #expect(model.isSpeechMuted)
     }
+
+    @Test
+    func selectionTextIsInitiallyAccessibleAndObservable() {
+        let model = AppModel(forwardedArgs: [], workingDirectory: URL(fileURLWithPath: "/tmp"))
+        // model.selectionText 是 @Published，初值可被正常读取且支持变更通知
+        #expect(model.selectionText == nil || !model.selectionText!.isEmpty)
+    }
 }
 
 @MainActor

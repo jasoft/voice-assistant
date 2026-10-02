@@ -40,7 +40,7 @@ public final class AppModel: ObservableObject {
     /// 窗口激活前的目标应用（选中文本来源，也是粘贴目标）。
     private(set) var selectionTarget: NSRunningApplication?
     /// 捕获到的选中文本；AX 失败时剪贴板兜底会稍后异步补上。
-    private(set) var selectionText: String?
+    @Published public private(set) var selectionText: String?
     /// 辅助功能未授权时给用户的提示。
     @Published public private(set) var selectionNotice: String?
     /// 与上一个应用交换焦点期间（读剪贴板兜底 / 回贴），resign-active 不触发退出。
@@ -162,7 +162,8 @@ public final class AppModel: ObservableObject {
     // MARK: 选中文本捕获与回贴
 
     /// 窗口激活前定位上一个前台应用并读取选中文本。
-    /// AX 同步读取优先（无焦点切换）；只有在控件不支持 AX 时才用剪贴板兜底异步探测。
+    /// 1. AX 优先同步读取；
+    /// 2. AX 未命中（大多数 Web/Electron 划词场景）无缝走 Cmd+C 快速剪贴板探测。
     private func captureSelectionFromPreviousApp() {
         guard SelectionBridge.isAXTrusted else {
             selectionNotice = "未授予「辅助功能」权限：无法读取选中文本与自动粘贴（系统设置 → 隐私与安全性 → 辅助功能，添加 VoiceAssistantGUI）"
@@ -171,30 +172,19 @@ public final class AppModel: ObservableObject {
         guard let target = SelectionBridge.previousUserApp() else { return }
         selectionTarget = target
 
-        switch SelectionBridge.readSelectionResult(pid: target.processIdentifier) {
-        case .text(let text):
-            selectionText = SelectionBridge.truncateSelection(text)
+        // 1. 同步 AX 读取
+        if let direct = SelectionBridge.readSelectedText(pid: target.processIdentifier), !direct.isEmpty {
+            selectionText = SelectionBridge.truncateSelection(direct)
             return
-        case .empty:
-            // 目标控件已确认聚焦且无选中文本（对应生成指定文字插入光标场景），无需走剪贴板按 Cmd+C
-            selectionText = nil
-            return
-        case .unsupported:
-            // 目标控件不支持 AX 读取，尝试通过剪贴板兜底探测是否有选中文本
-            break
         }
 
+        // 2. AX 读不到，启动剪贴板 Cmd+C 探测（支持 Orca、浏览器网页、VSCode、Slack、聊天窗口等划选内容）
         isFocusExchangeInFlight = true
         selectionCaptureTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            // 测试环境没有运行中的 NSApplication，跳过焦点交换避免副作用。
-            guard NSApp != nil else {
-                self.isFocusExchangeInFlight = false
-                return
-            }
             let captured = await SelectionBridge.captureViaClipboard(app: target)
             self.isFocusExchangeInFlight = false
-            if let captured {
+            if let captured, !captured.isEmpty {
                 self.selectionText = SelectionBridge.truncateSelection(captured)
             }
         }

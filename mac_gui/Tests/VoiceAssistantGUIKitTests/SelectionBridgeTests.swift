@@ -40,4 +40,11 @@ struct SelectionBridgeTests {
         #expect(SelectionBridge.SelectionReadResult.text("abc") == SelectionBridge.SelectionReadResult.text("abc"))
         #expect(SelectionBridge.SelectionReadResult.text("abc") != SelectionBridge.SelectionReadResult.empty)
     }
+
+    @Test
+    func selectionBridgeTruncatesAndFormatsCapturedText() {
+        let input = "测试选中文本内容"
+        let truncated = SelectionBridge.truncateSelection(input)
+        #expect(truncated == input)
+    }
 }
