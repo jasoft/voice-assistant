@@ -32,4 +32,12 @@ struct SelectionBridgeTests {
         state = SessionState()
         #expect(state.note.isEmpty)
     }
+
+    @Test
+    func selectionReadResultEquality() {
+        #expect(SelectionBridge.SelectionReadResult.empty == SelectionBridge.SelectionReadResult.empty)
+        #expect(SelectionBridge.SelectionReadResult.unsupported == SelectionBridge.SelectionReadResult.unsupported)
+        #expect(SelectionBridge.SelectionReadResult.text("abc") == SelectionBridge.SelectionReadResult.text("abc"))
+        #expect(SelectionBridge.SelectionReadResult.text("abc") != SelectionBridge.SelectionReadResult.empty)
+    }
 }

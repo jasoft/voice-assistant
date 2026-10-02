@@ -33,23 +33,52 @@ public enum SelectionBridge {
         return String(text.prefix(maxSelectionLength)) + "…\n\n（选中文本过长，已截断）"
     }
 
+    public enum SelectionReadResult: Equatable {
+        case text(String)
+        case empty
+        case unsupported
+    }
+
     // MARK: - AX 读取（无焦点切换）
 
-    /// 读取目标应用当前聚焦控件里的选中文本；原生文本控件与 Chromium 系应用大多可用。
-    public static func readSelectedText(pid: pid_t) -> String? {
+    /// 读取目标应用当前聚焦控件里的选中文本状态。
+    public static func readSelectionResult(pid: pid_t) -> SelectionReadResult {
         let appElement = AXUIElementCreateApplication(pid)
         if let direct = selectedText(of: appElement) {
-            return direct
+            return .text(direct)
         }
         var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
+        let focusedRet = AXUIElementCopyAttributeValue(
             appElement,
             kAXFocusedUIElementAttribute as CFString,
             &focused
-        ) == .success, let focused else {
-            return nil
+        )
+        guard focusedRet == .success, let focused else {
+            return .unsupported
         }
-        return selectedText(of: focused as! AXUIElement)
+        let focusedElement = focused as! AXUIElement
+        var value: CFTypeRef?
+        let selRet = AXUIElementCopyAttributeValue(
+            focusedElement,
+            kAXSelectedTextAttribute as CFString,
+            &value
+        )
+        if selRet == .success {
+            if let text = value as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? .empty : .text(trimmed)
+            }
+            return .empty
+        }
+        return .unsupported
+    }
+
+    /// 读取目标应用当前聚焦控件里的选中文本；原生文本控件与 Chromium 系应用大多可用。
+    public static func readSelectedText(pid: pid_t) -> String? {
+        if case .text(let str) = readSelectionResult(pid: pid) {
+            return str
+        }
+        return nil
     }
 
     private static func selectedText(of element: AXUIElement) -> String? {
@@ -76,7 +105,7 @@ public enum SelectionBridge {
 
         guard activateApp(app) else { return nil }
         try? await Task.sleep(nanoseconds: 280_000_000)
-        postKeyCommand(keyCodeC)
+        await postKeyCommand(keyCodeC)
 
         var captured: String?
         for _ in 0..<8 {
@@ -105,7 +134,7 @@ public enum SelectionBridge {
         pasteboard.setString(text, forType: .string)
         guard activateApp(app) else { return false }
         try? await Task.sleep(nanoseconds: 350_000_000)
-        postKeyCommand(keyCodeV)
+        await postKeyCommand(keyCodeV)
         try? await Task.sleep(nanoseconds: 200_000_000)
         return true
     }
@@ -119,11 +148,14 @@ public enum SelectionBridge {
     }
 
     /// 模拟带 Command 修饰键的按键（发给系统焦点所在应用）。
-    public static func postKeyCommand(_ keyCode: CGKeyCode) {
-        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else { return }
+    /// 使用真实 HID 事件源，并保证 keydown 与 keyup 之间有足够的事件循环间隔。
+    public static func postKeyCommand(_ keyCode: CGKeyCode) async {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) else { return }
         down.flags = .maskCommand
         down.post(tap: .cghidEventTap)
-        if let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) {
+        try? await Task.sleep(nanoseconds: 40_000_000)
+        if let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) {
             up.flags = .maskCommand
             up.post(tap: .cghidEventTap)
         }

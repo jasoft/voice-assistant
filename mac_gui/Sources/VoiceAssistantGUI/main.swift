@@ -127,8 +127,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidResignActive(_ notification: Notification) {
-        // 读取选中文本兜底 / 回贴期间会短暂让出焦点，不属于"用户离开"。
-        guard !model.isFocusExchangeInFlight else { return }
+        // 读取选中文本兜底 / 回贴期间 / 回贴完成后静置展示期间，不因失去焦点立即退出。
+        guard !model.isFocusExchangeInFlight && !model.isPostPasteActive else { return }
         // Exit when focus is lost
         NSApp.terminate(nil)
     }

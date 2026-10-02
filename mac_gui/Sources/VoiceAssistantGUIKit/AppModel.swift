@@ -150,10 +150,13 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    /// 粘贴完成后窗口静置等待自动退出的状态。
+    public var isPostPasteActive: Bool { postPasteExitTask != nil }
+
     // MARK: 选中文本捕获与回贴
 
     /// 窗口激活前定位上一个前台应用并读取选中文本。
-    /// AX 同步读取优先（无焦点切换）；失败时若已授权，用剪贴板兜底异步补齐。
+    /// AX 同步读取优先（无焦点切换）；只有在控件不支持 AX 时才用剪贴板兜底异步探测。
     private func captureSelectionFromPreviousApp() {
         guard SelectionBridge.isAXTrusted else {
             selectionNotice = "未授予「辅助功能」权限：无法读取选中文本与自动粘贴（系统设置 → 隐私与安全性 → 辅助功能，添加 VoiceAssistantGUI）"
@@ -161,10 +164,20 @@ public final class AppModel: ObservableObject {
         }
         guard let target = SelectionBridge.previousUserApp() else { return }
         selectionTarget = target
-        if let text = SelectionBridge.readSelectedText(pid: target.processIdentifier) {
+
+        switch SelectionBridge.readSelectionResult(pid: target.processIdentifier) {
+        case .text(let text):
             selectionText = SelectionBridge.truncateSelection(text)
             return
+        case .empty:
+            // 目标控件已确认聚焦且无选中文本（对应生成指定文字插入光标场景），无需走剪贴板按 Cmd+C
+            selectionText = nil
+            return
+        case .unsupported:
+            // 目标控件不支持 AX 读取，尝试通过剪贴板兜底探测是否有选中文本
+            break
         }
+
         isFocusExchangeInFlight = true
         Task { @MainActor [weak self] in
             guard let self else { return }

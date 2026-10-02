@@ -8,7 +8,11 @@ APP_NAME="VoiceAssistantGUI"
 
 find_release_binary() {
   local candidate
-  for candidate in "${PACKAGE_DIR}"/.build/*/release/"${APP_NAME}"; do
+  for candidate in \
+    "${PACKAGE_DIR}"/.build/out/Products/Release/"${APP_NAME}" \
+    "${PACKAGE_DIR}"/.build/release/"${APP_NAME}" \
+    "${PACKAGE_DIR}"/.build/*/release/"${APP_NAME}" \
+    "${PACKAGE_DIR}"/.build/*/*/Release/"${APP_NAME}"; do
     if [[ -x "${candidate}" ]]; then
       printf '%s\n' "${candidate}"
       return 0
@@ -57,4 +61,8 @@ cd "${PACKAGE_DIR}"
 swift build -c release
 
 BINARY_PATH="$(find_release_binary)"
+# 同步更新兼容路径，避免直接调用旧二进制路径失效
+mkdir -p "${PACKAGE_DIR}/.build/arm64-apple-macosx/release"
+ln -sf "${BINARY_PATH}" "${PACKAGE_DIR}/.build/arm64-apple-macosx/release/${APP_NAME}"
+
 exec "${BINARY_PATH}" "$@"
