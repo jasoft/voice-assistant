@@ -1,0 +1,40 @@
+name: VoiceAssistantWatch
+options:
+  bundleIdPrefix: com.soj
+  deploymentTarget:
+    watchOS: "10.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: U6BC4VT83B
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.9"
+targets:
+  WatchApp:
+    type: application
+    platform: watchOS
+    sources:
+      - WatchApp/Sources
+    info:
+      path: WatchApp/Info.plist
+      properties:
+        CFBundleDisplayName: 语音助手
+        WKApplication: true
+        WKWatchOnly: true
+        NSMicrophoneUsageDescription: 录下你说的话，交给语音助手回答。
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            docker.home:
+              NSExceptionAllowsInsecureHTTPLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.soj.voiceassistant.watch
+        TARGETED_DEVICE_FAMILY: "4"
+schemes:
+  WatchApp:
+    build:
+      targets:
+        WatchApp: all
+    run:
+      config: Debug
