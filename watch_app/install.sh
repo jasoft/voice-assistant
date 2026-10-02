@@ -29,17 +29,29 @@ xcrun devicectl list devices
 
 DEVICE_ID="${WATCH_DEVICE_ID:-}"
 if [ -z "$DEVICE_ID" ]; then
-  DEVICE_ID=$(xcrun devicectl list devices --json-output - 2>/dev/null | python3 -c '
+  DEVJSON=$(mktemp)
+  xcrun devicectl list devices --json-output "$DEVJSON" >/dev/null 2>&1 || true
+  DEVICE_ID=$(python3 - "$DEVJSON" <<'PY'
 import json, sys
 try:
-    data = json.load(sys.stdin)
+    data = json.load(open(sys.argv[1]))
 except Exception:
     sys.exit(0)
 devices = (data.get("result") or {}).get("devices") or []
-watches = [d for d in devices if "watch" in (d.get("deviceType") or d.get("properties", {}).get("deviceType") or "").lower()]
+watches = []
+for d in devices:
+    hardware = (d.get("properties") or {}).get("hardware") or {}
+    state = (d.get("properties") or {}).get("state") or {}
+    if hardware.get("deviceType") != "appleWatch":
+        continue
+    if d.get("visibilityClass", state.get("visibilityClass")) == "simulators":
+        continue  # 跳过模拟器，只装真机
+    watches.append(d)
 if watches:
     print(watches[0].get("identifier", ""))
-' || true)
+PY
+) || true
+  rm -f "$DEVJSON"
 fi
 
 if [ -z "$DEVICE_ID" ]; then
