@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, File, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -7,7 +7,9 @@ from types import SimpleNamespace
 import os
 import asyncio
 import base64
+import tempfile
 import uuid
+from pathlib import Path
 from datetime import datetime, timezone
 import dataclasses
 from contextlib import asynccontextmanager
@@ -34,6 +36,7 @@ from ..reminders import (
 from ..storage.models import SessionHistoryRecord
 from ..storage.providers.mem0 import Mem0RememberStore
 from .fast_chat import try_fast_memory_chat
+from ..audio.stt import run_stt
 
 
 
@@ -352,6 +355,14 @@ class QueryRequest(BaseModel):
         None, 
         description="可选的图片附件。若提供，系统会将其持久化并与当前会话关联。空值将被安全忽略。"
     )
+    selected_text: Optional[str] = Field(
+        None,
+        description=(
+            "可选的选中文本上下文（GUI 在窗口激活前从上一个前台应用捕获）。"
+            "提供后请求可走 改写/生成→粘贴 链路：当模型判定用户期望产出一段要插入"
+            "光标处的内容时，回复的 action 为 'paste'，reply 即应粘贴的最终内容。"
+        )
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -395,6 +406,14 @@ class QueryResponse(BaseModel):
     查询执行结果响应对象。
     """
     reply: str = Field(..., description="助手生成的最终文本回复。")
+    action: str = Field(
+        "speak",
+        description=(
+            "建议的输出方式：'speak' 为常规回答（语音播报/展示）；"
+            "'paste' 表示 reply 是应替换选中文本、或粘贴到目标窗口光标处的内容，"
+            "调用方（如 Mac GUI）应以 Cmd+V 回贴而不是朗读。"
+        )
+    )
     memories: List[MemoryItem] = Field(
         default_factory=list, 
         description="执行过程中检索到的相关记忆列表。按相关性降序排列。"
@@ -405,6 +424,12 @@ class QueryResponse(BaseModel):
     )
     query: Optional[str] = Field(None, description="本次查询实际执行时的标准化文本（可能与输入不同）。")
     debug_info: Optional[Dict[str, Any]] = Field(None, description="包含推理路径、意图分析等调试信息，供开发者或 Agent 自我排查。")
+
+class AudioAskResponse(QueryResponse):
+    """语音提问响应：在 QueryResponse 基础上附带服务端 STT 识别出的文本。"""
+
+    transcript: str = Field(..., description="服务端 STT 识别出的用户语音文本。")
+
 
 class AsyncQueryResponse(BaseModel):
     """Acknowledgement for a long-running query accepted for background work."""
@@ -591,7 +616,7 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
 
     # --- Fast path: direct memory operations ---
     try:
-        fast_result = await try_fast_memory_chat(req.query)
+        fast_result = await try_fast_memory_chat(req.query, selected_text=req.selected_text)
         if fast_result is not None:
             log(
                 f"fast-chat: served in {fast_result.get('debug_info', {}).get('elapsed_s', '?')}s",
@@ -621,6 +646,7 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
                 ))
             return QueryResponse(
                 reply=str(fast_result.get("reply", "")),
+                action=str(fast_result.get("action") or "speak"),
                 memories=memories_out,
                 images=[],
                 query=fast_result.get("query") or req.query,
@@ -632,6 +658,15 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
     # --- Slow path: Harness Agent fallback ---
     if not _uses_harness_backend():
         raise HTTPException(status_code=404, detail="聊天端点仅在 Harness 模式可用")
+
+    # 慢路径没有 delivery 判定，退化为把选中文本作为上下文拼进问句（播报回答）。
+    if req.selected_text and req.selected_text.strip():
+        selection = req.selected_text.strip()
+        if len(selection) > 20000:
+            selection = selection[:20000]
+        req = req.model_copy(update={
+            "query": f"{req.query}\n\n【用户当前选中的文本】\n{selection}",
+        })
 
     try:
         client = _chat_harness_client_for(user_id)
@@ -687,6 +722,65 @@ async def chat(req: QueryRequest, user_id: str = Depends(get_user_id)):
 )
 async def chat_alias(req: QueryRequest, user_id: str = Depends(get_user_id)):
     return await _handle_chat(req, user_id)
+
+
+_ASK_AUDIO_MIN_SECONDS = 0.4
+
+
+def _wav_duration_seconds(path: Path) -> Optional[float]:
+    """Return WAV duration in seconds, or None when the container is not WAV."""
+    import wave
+
+    try:
+        with wave.open(str(path), "rb") as wav:
+            rate = wav.getframerate() or 1
+            return wav.getnframes() / rate
+    except (wave.Error, EOFError):
+        return None
+
+
+async def _transcribe_upload(file: UploadFile) -> str:
+    """落盘上传的录音并调用服务端 STT，返回识别文本。"""
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="音频内容为空")
+    suffix = Path(file.filename or "audio.wav").suffix or ".wav"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(content)
+        audio_path = Path(tmp.name)
+    try:
+        duration = await asyncio.to_thread(_wav_duration_seconds, audio_path)
+        if duration is not None and duration < _ASK_AUDIO_MIN_SECONDS:
+            raise HTTPException(status_code=400, detail="录音太短，请说完再停止录音")
+        stt_url = os.environ.get("PTT_STT_URL", "").strip()
+        if not stt_url:
+            raise HTTPException(status_code=503, detail="STT 服务未配置（PTT_STT_URL）")
+        transcript = await asyncio.to_thread(
+            run_stt, stt_url, os.environ.get("PTT_STT_TOKEN", ""), audio_path
+        )
+    finally:
+        audio_path.unlink(missing_ok=True)
+    transcript = (transcript or "").strip()
+    if not transcript:
+        raise HTTPException(status_code=422, detail="未能识别到语音内容")
+    return transcript
+
+
+@app.post(
+    "/v1/ask-audio",
+    response_model=AudioAskResponse,
+    summary="语音提问：上传录音，服务端转写后走聊天链路",
+    description=(
+        "接收 multipart 上传的录音（推荐 16kHz 单声道 WAV，与客户端录音格式一致）。"
+        "服务端先 STT 转写，再复用 /v1/chat 的 fast-path → Harness 链路回答，"
+        "响应额外携带 transcript 字段。"
+    ),
+)
+async def ask_audio(file: UploadFile = File(...), user_id: str = Depends(get_user_id)):
+    transcript = await _transcribe_upload(file)
+    log(f"ask-audio: transcript={transcript[:80]}", level="info")
+    response = await _handle_chat(QueryRequest(query=transcript), user_id)
+    return AudioAskResponse(transcript=transcript, **response.model_dump())
 
 
 @app.post(

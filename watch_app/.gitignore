@@ -1,0 +1,4 @@
+*.xcodeproj/
+DerivedData/
+build/
+WatchApp/Sources/Secrets.swift
