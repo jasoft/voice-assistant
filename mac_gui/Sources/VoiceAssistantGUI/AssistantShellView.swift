@@ -169,6 +169,8 @@ struct AssistantShellView: View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: true) {
                 VStack(spacing: 14) {
+                    selectionPillView
+
                     if showTranscriptBubble {
                         transcriptBubble
                     }

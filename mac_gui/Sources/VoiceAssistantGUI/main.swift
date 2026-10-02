@@ -3,9 +3,19 @@ import Combine
 import SwiftUI
 import VoiceAssistantGUIKit
 
-final class FloatingPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
+final class BorderlessWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown {
+            if !isKeyWindow {
+                makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+        super.sendEvent(event)
+    }
 }
 
 @MainActor
@@ -13,8 +23,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model: AppModel
     private var window: NSWindow?
     private var escMonitor: Any?
-    private var globalClickMonitor: Any?
-    private var globalKeyMonitor: Any?
     private var windowSizeCancellable: AnyCancellable?
 
     init(forwardedArgs: [String], workingDirectory: URL) {
@@ -28,13 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hosting = NSHostingView(rootView: rootView)
 
         let compact = AppModel.compactWindowSize
-        let window = FloatingPanel(
+        let window = BorderlessWindow(
             contentRect: NSRect(x: 0, y: 0, width: compact.width, height: compact.height),
-            styleMask: [.nonactivatingPanel, .borderless],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        window.isFloatingPanel = true
         window.isReleasedWhenClosed = false
         window.isOpaque = false
         window.backgroundColor = .clear
@@ -49,7 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hosting.layer?.masksToBounds = true
         window.contentView = hosting
         positionBottomRight(window: window)
-        window.orderFrontRegardless()
+        // 启动时不强行夺取前台应用的焦点，保留前台应用的文本选区与状态
+        window.orderFront(nil)
         self.window = window
 
         // 输出阶段窗口放大、回到空闲时收起；底边锚定、水平居中，向上生长。
@@ -60,16 +68,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.resizeWindow(to: size)
             }
 
-        // 本地键盘监听（如果窗口偶然接收到事件）
+        // 本地键盘监听
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            if event.keyCode == 36 {
+            if event.keyCode == 36 { // Enter
                 if self.model.canStartRecording && self.model.screenMode == .live && self.model.draftInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     self.model.startRecording()
                     return nil
                 }
             }
-            if event.keyCode == 53 {
+            if event.keyCode == 53 { // Escape
                 if self.model.isMainInterface {
                     NSApp.terminate(nil)
                 } else {
@@ -78,31 +86,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             return event
-        }
-
-        // 全局键盘监听（不夺取焦点模式下，Esc 键依然能取消退出）
-        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return }
-            if event.keyCode == 53 { // Escape
-                if self.model.isMainInterface {
-                    NSApp.terminate(nil)
-                } else {
-                    self.model.handleEscapeKey()
-                }
-            }
-        }
-
-        // 全局点击监听：点击浮窗外部时，若在主界面或已回贴，自动平滑退出
-        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self, let win = self.window else { return }
-            if self.model.isPostPasteActive {
-                NSApp.terminate(nil)
-                return
-            }
-            let mouseLoc = NSEvent.mouseLocation
-            if !win.frame.contains(mouseLoc) && self.model.isMainInterface {
-                NSApp.terminate(nil)
-            }
         }
 
         model.startRecording()
@@ -149,12 +132,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let escMonitor {
             NSEvent.removeMonitor(escMonitor)
         }
-        if let globalKeyMonitor {
-            NSEvent.removeMonitor(globalKeyMonitor)
-        }
-        if let globalClickMonitor {
-            NSEvent.removeMonitor(globalClickMonitor)
-        }
         model.prepareForTermination()
     }
 
@@ -194,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(.regular)
 let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let delegate = AppDelegate(
     forwardedArgs: Array(CommandLine.arguments.dropFirst()),

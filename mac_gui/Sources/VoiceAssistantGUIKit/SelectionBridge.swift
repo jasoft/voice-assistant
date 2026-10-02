@@ -103,13 +103,16 @@ public enum SelectionBridge {
         let original = pasteboard.string(forType: .string)
         let originalChangeCount = pasteboard.changeCount
 
-        activateApp(app)
-        try? await Task.sleep(nanoseconds: 60_000_000)
+        let isAlreadyFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+        if !isAlreadyFront {
+            activateApp(app)
+            try? await Task.sleep(nanoseconds: 60_000_000)
+        }
         await postKeyCommand(keyCodeC)
 
         var captured: String?
-        for _ in 0..<10 {
-            try? await Task.sleep(nanoseconds: 30_000_000)
+        for _ in 0..<15 {
+            try? await Task.sleep(nanoseconds: 20_000_000)
             if pasteboard.changeCount != originalChangeCount {
                 captured = pasteboard.string(forType: .string)
                 break
