@@ -8,8 +8,10 @@ public enum SelectionBridge {
     /// 选中文本上限：避免把整篇文档塞进问句拖垮 ≤8s 的回答预算。
     public static let maxSelectionLength = 16000
 
+    private static let keyCodeA: CGKeyCode = 0
     private static let keyCodeC: CGKeyCode = 8
     private static let keyCodeV: CGKeyCode = 9
+    private static let keyCodeRightArrow: CGKeyCode = 124
 
     public static var isAXTrusted: Bool { AXIsProcessTrusted() }
 
@@ -96,7 +98,6 @@ public enum SelectionBridge {
 
     // MARK: - 剪贴板兜底
 
-    /// AX 读不到时的兜底：短暂激活目标应用模拟 Cmd+C 读取，随后还原剪贴板并交还焦点。
     /// AX 读不到时的兜底：在目标应用处于前台时模拟 Cmd+C 读取选中文本，随后还原剪贴板。
     public static func captureViaClipboard(app: NSRunningApplication) async -> String? {
         let pasteboard = NSPasteboard.general
@@ -133,15 +134,95 @@ public enum SelectionBridge {
         return captured
     }
 
+    /// 计算智能回贴文本：
+    /// - 若当前编辑框文本（trimmed）等于原选中文本，直接返回新内容；
+    /// - 若包含原选中文本，返回替换后的整段文本；
+    /// - 若不包含，返回 nil（表示无法整段替换，退化为光标处插入）。
+    public static func resolveSmartReplacement(
+        currentContent: String,
+        originalSelection: String,
+        replacement: String
+    ) -> String? {
+        let trimmedCurrent = currentContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSelection = originalSelection.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedCurrent == trimmedSelection {
+            return replacement
+        }
+        if currentContent.contains(originalSelection) {
+            return currentContent.replacingOccurrences(of: originalSelection, with: replacement)
+        }
+        if !trimmedSelection.isEmpty && currentContent.contains(trimmedSelection) {
+            return currentContent.replacingOccurrences(of: trimmedSelection, with: replacement)
+        }
+        return nil
+    }
+
     // MARK: - 粘贴
 
     /// 把内容写入剪贴板，向目标应用模拟 Cmd+V。
-    public static func pasteText(_ text: String, to app: NSRunningApplication) async -> Bool {
+    /// 当目标应用（如微信）因失焦取消了选区时，自动通过智能探测覆盖原选中文本，避免在末尾追加。
+    public static func pasteText(
+        _ text: String,
+        to app: NSRunningApplication,
+        originalSelection: String? = nil
+    ) async -> Bool {
+        activateApp(app)
+        try? await Task.sleep(nanoseconds: 120_000_000)
+
+        // 1. 如果目标应用支持 AX 并且当前依然保持着选区（原生 App 或良好支持的 Web 应用）
+        if let axSel = readSelectedText(pid: app.processIdentifier), !axSel.isEmpty {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            await postKeyCommand(keyCodeV)
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            return true
+        }
+
+        // 2. 如果当前没有 AX 选区（例如微信失焦后取消选区，光标留在末尾），但之前捕获到了选中文本：
+        // 尝试智能替换：探测当前编辑框内容
+        if let originalSelection, !originalSelection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let pasteboard = NSPasteboard.general
+            let beforeCount = pasteboard.changeCount
+
+            await postKeyCommand(keyCodeA)
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            await postKeyCommand(keyCodeC)
+
+            var readBack: String? = nil
+            for _ in 0..<12 {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                if pasteboard.changeCount != beforeCount {
+                    readBack = pasteboard.string(forType: .string)
+                    break
+                }
+            }
+
+            if let current = readBack {
+                if let smartText = resolveSmartReplacement(
+                    currentContent: current,
+                    originalSelection: originalSelection,
+                    replacement: text
+                ) {
+                    // 命中！当前处于 Cmd+A 全选状态，直接将替换后文本写入剪贴板并粘贴覆盖
+                    pasteboard.clearContents()
+                    pasteboard.setString(smartText, forType: .string)
+                    await postKeyCommand(keyCodeV)
+                    try? await Task.sleep(nanoseconds: 80_000_000)
+                    return true
+                } else {
+                    // 不包含原选中文本（例如用户划词的是外部网页或历史消息，当前在空输入框准备插入）
+                    // 按向右箭头取消全选并定位到光标末尾
+                    await postKey(keyCodeRightArrow)
+                    try? await Task.sleep(nanoseconds: 30_000_000)
+                }
+            }
+        }
+
+        // 3. 普通粘贴兜底
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        activateApp(app)
-        try? await Task.sleep(nanoseconds: 80_000_000)
         await postKeyCommand(keyCodeV)
         try? await Task.sleep(nanoseconds: 80_000_000)
         return true
@@ -155,17 +236,23 @@ public enum SelectionBridge {
         return app.activate()
     }
 
+    /// 模拟按键（发给系统焦点所在应用）。
+    public static func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags = []) async {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) else { return }
+        down.flags = flags
+        down.post(tap: .cghidEventTap)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        if let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) {
+            up.flags = flags
+            up.post(tap: .cghidEventTap)
+        }
+        try? await Task.sleep(nanoseconds: 30_000_000)
+    }
+
     /// 模拟带 Command 修饰键的按键（发给系统焦点所在应用）。
     /// 使用真实 HID 事件源，并保证 keydown 与 keyup 之间有足够的事件循环间隔。
     public static func postKeyCommand(_ keyCode: CGKeyCode) async {
-        let source = CGEventSource(stateID: .combinedSessionState)
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) else { return }
-        down.flags = .maskCommand
-        down.post(tap: .cghidEventTap)
-        try? await Task.sleep(nanoseconds: 40_000_000)
-        if let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) {
-            up.flags = .maskCommand
-            up.post(tap: .cghidEventTap)
-        }
+        await postKey(keyCode, flags: .maskCommand)
     }
 }

@@ -39,6 +39,8 @@ public final class AppModel: ObservableObject {
 
     /// 窗口激活前的目标应用（选中文本来源，也是粘贴目标）。
     private(set) var selectionTarget: NSRunningApplication?
+    /// 原始未截断的选中文本，用于回贴时的智能字符串替换。
+    private(set) var rawSelectionText: String?
     /// 捕获到的选中文本；AX 失败时剪贴板兜底会稍后异步补上。
     @Published public private(set) var selectionText: String?
     /// 辅助功能未授权时给用户的提示。
@@ -174,6 +176,7 @@ public final class AppModel: ObservableObject {
 
         // 1. 同步 AX 读取
         if let direct = SelectionBridge.readSelectedText(pid: target.processIdentifier), !direct.isEmpty {
+            rawSelectionText = direct
             selectionText = SelectionBridge.truncateSelection(direct)
             return
         }
@@ -185,6 +188,7 @@ public final class AppModel: ObservableObject {
             let captured = await SelectionBridge.captureViaClipboard(app: target)
             self.isFocusExchangeInFlight = false
             if let captured, !captured.isEmpty {
+                self.rawSelectionText = captured
                 self.selectionText = SelectionBridge.truncateSelection(captured)
             }
         }
@@ -200,7 +204,7 @@ public final class AppModel: ObservableObject {
         }
         isFocusExchangeInFlight = true
         defer { isFocusExchangeInFlight = false }
-        let ok = await SelectionBridge.pasteText(text, to: target)
+        let ok = await SelectionBridge.pasteText(text, to: target, originalSelection: rawSelectionText ?? selectionText)
         if ok {
             schedulePostPasteExit()
             return "已粘贴到 \(target.localizedName ?? "上一个窗口")"
