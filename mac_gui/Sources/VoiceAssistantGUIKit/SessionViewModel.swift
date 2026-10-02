@@ -6,6 +6,8 @@ import Foundation
 public final class SessionViewModel: ObservableObject {
     @Published public private(set) var state = SessionState()
     @Published public private(set) var thinkingElapsed: Double = 0.0
+    /// 输出阶段（正在朗读/展示回答）：窗口应切换到更大的阅读尺寸。
+    @Published public private(set) var isResponseStage = false
 
     private var thinkingTimer: Timer?
 
@@ -23,6 +25,12 @@ public final class SessionViewModel: ObservableObject {
     }
 
     private func handleThinkingTimer(status: AssistantStatus) {
+        switch status {
+        case .speaking, .done:
+            isResponseStage = true
+        default:
+            isResponseStage = false
+        }
         switch status {
         case .thinking:
             if thinkingTimer == nil {
@@ -53,6 +61,7 @@ public final class SessionViewModel: ObservableObject {
         stopCountdown()
         stopThinkingTimer()
         thinkingElapsed = 0.0
+        isResponseStage = false
         state = SessionState()
     }
 
@@ -64,5 +73,6 @@ public final class SessionViewModel: ObservableObject {
         state.status = .done(reply: reply)
         state.transcript = transcript
         state.errorMessage = ""
+        isResponseStage = true
     }
 }

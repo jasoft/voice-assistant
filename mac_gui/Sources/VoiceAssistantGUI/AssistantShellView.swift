@@ -16,7 +16,7 @@ struct AssistantShellView: View {
                 liveCard
             }
         }
-        .frame(width: cardWidth, height: cardHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded {
             model.keepWindowOpen()
@@ -37,7 +37,7 @@ struct AssistantShellView: View {
                 .padding(.horizontal, 18)
                 .padding(.top, 16)
         }
-        .frame(width: cardWidth, height: cardHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(dialogBackground)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .animation(.spring(response: 0.3, dampingFraction: 0.84), value: model.session.state.status)
@@ -137,7 +137,7 @@ struct AssistantShellView: View {
     private var responseStageContent: some View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: true) {
-                VStack(spacing: 12) {
+                VStack(spacing: 14) {
                     if showTranscriptBubble {
                         transcriptBubble
                     }
@@ -154,16 +154,17 @@ struct AssistantShellView: View {
                         errorBanner(message: errorMessage)
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 24)
                 .padding(.top, 58)
-                .padding(.bottom, 16)
+                .padding(.bottom, 18)
+                .frame(maxWidth: 780)
                 .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             bottomActionBar
-                .padding(.horizontal, 18)
-                .padding(.bottom, 16)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 18)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -190,8 +191,7 @@ struct AssistantShellView: View {
     }
 
     private var historyCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
+        VStack(alignment: .leading, spacing: 14) {            HStack {
                 Button(action: {
                     model.keepWindowOpen()
                     model.toggleHistory()
@@ -248,7 +248,7 @@ struct AssistantShellView: View {
             }
         }
         .padding(20)
-        .frame(width: cardWidth, height: cardHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(dialogBackground)
     }
 
@@ -332,7 +332,7 @@ struct AssistantShellView: View {
                         .foregroundStyle(Color.white)
                 }
                 Text("回答结果")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(red: 0.10, green: 0.11, blue: 0.16))
                 Spacer()
                 speechToggleButton
@@ -348,12 +348,12 @@ struct AssistantShellView: View {
 
             MarkdownBodyText(
                 text: replyPlainText,
-                fontSize: 15,
+                fontSize: 16,
                 textColor: NSColor.labelColor.withAlphaComponent(0.92)
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(16)
+        .padding(20)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color(red: 0.98, green: 0.985, blue: 1.00))
@@ -545,14 +545,6 @@ struct AssistantShellView: View {
         default:
             return false
         }
-    }
-
-    private var cardWidth: CGFloat {
-        740
-    }
-
-    private var cardHeight: CGFloat {
-        430
     }
 
     private var showSettingsButton: Bool {

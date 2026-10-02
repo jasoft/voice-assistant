@@ -87,7 +87,7 @@ public enum SelectionBridge {
             }
         }
 
-        NSApp.activate()
+        NSApplication.shared.activate()
         pasteboard.clearContents()
         if let original, !original.isEmpty {
             pasteboard.setString(original, forType: .string)
@@ -114,7 +114,7 @@ public enum SelectionBridge {
 
     @discardableResult
     public static func activateApp(_ app: NSRunningApplication) -> Bool {
-        NSApp.yieldActivation(to: app)
+        NSApplication.shared.yieldActivation(to: app)
         return app.activate()
     }
 

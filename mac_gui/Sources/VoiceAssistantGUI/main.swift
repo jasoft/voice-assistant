@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import VoiceAssistantGUIKit
 
@@ -12,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model: AppModel
     private var window: NSWindow?
     private var escMonitor: Any?
+    private var windowSizeCancellable: AnyCancellable?
 
     init(forwardedArgs: [String], workingDirectory: URL) {
         self.model = AppModel(forwardedArgs: forwardedArgs, workingDirectory: workingDirectory)
@@ -23,8 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rootView = AssistantShellView(model: model)
         let hosting = NSHostingView(rootView: rootView)
 
+        let compact = AppModel.compactWindowSize
         let window = BorderlessWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 740, height: 430),
+            contentRect: NSRect(x: 0, y: 0, width: compact.width, height: compact.height),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -44,6 +47,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         positionBottomRight(window: window)
         self.window = window
+
+        // 输出阶段窗口放大、回到空闲时收起；底边锚定、水平居中，向上生长。
+        windowSizeCancellable = model.$windowSize
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] size in
+                self?.resizeWindow(to: size)
+            }
 
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -120,6 +131,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !model.isFocusExchangeInFlight else { return }
         // Exit when focus is lost
         NSApp.terminate(nil)
+    }
+
+    private func resizeWindow(to size: CGSize) {
+        guard let window else { return }
+        var target = size
+        if let screen = window.screen ?? NSScreen.main {
+            target.width = min(target.width, screen.visibleFrame.width - 32)
+            target.height = min(target.height, screen.visibleFrame.height - 48)
+        }
+        guard abs(window.frame.width - target.width) > 0.5 || abs(window.frame.height - target.height) > 0.5 else {
+            return
+        }
+        var frame = window.frame
+        frame.origin.x = frame.midX - target.width / 2
+        frame.origin.y = frame.minY
+        frame.size = target
+        window.setFrame(frame, display: true, animate: true)
     }
 
     private func positionBottomRight(window: NSWindow) {

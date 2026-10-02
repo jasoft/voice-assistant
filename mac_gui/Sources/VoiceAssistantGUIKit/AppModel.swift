@@ -10,8 +10,14 @@ public enum AppScreenMode: String {
 
 @MainActor
 public final class AppModel: ObservableObject {
+    /// 空闲/录音阶段的紧凑 HUD 尺寸。
+    public static let compactWindowSize = CGSize(width: 740, height: 430)
+    /// 回答/历史阶段的展开尺寸，给输出内容足够的阅读空间。
+    public static let expandedWindowSize = CGSize(width: 840, height: 680)
+
     public let session: SessionViewModel
     @Published public var screenMode: AppScreenMode = .live
+    @Published public private(set) var windowSize: CGSize = compactWindowSize
     @Published public var historyEntries: [HistoryEntry] = []
     @Published public var isLoadingHistory = false
     @Published public var historyError: String?
@@ -76,6 +82,14 @@ public final class AppModel: ObservableObject {
                 self?.scheduleHistoryReload()
             }
             .store(in: &cancellables)
+        session.$isResponseStage
+            .combineLatest($screenMode)
+            .map { Self.resolvedWindowSize(isResponseStage: $0, screenMode: $1) }
+            .removeDuplicates()
+            .sink { [weak self] size in
+                self?.windowSize = size
+            }
+            .store(in: &cancellables)
 
         bridge.onEvent = { [weak self] line in
             Task { @MainActor in
@@ -88,6 +102,13 @@ public final class AppModel: ObservableObject {
                 await serviceManager.ensureServicesRunning()
             }
         }
+    }
+
+    private static func resolvedWindowSize(isResponseStage: Bool, screenMode: AppScreenMode) -> CGSize {
+        if screenMode == .history {
+            return expandedWindowSize
+        }
+        return isResponseStage ? expandedWindowSize : compactWindowSize
     }
 
     private func handleBridgeEvent(line: String) {
@@ -147,6 +168,11 @@ public final class AppModel: ObservableObject {
         isFocusExchangeInFlight = true
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // 测试环境没有运行中的 NSApplication，跳过焦点交换避免副作用。
+            guard NSApp != nil else {
+                self.isFocusExchangeInFlight = false
+                return
+            }
             let captured = await SelectionBridge.captureViaClipboard(app: target)
             self.isFocusExchangeInFlight = false
             if let captured {
