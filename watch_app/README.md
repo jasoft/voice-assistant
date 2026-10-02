@@ -26,8 +26,10 @@ xcodebuild -project VoiceAssistantWatch.xcodeproj -scheme WatchApp \
 ```
 
 `gen-secrets.sh` 会从仓库根 `.env` 读取 `PTT_API_KEY` 写入 `WatchApp/Sources/Secrets.swift`
-（已 gitignore），作为手表端默认 API Key；默认服务器为公网反代地址
-`https://va-dev.soj.myds.me:1443`，可用 `WATCH_SERVER_URL` 覆盖，或在手表 App「设置」里改。
+（已 gitignore），作为手表端默认 API Key；默认服务器为生产公网反代地址
+`https://va.soj.myds.me:1443`（群晖反代 → docker.home:10031；`va-dev` 子域指向
+MacBook Air 开发机，勿用作默认值），可用 `WATCH_SERVER_URL` 覆盖，或在手表 App
+「设置」里改。
 
 ## 服务端测试
 
