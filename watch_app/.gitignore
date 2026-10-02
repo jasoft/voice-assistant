@@ -2,3 +2,4 @@
 DerivedData/
 build/
 WatchApp/Sources/Secrets.swift
+WatchApp/Info.plist
