@@ -127,10 +127,16 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    private var selectionCaptureTask: Task<Void, Never>?
+
     private func performRemoteQuery(text: String) {
         applySessionEvent(["type": "status", "phase": "thinking"])
-        let selectedText = selectionText
         Task { @MainActor in
+            // 若剪贴板探测仍在进行中，等待探测结束以携带选中文本
+            if let task = selectionCaptureTask {
+                _ = await task.result
+            }
+            let selectedText = selectionText
             do {
                 guard let client = vaClient else { return }
                 let response = try await client.chat(text: text, selectedText: selectedText)
@@ -179,7 +185,7 @@ public final class AppModel: ObservableObject {
         }
 
         isFocusExchangeInFlight = true
-        Task { @MainActor [weak self] in
+        selectionCaptureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             // 测试环境没有运行中的 NSApplication，跳过焦点交换避免副作用。
             guard NSApp != nil else {

@@ -97,26 +97,25 @@ public enum SelectionBridge {
     // MARK: - 剪贴板兜底
 
     /// AX 读不到时的兜底：短暂激活目标应用模拟 Cmd+C 读取，随后还原剪贴板并交还焦点。
-    /// 调用方需先置好焦点交换保护（resign-active 不退出），避免期间进程被终止。
+    /// AX 读不到时的兜底：在目标应用处于前台时模拟 Cmd+C 读取选中文本，随后还原剪贴板。
     public static func captureViaClipboard(app: NSRunningApplication) async -> String? {
         let pasteboard = NSPasteboard.general
         let original = pasteboard.string(forType: .string)
         let originalChangeCount = pasteboard.changeCount
 
-        guard activateApp(app) else { return nil }
-        try? await Task.sleep(nanoseconds: 280_000_000)
+        activateApp(app)
+        try? await Task.sleep(nanoseconds: 60_000_000)
         await postKeyCommand(keyCodeC)
 
         var captured: String?
-        for _ in 0..<8 {
-            try? await Task.sleep(nanoseconds: 50_000_000)
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 30_000_000)
             if pasteboard.changeCount != originalChangeCount {
                 captured = pasteboard.string(forType: .string)
                 break
             }
         }
 
-        NSApplication.shared.activate()
         pasteboard.clearContents()
         if let original, !original.isEmpty {
             pasteboard.setString(original, forType: .string)
@@ -127,15 +126,15 @@ public enum SelectionBridge {
 
     // MARK: - 粘贴
 
-    /// 把内容写入剪贴板，激活目标应用后模拟 Cmd+V。返回 false 表示未能完成焦点切换。
+    /// 把内容写入剪贴板，向目标应用模拟 Cmd+V。
     public static func pasteText(_ text: String, to app: NSRunningApplication) async -> Bool {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        guard activateApp(app) else { return false }
-        try? await Task.sleep(nanoseconds: 350_000_000)
+        activateApp(app)
+        try? await Task.sleep(nanoseconds: 80_000_000)
         await postKeyCommand(keyCodeV)
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        try? await Task.sleep(nanoseconds: 80_000_000)
         return true
     }
 
