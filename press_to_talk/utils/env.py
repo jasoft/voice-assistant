@@ -132,6 +132,8 @@ def _load_env_file(env_file: Path, *, loaded_keys: set[str] | None = None) -> bo
             continue
         if loaded_keys is not None and key in loaded_keys:
             continue
+        if key in os.environ and (loaded_keys is None or key not in loaded_keys):
+            continue
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
             value = value[1:-1]
         os.environ[key] = value

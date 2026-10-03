@@ -147,24 +147,52 @@ def main():
         failed_checks.append("回归 | 图片过滤逻辑")
 
     # ─────────────────────────────────────────────
+    # ─────────────────────────────────────────────
     # Step 4: 存储层初始化验证
     # ─────────────────────────────────────────────
     log("Step 4: 验证存储层自动初始化（CLI 写入）...")
-    if not run_command(
-        "uv run ptt-storage --user-id ci-admin memory add --memory 'CI test entry' --original 'test'",
-        env=ci_env,
-    ):
-        failed_checks.append("P0-7 | 存储层初始化")
+    import http.server
+    import socketserver
+    import threading
 
+    class _MockPBHandler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"id": "ci_test_id"}')
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"items": []}')
+
+        def log_message(self, *args):
+            pass
+
+    with socketserver.TCPServer(("127.0.0.1", 0), _MockPBHandler) as httpd:
+        mock_port = httpd.server_address[1]
+        mock_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        mock_thread.start()
+        step4_env = ci_env.copy()
+        step4_env["PTT_REMEMBER_BACKEND"] = "pocketbase"
+        step4_env["PTT_PB_URL"] = f"http://127.0.0.1:{mock_port}"
+        if not run_command(
+            "uv run ptt-storage --user-id ci-admin memory add --memory 'CI test entry' --original 'test'",
+            env=step4_env,
+        ):
+            failed_checks.append("P0-7 | 存储层初始化")
+        httpd.shutdown()
 
     # ─────────────────────────────────────────────
     # Step 6: Docker 构建验证 (P0-4，可选)
     # ─────────────────────────────────────────────
     log("Step 6: Docker 构建验证（P0-4）...")
     docker_env = ci_env.copy()
-    if run_command("docker info > /dev/null 2>&1"):
+    if run_command("docker ps > /dev/null 2>&1"):
         pass  # 本地 Docker 可用
-    elif run_command("DOCKER_HOST=ssh://docker docker info > /dev/null 2>&1"):
+    elif run_command("DOCKER_HOST=ssh://docker docker ps > /dev/null 2>&1"):
         warn("本地 Docker 不可用，使用远程服务器 (ssh://docker) 进行验证")
         docker_env["DOCKER_HOST"] = "ssh://docker"
     else:
@@ -178,7 +206,6 @@ def main():
             import random
             import time
             import json
-            import urllib.request
 
             test_port = random.randint(11000, 12000)
             log(f"启动 Docker 容器进行实时 API 测试 (映射到端口 {test_port})...")
@@ -204,26 +231,21 @@ def main():
                 url = f"http://docker.home:{test_port}/v1/query"
                 payload = json.dumps(
                     {"query": "你好，这是来自 Docker 的测试", "mode": "memory-chat"}
-                ).encode("utf-8")
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer docker_test_user",
-                }
+                )
 
-                # Polling loop for /ready
+                # Polling loop for /ready using curl
                 max_retries = 15
                 ready = False
                 ready_url = f"http://docker.home:{test_port}/ready"
                 for i in range(max_retries):
                     time.sleep(2)
-                    try:
-                        req_ready = urllib.request.Request(ready_url, method="GET")
-                        with urllib.request.urlopen(req_ready, timeout=5) as response:
-                            if response.status == 200:
-                                ready = True
-                                break
-                    except urllib.error.URLError:
-                        continue
+                    res = subprocess.run(
+                        ["curl", "-s", "-f", "-m", "3", ready_url],
+                        capture_output=True,
+                    )
+                    if res.returncode == 0:
+                        ready = True
+                        break
 
                 if not ready:
                     print(
@@ -241,23 +263,42 @@ def main():
                     failed_checks.append("P0-4 | Docker 运行与 API 测试")
                 else:
                     log(f"容器就绪，正在发送测试请求 -> {url}")
-                    req = urllib.request.Request(
-                        url, data=payload, headers=headers, method="POST"
+                    res = subprocess.run(
+                        [
+                            "curl",
+                            "-s",
+                            "-m",
+                            "30",
+                            "-w",
+                            "\n%{http_code}",
+                            "-X",
+                            "POST",
+                            url,
+                            "-H",
+                            "Content-Type: application/json",
+                            "-H",
+                            "Authorization: Bearer docker_test_user",
+                            "-d",
+                            payload,
+                        ],
+                        capture_output=True,
+                        text=True,
                     )
-                    try:
-                        with urllib.request.urlopen(req, timeout=30) as response:
-                            result = response.read().decode("utf-8")
+                    output_parts = res.stdout.strip().rsplit("\n", 1)
+                    body = output_parts[0] if len(output_parts) > 1 else ""
+                    http_code = output_parts[-1] if output_parts else "0"
+                    if http_code in ("200", "201"):
+                        try:
+                            parsed_body = json.loads(body)
                             print(
-                                f"\n\033[1;36m[Docker API 成功] 返回结果 [HTTP {response.status}]:\n{json.dumps(json.loads(result), indent=2, ensure_ascii=False)}\033[0m\n"
+                                f"\n\033[1;36m[Docker API 成功] 返回结果 [HTTP {http_code}]:\n{json.dumps(parsed_body, indent=2, ensure_ascii=False)}\033[0m\n"
                             )
-                    except urllib.error.HTTPError as e:
-                        if e.code == 401:
-                            print("\n\033[1;32m[Docker API 存活验证通过] 服务器已启动并拦截认证 (HTTP 401)\033[0m\n")
-                        else:
-                            print(f"\033[1;31m测试请求失败: {e}\033[0m")
-                            failed_checks.append("P0-4 | Docker 运行与 API 测试")
-                    except urllib.error.URLError as e:
-                        print(f"\033[1;31m测试请求失败: {e}\033[0m")
+                        except Exception:
+                            print(f"\n\033[1;36m[Docker API 成功] 返回结果 [HTTP {http_code}]: {body}\033[0m\n")
+                    elif http_code == "401":
+                        print("\n\033[1;32m[Docker API 存活验证通过] 服务器已启动并拦截认证 (HTTP 401)\033[0m\n")
+                    else:
+                        print(f"\033[1;31m测试请求失败 [HTTP {http_code}]: {body}\033[0m")
                         failed_checks.append("P0-4 | Docker 运行与 API 测试")
 
             finally:

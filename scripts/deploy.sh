@@ -25,7 +25,7 @@ NEW_VERSION=$(python3 scripts/bump_version.py)
 echo "🏷️  Bumped version to: v${NEW_VERSION}"
 git add VERSION pyproject.toml
 git commit -m "chore(release): bump version to v${NEW_VERSION}"
-git push origin main
+git push origin HEAD:main
 echo "✅ Pushed release commit to GitHub."
 
 

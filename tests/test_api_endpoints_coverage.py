@@ -146,15 +146,19 @@ class TestMemoriesEndpoint:
 
     def test_get_memories(self, client):
         """测试获取记忆条目"""
-        response = client.post("/v1/memories")
-        assert response.status_code == 200
-        assert isinstance(response.json(), list)
+        with patch("press_to_talk.api.main.StorageService") as MockService:
+            MockService.return_value.remember_store.return_value.list_all.return_value = []
+            response = client.post("/v1/memories")
+            assert response.status_code == 200
+            assert isinstance(response.json(), list)
 
     def test_memories_returns_list(self, client):
         """测试返回的是列表"""
-        response = client.post("/v1/memories")
-        assert response.status_code == 200
-        assert isinstance(response.json(), list)
+        with patch("press_to_talk.api.main.StorageService") as MockService:
+            MockService.return_value.remember_store.return_value.list_all.return_value = []
+            response = client.post("/v1/memories")
+            assert response.status_code == 200
+            assert isinstance(response.json(), list)
 
 
 class TestAPIResponseFormat:

@@ -73,7 +73,6 @@ mv "$tmp" "$settings"
 if ! grep -q '^agent-presets:' "$settings"; then
   printf '\nagent-presets:\n  default: %s\n' "$agent_preset" >> "$settings"
 fi
-
 # Keep one-shot replies short enough for the voice path without inheriting a
 # coding-agent-sized output ceiling.
 if [[ "$model" == "fast" ]]; then
