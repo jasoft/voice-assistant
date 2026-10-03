@@ -32,9 +32,7 @@ struct VoiceView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            header
-            Spacer(minLength: 0)
-            micButton
+            content
             Spacer(minLength: 0)
             Text("左滑打开设置")
                 .font(.system(size: 10))
@@ -57,25 +55,40 @@ struct VoiceView: View {
         }
     }
 
-    @ViewBuilder private var header: some View {
+    @ViewBuilder private var content: some View {
         switch state {
         case .idle:
-            Text("点按下方按钮开始对话")
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-        case .recording:
-            Text("录音中… 点按结束")
-                .font(.system(size: 14))
-                .foregroundStyle(.red)
-        case .thinking:
-            HStack(spacing: 6) {
-                ProgressView()
-                Text("思考中…")
+            VStack(spacing: 14) {
+                Spacer(minLength: 0)
+                Text("点按下方按钮开始对话")
                     .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                micButton
+                Spacer(minLength: 0)
+            }
+        case .recording:
+            VStack(spacing: 14) {
+                Text("录音中… 点按结束")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.red)
+                Spacer(minLength: 0)
+                micButton
+                Spacer(minLength: 0)
+            }
+        case .thinking:
+            VStack(spacing: 12) {
+                Spacer(minLength: 0)
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("正在思考…")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
             }
         case .reply(let transcript, let text):
             ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(transcript)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
@@ -88,14 +101,19 @@ struct VoiceView: View {
                             .foregroundStyle(.orange)
                     }
                     playButton
+                    newQuestionButton
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .failed(let message):
             ScrollView {
-                Text(message)
-                    .font(.system(size: 14))
-                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(message)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.orange)
+                    newQuestionButton
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -119,6 +137,22 @@ struct VoiceView: View {
         }
     }
 
+    /// 结束当前结果，直接开始下一轮录音。
+    private var newQuestionButton: some View {
+        Button {
+            stopAudio()
+            Task { await startRecording() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("继续新问题")
+                    .font(.system(size: 13))
+            }
+        }
+    }
+
+    /// 大按钮只在待机（开始录音）和录音中（结束录音）出现。
     private var micButton: some View {
         Button(action: handleTap) {
             ZStack {
@@ -138,23 +172,14 @@ struct VoiceView: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(state == .thinking)
     }
 
     private var circleColor: Color {
-        switch state {
-        case .idle, .reply, .failed: return .accentColor
-        case .recording: return .red
-        case .thinking: return .gray
-        }
+        state == .recording ? .red : .accentColor
     }
 
     private var iconName: String {
-        switch state {
-        case .recording: return "stop.fill"
-        case .thinking: return "hourglass"
-        default: return "mic.fill"
-        }
+        state == .recording ? "stop.fill" : "mic.fill"
     }
 
     private func handleTap() {
