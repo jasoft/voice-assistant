@@ -37,7 +37,7 @@ final class PCMStreamPlayer {
     }
 
     func schedule(pcm: Data) {
-        guard let format, pcm.count >= 2 else { return }
+        guard isPlaying, let format, pcm.count >= 2 else { return }
         let sampleCount = pcm.count / 2
         guard sampleCount > 0,
               let buffer = AVAudioPCMBuffer(
@@ -84,6 +84,7 @@ struct VoiceView: View {
     @State private var isPlayingAudio = false
     @State private var ttsError: String?
     @State private var meterLevel: Double = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         content
@@ -110,6 +111,15 @@ struct VoiceView: View {
                 guard state == .recording else { return }
                 let power = recorder.currentPower()
                 meterLevel = Double(max(0, min(1, (power + 50) / 50)))
+            }
+            .onChange(of: scenePhase) { phase in
+                if phase != .active {
+                    stopAudio()
+                    if state == .recording {
+                        _ = recorder.stop()
+                        state = .idle
+                    }
+                }
             }
     }
 
@@ -161,7 +171,7 @@ struct VoiceView: View {
         case .thinking(let transcript):
             ScrollView {
                 Text(transcript)
-                    .font(.system(size: 13))
+                    .font(.system(size: 15))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 64)
@@ -170,11 +180,11 @@ struct VoiceView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(transcript)
-                        .font(.system(size: 12))
+                        .font(.system(size: 15))
                         .foregroundStyle(.secondary)
                     Divider()
                     Text(text)
-                        .font(.system(size: 15))
+                        .font(.system(size: 16))
                     if let ttsError {
                         Text(ttsError)
                             .font(.system(size: 11))
@@ -335,13 +345,12 @@ struct VoiceView: View {
     }
 
     /// 播放/停止回复语音：点按即开播，向服务端 /v1/tts 拉流，边收边播。
+    /// 任何活跃状态（播放中/等首块）再点一次都是停止。
     private func togglePlayback(for text: String) {
-        if isPlayingAudio {
+        if isPlayingAudio || isLoadingAudio {
             stopAudio()
             return
         }
-        guard !isLoadingAudio else { return }
-        isLoadingAudio = true
         ttsError = nil
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback)
@@ -368,6 +377,7 @@ struct VoiceView: View {
                     if Task.isCancelled { return }
                     received += chunk.count
                     streamPlayer.schedule(pcm: chunk)
+                    if received > 0 { isLoadingAudio = false }
                 }
                 while streamPlayer.pendingBuffers > 0 && !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 150_000_000)
@@ -390,5 +400,6 @@ struct VoiceView: View {
         speechTask = nil
         streamPlayer.stop()
         isPlayingAudio = false
+        isLoadingAudio = false
     }
 }
