@@ -275,13 +275,16 @@ class LoggingMiddleware:
         ]
         log_multiline("API Request Incoming", "\n".join(log_content), level="info")
 
-        # Re-wrap body for subsequent handlers: body 只投递一次，之后断开
+        # Re-wrap body for subsequent handlers: body 只投递一次，之后透传原始
+        # receive（保留真实的 http.disconnect 检测——StreamingResponse 靠它监听
+        # 客户端断开，若谎报 disconnect 会立刻取消流式响应）
         body_sent = False
+        original_receive = receive
 
         async def receive():
             nonlocal body_sent
             if body_sent:
-                return {"type": "http.disconnect"}
+                return await original_receive()
             body_sent = True
             return {"type": "http.request", "body": body}
 
@@ -947,8 +950,12 @@ async def tts(req: TTSRequest, user_id: str = Depends(get_user_id)):
     async def _gen() -> AsyncIterator[bytes]:
         if first:
             yield first
-        async for chunk in stream:
-            yield chunk
+        try:
+            async for chunk in stream:
+                yield chunk
+        except RuntimeError as exc:
+            # 流式响应已发出，状态码无法更改；记录原因并优雅收尾
+            log(f"tts: 流中断：{exc}", level="error")
 
     return StreamingResponse(
         _gen(),
