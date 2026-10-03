@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import FastAPI, Depends, File, HTTPException, UploadFile
+from fastapi import FastAPI, Depends, File, HTTPException, Response, UploadFile
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -781,6 +781,64 @@ async def ask_audio(file: UploadFile = File(...), user_id: str = Depends(get_use
     log(f"ask-audio: transcript={transcript[:80]}", level="info")
     response = await _handle_chat(QueryRequest(query=transcript), user_id)
     return AudioAskResponse(transcript=transcript, **response.model_dump())
+
+
+class TTSRequest(BaseModel):
+    """文本转语音请求。"""
+
+    text: str = Field(..., min_length=1, max_length=2000, description="要合成的文本（最长 2000 字符）。")
+
+
+_TTS_MAX_CHARS = 2000
+
+
+async def _tts_relay(text: str) -> tuple[bytes, str]:
+    """调用 OpenAI 兼容 /audio/speech 后端合成语音，返回 (音频字节, Content-Type)。
+
+    默认复用 PTT_STT_URL（litellm elevenlabs bridge 同时提供 TTS 模型），
+    可用 PTT_TTS_URL / PTT_TTS_MODEL / PTT_TTS_VOICE 覆盖。
+    """
+    base = os.environ.get("PTT_TTS_URL", "").strip() or os.environ.get("PTT_STT_URL", "").strip()
+    if not base:
+        raise RuntimeError("TTS 服务未配置（PTT_TTS_URL/PTT_STT_URL）")
+    endpoint = base.rstrip("/") + "/audio/speech"
+    payload = {
+        "model": os.environ.get("PTT_TTS_MODEL", "elevenlabs-tts"),
+        "input": text[:_TTS_MAX_CHARS],
+        "voice": os.environ.get("PTT_TTS_VOICE", "Xb7hH8MSUJpSbSDYk0k2"),
+    }
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(endpoint, json=payload)
+    except Exception as exc:
+        raise RuntimeError(f"TTS 上游连接失败：{exc}") from exc
+    if resp.status_code != 200:
+        raise RuntimeError(f"TTS 上游返回 {resp.status_code}：{resp.text[:200]}")
+    return resp.content, resp.headers.get("content-type", "audio/mpeg")
+
+
+@app.post(
+    "/v1/tts",
+    summary="文本转语音：中继到 ElevenLabs 兼容后端，返回音频流",
+    description=(
+        "接收 {\"text\": ...}，服务端调用配置的 TTS 后端合成语音并原样返回音频字节"
+        "（默认 audio/mpeg）。客户端拿到后可直接用 AVAudioPlayer 播放。"
+    ),
+)
+async def tts(req: TTSRequest, user_id: str = Depends(get_user_id)):
+    del user_id
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="文本为空")
+    try:
+        audio, content_type = await _tts_relay(text)
+    except RuntimeError as exc:
+        log(f"tts: {exc}", level="error")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    log(f"tts: synthesized {len(audio)} bytes ({content_type})", level="info")
+    return Response(content=audio, media_type=content_type)
 
 
 @app.post(

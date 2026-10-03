@@ -10,12 +10,25 @@ enum VoiceState: Equatable {
     case failed(String)
 }
 
+/// AVAudioPlayer 播完回调桥（struct 视图无法直接当 delegate）。
+final class PlaybackCoordinator: NSObject, AVAudioPlayerDelegate {
+    var onFinish: (() -> Void)?
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        onFinish?()
+    }
+}
+
 struct VoiceView: View {
     @State private var state: VoiceState = .idle
     @State private var recorder = Recorder()
     @State private var apiClient = APIClient()
-    @State private var synthesizer = AVSpeechSynthesizer()
     @State private var showingSettings = false
+    @State private var audioPlayer: AVAudioPlayer?
+    @State private var isLoadingAudio = false
+    @State private var isPlayingAudio = false
+    @State private var ttsError: String?
+    @State private var playback = PlaybackCoordinator()
 
     var body: some View {
         VStack(spacing: 8) {
@@ -23,16 +36,24 @@ struct VoiceView: View {
             Spacer(minLength: 0)
             micButton
             Spacer(minLength: 0)
-            Button {
-                showingSettings = true
-            } label: {
-                Label("设置", systemImage: "gearshape")
-                    .font(.system(size: 13))
-            }
+            Text("左滑打开设置")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 4)
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+        .gesture(
+            DragGesture(minimumDistance: 25).onEnded { value in
+                if value.translation.width < -25,
+                   abs(value.translation.width) > abs(value.translation.height) {
+                    showingSettings = true
+                }
+            }
+        )
+        .onAppear {
+            playback.onFinish = { isPlayingAudio = false }
         }
     }
 
@@ -61,6 +82,12 @@ struct VoiceView: View {
                     Divider()
                     Text(text)
                         .font(.system(size: 15))
+                    if let ttsError {
+                        Text(ttsError)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                    }
+                    playButton
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -69,6 +96,25 @@ struct VoiceView: View {
                 Text(message)
                     .font(.system(size: 14))
                     .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private var playButton: some View {
+        Button {
+            if case .reply(_, let text) = state {
+                togglePlayback(for: text)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if isLoadingAudio {
+                    ProgressView().scaleEffect(0.6)
+                } else {
+                    Image(systemName: isPlayingAudio ? "stop.fill" : "play.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                Text(isPlayingAudio ? "停止" : (isLoadingAudio ? "合成中…" : "播放语音"))
+                    .font(.system(size: 13))
             }
         }
     }
@@ -112,10 +158,10 @@ struct VoiceView: View {
     }
 
     private func handleTap() {
-        synthesizer.stopSpeaking(at: .immediate)
         if state == .recording {
             stopAndSend()
         } else {
+            stopAudio()
             Task { await startRecording() }
         }
     }
@@ -148,9 +194,10 @@ struct VoiceView: View {
                     serverBase: AppPrefs.serverURL,
                     apiKey: AppPrefs.apiKey
                 )
+                ttsError = nil
+                stopAudio()
                 state = .reply(transcript: response.transcript, text: response.reply)
                 WKInterfaceDevice.current().play(.success)
-                speak(response.reply)
             } catch {
                 state = .failed(error.localizedDescription)
                 WKInterfaceDevice.current().play(.failure)
@@ -158,9 +205,44 @@ struct VoiceView: View {
         }
     }
 
-    private func speak(_ text: String) {
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
-        synthesizer.speak(utterance)
+    /// 播放/停止回复语音：按需向服务端 /v1/tts 请求第三方合成音频。
+    private func togglePlayback(for text: String) {
+        if isPlayingAudio, let player = audioPlayer {
+            player.stop()
+            isPlayingAudio = false
+            return
+        }
+        guard !isLoadingAudio else { return }
+        isLoadingAudio = true
+        ttsError = nil
+        Task {
+            do {
+                let audio = try await apiClient.synthesize(
+                    text: text,
+                    serverBase: AppPrefs.serverURL,
+                    apiKey: AppPrefs.apiKey
+                )
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("va_reply.mp3")
+                try audio.write(to: url, options: .atomic)
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback)
+                try session.setActive(true)
+                let player = try AVAudioPlayer(contentsOf: url)
+                player.delegate = playback
+                audioPlayer = player
+                player.play()
+                isPlayingAudio = true
+                WKInterfaceDevice.current().play(.click)
+            } catch {
+                ttsError = "播放失败：\(error.localizedDescription)"
+            }
+            isLoadingAudio = false
+        }
+    }
+
+    private func stopAudio() {
+        audioPlayer?.stop()
+        isPlayingAudio = false
     }
 }
