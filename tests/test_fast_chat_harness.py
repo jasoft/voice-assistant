@@ -195,7 +195,7 @@ async def test_ask_chain_uses_harness_and_cel():
 
     assert result is not None
     assert result["action"] == "speak"
-    assert result["debug_info"]["intent"] == "ask"
+    assert result["debug_info"]["intent"] == "query"
     assert result["debug_info"]["keywords"] == ["护照", "书房"]
     assert result["debug_info"]["memo_count"] == 1
     assert "白色柜子" in result["reply"]

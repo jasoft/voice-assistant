@@ -86,17 +86,17 @@ def test_returns_record():
     assert result == "record"
 
 
-def test_returns_other():
+def test_returns_chat():
     payload = {
         "model": "jev-latest",
         "answers": {
-            "intent": {"type": "choice", "choice": "other", "confidence": 0.99},
+            "intent": {"type": "choice", "choice": "chat", "confidence": 0.99},
         },
     }
     with patch("httpx.Client") as mock_client_cls:
         _client_post_mock(mock_client_cls, payload=payload)
         result = typesafe.ask_is_record("你好呀")
-    assert result == "other"
+    assert result == "chat"
 
 
 def test_returns_none_on_unexpected_choice():
@@ -117,7 +117,7 @@ def test_sends_intent_and_delivery_questions():
     """配置了 delivery_question 时，一次调用并行带 intent + delivery 两个 Choice。"""
     payload = {
         "model": "jev-latest",
-        "answers": {"intent": {"type": "choice", "choice": "other", "confidence": 0.5}},
+        "answers": {"intent": {"type": "choice", "choice": "chat", "confidence": 0.5}},
     }
     with patch("httpx.Client") as mock_client_cls:
         mock_client = _client_post_mock(mock_client_cls, payload=payload)
@@ -137,7 +137,7 @@ def test_sends_intent_and_delivery_questions():
 def test_intent_and_delivery_state_is_plain_query_without_selection():
     """无选中文本时 state 保持原始问句字符串，与旧链路一致。"""
     payload = {
-        "answers": {"intent": {"type": "choice", "choice": "other"}},
+        "answers": {"intent": {"type": "choice", "choice": "chat"}},
     }
     with patch("httpx.Client") as mock_client_cls:
         mock_client = _client_post_mock(mock_client_cls, payload=payload)
@@ -150,7 +150,7 @@ def test_intent_and_delivery_state_uses_named_fields_with_selection():
     """带选中文本时 state 用命名字段，指令与选中内容都可见。"""
     payload = {
         "answers": {
-            "intent": {"type": "choice", "choice": "other"},
+            "intent": {"type": "choice", "choice": "chat"},
             "delivery": {"type": "choice", "choice": "paste"},
         },
     }
@@ -161,20 +161,20 @@ def test_intent_and_delivery_state_uses_named_fields_with_selection():
         )
         body = mock_client.post.call_args.kwargs.get("json")
     assert body["state"] == {"instruction": "改写成正式一点", "selected_text": "随手写的草稿内容"}
-    assert result == {"intent": "other", "delivery": "paste"}
+    assert result == {"intent": "chat", "delivery": "paste"}
 
 
 def test_intent_and_delivery_invalid_delivery_treated_as_none():
     payload = {
         "answers": {
-            "intent": {"type": "choice", "choice": "other"},
+            "intent": {"type": "choice", "choice": "chat"},
             "delivery": {"type": "choice", "choice": "unknown"},
         },
     }
     with patch("httpx.Client") as mock_client_cls:
         _client_post_mock(mock_client_cls, payload=payload)
         result = typesafe.ask_intent_and_delivery("你好呀")
-    assert result == {"intent": "other", "delivery": None}
+    assert result == {"intent": "chat", "delivery": None}
 
 
 def test_intent_and_delivery_missing_delivery_answer_treated_as_none():
@@ -220,7 +220,7 @@ def test_cloudflare_clef_flash_request_and_response_parsing():
                     "type": "choice",
                     "choice": "record",
                     "confidence": 0.98,
-                    "probabilities": {"record": 0.98, "other": 0.02},
+                    "probabilities": {"record": 0.98, "chat": 0.02},
                 },
                 "delivery": {
                     "type": "choice",
