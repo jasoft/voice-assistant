@@ -22,4 +22,12 @@ enum AppPrefs {
         }
         set { UserDefaults.standard.set(newValue, forKey: apiKeyKey) }
     }
+
+    private static let autoPlayKey = "va.autoPlay"
+
+    /// 回答显示后是否自动合成并播放语音。
+    static var autoPlay: Bool {
+        get { UserDefaults.standard.bool(forKey: autoPlayKey) }
+        set { UserDefaults.standard.set(newValue, forKey: autoPlayKey) }
+    }
 }

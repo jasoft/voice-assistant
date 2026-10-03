@@ -21,6 +21,19 @@ struct SettingsView: View {
                 } header: {
                     Text("API Key")
                 }
+                Section {
+                    Toggle(
+                        "自动播放语音",
+                        isOn: Binding(
+                            get: { AppPrefs.autoPlay },
+                            set: { AppPrefs.autoPlay = $0 }
+                        )
+                    )
+                } header: {
+                    Text("播放")
+                } footer: {
+                    Text("开启后，回答显示时自动合成并播放语音。")
+                }
                 Button("保存") {
                     AppPrefs.serverURL = serverURL
                     AppPrefs.apiKey = apiKey

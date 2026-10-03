@@ -39,6 +39,9 @@ struct VoiceView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 4)
+        .overlay(alignment: .bottomTrailing) {
+            cornerButtons
+        }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
         }
@@ -100,56 +103,70 @@ struct VoiceView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(.orange)
                     }
-                    playButton
-                    newQuestionButton
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 56)
             }
         case .failed(let message):
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(message)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.orange)
-                    newQuestionButton
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(message)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 56)
             }
         }
     }
 
-    private var playButton: some View {
-        Button {
-            if case .reply(_, let text) = state {
-                togglePlayback(for: text)
+    /// 固定在右下角的纯图标操作按钮：回复页为「播放 + 继续新问题」，失败页只有「继续新问题」。
+    @ViewBuilder private var cornerButtons: some View {
+        switch state {
+        case .reply(_, let text):
+            HStack(spacing: 10) {
+                cornerButton(icon: playIcon, isLoading: isLoadingAudio) {
+                    togglePlayback(for: text)
+                }
+                cornerButton(icon: "mic.fill", isLoading: false) {
+                    stopAudio()
+                    Task { await startRecording() }
+                }
             }
-        } label: {
-            HStack(spacing: 6) {
-                if isLoadingAudio {
-                    ProgressView().scaleEffect(0.6)
+            .padding(.trailing, 6)
+            .padding(.bottom, 24)
+        case .failed:
+            HStack(spacing: 10) {
+                cornerButton(icon: "mic.fill", isLoading: false) {
+                    stopAudio()
+                    Task { await startRecording() }
+                }
+            }
+            .padding(.trailing, 6)
+            .padding(.bottom, 24)
+        default:
+            EmptyView()
+        }
+    }
+
+    private var playIcon: String {
+        isPlayingAudio ? "stop.fill" : "play.fill"
+    }
+
+    private func cornerButton(icon: String, isLoading: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.9))
+                    .frame(width: 40, height: 40)
+                if isLoading {
+                    ProgressView().scaleEffect(0.7)
                 } else {
-                    Image(systemName: isPlayingAudio ? "stop.fill" : "play.fill")
-                        .font(.system(size: 13, weight: .semibold))
+                    Image(systemName: icon)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
                 }
-                Text(isPlayingAudio ? "停止" : (isLoadingAudio ? "合成中…" : "播放语音"))
-                    .font(.system(size: 13))
             }
         }
-    }
-
-    /// 结束当前结果，直接开始下一轮录音。
-    private var newQuestionButton: some View {
-        Button {
-            stopAudio()
-            Task { await startRecording() }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("继续新问题")
-                    .font(.system(size: 13))
-            }
-        }
+        .buttonStyle(.plain)
     }
 
     /// 大按钮只在待机（开始录音）和录音中（结束录音）出现。
@@ -223,6 +240,9 @@ struct VoiceView: View {
                 stopAudio()
                 state = .reply(transcript: response.transcript, text: response.reply)
                 WKInterfaceDevice.current().play(.success)
+                if AppPrefs.autoPlay {
+                    togglePlayback(for: response.reply)
+                }
             } catch {
                 state = .failed(error.localizedDescription)
                 WKInterfaceDevice.current().play(.failure)
