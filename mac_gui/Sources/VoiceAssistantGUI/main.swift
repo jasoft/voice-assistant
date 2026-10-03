@@ -6,6 +6,16 @@ import VoiceAssistantGUIKit
 final class BorderlessWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown {
+            if !isKeyWindow {
+                makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+        super.sendEvent(event)
+    }
 }
 
 @MainActor
@@ -38,14 +48,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.hasShadow = true
         window.isMovableByWindowBackground = true
         window.level = .floating
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.hidesOnDeactivate = false
         hosting.wantsLayer = true
         hosting.layer?.cornerRadius = 24
         hosting.layer?.cornerCurve = .continuous
         hosting.layer?.masksToBounds = true
         window.contentView = hosting
-        window.makeKeyAndOrderFront(nil)
         positionBottomRight(window: window)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         self.window = window
 
         // 输出阶段窗口放大、回到空闲时收起；底边锚定、水平居中，向上生长。
@@ -56,18 +68,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.resizeWindow(to: size)
             }
 
+        // 本地键盘监听
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            
-            // Enter (Return): Start recording if idle and input is empty
-            if event.keyCode == 36 {
+            if event.keyCode == 36 { // Enter
+                // 1. 如果正在录音，按回车立即结束录音并触发查询/生成
+                if self.model.isRecording {
+                    self.model.stopRecording()
+                    return nil
+                }
+                // 2. 如果是空闲且没有打字，按回车开始录音
                 if self.model.canStartRecording && self.model.screenMode == .live && self.model.draftInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     self.model.startRecording()
                     return nil
                 }
             }
-
-            if event.keyCode == 53 {
+            if event.keyCode == 53 { // Escape
                 if self.model.isMainInterface {
                     NSApp.terminate(nil)
                 } else {
@@ -79,7 +95,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         model.startRecording()
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func setupMenu() {
@@ -127,8 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidResignActive(_ notification: Notification) {
-        // 读取选中文本兜底 / 回贴期间会短暂让出焦点，不属于"用户离开"。
-        guard !model.isFocusExchangeInFlight else { return }
+        // 读取选中文本兜底 / 回贴期间 / 回贴完成后静置展示期间，不因失去焦点立即退出。
+        guard !model.isFocusExchangeInFlight && !model.isPostPasteActive else { return }
         // Exit when focus is lost
         NSApp.terminate(nil)
     }

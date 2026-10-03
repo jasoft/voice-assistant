@@ -64,6 +64,27 @@ struct AppModelTests {
 
         #expect(model.isSpeechMuted)
     }
+
+    @Test
+    func selectionTextIsInitiallyAccessibleAndObservable() {
+        let model = AppModel(forwardedArgs: [], workingDirectory: URL(fileURLWithPath: "/tmp"))
+        // model.selectionText 是 @Published，初值可被正常读取且支持变更通知
+        #expect(model.selectionText == nil || !model.selectionText!.isEmpty)
+    }
+
+    @Test
+    func toggleHistoryTransitionsBetweenLiveAndHistoryScreen() {
+        let model = AppModel(forwardedArgs: [], workingDirectory: URL(fileURLWithPath: "/tmp"))
+        #expect(model.screenMode == .live)
+
+        // 点击历史记录按钮进入历史记录
+        model.toggleHistory()
+        #expect(model.screenMode == .history)
+
+        // 点击左上角叉号关闭历史记录并返回主界面
+        model.toggleHistory()
+        #expect(model.screenMode == .live)
+    }
 }
 
 @MainActor

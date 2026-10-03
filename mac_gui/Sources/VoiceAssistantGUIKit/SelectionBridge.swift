@@ -8,8 +8,10 @@ public enum SelectionBridge {
     /// 选中文本上限：避免把整篇文档塞进问句拖垮 ≤8s 的回答预算。
     public static let maxSelectionLength = 16000
 
+    private static let keyCodeA: CGKeyCode = 0
     private static let keyCodeC: CGKeyCode = 8
     private static let keyCodeV: CGKeyCode = 9
+    private static let keyCodeRightArrow: CGKeyCode = 124
 
     public static var isAXTrusted: Bool { AXIsProcessTrusted() }
 
@@ -33,23 +35,52 @@ public enum SelectionBridge {
         return String(text.prefix(maxSelectionLength)) + "…\n\n（选中文本过长，已截断）"
     }
 
+    public enum SelectionReadResult: Equatable {
+        case text(String)
+        case empty
+        case unsupported
+    }
+
     // MARK: - AX 读取（无焦点切换）
 
-    /// 读取目标应用当前聚焦控件里的选中文本；原生文本控件与 Chromium 系应用大多可用。
-    public static func readSelectedText(pid: pid_t) -> String? {
+    /// 读取目标应用当前聚焦控件里的选中文本状态。
+    public static func readSelectionResult(pid: pid_t) -> SelectionReadResult {
         let appElement = AXUIElementCreateApplication(pid)
         if let direct = selectedText(of: appElement) {
-            return direct
+            return .text(direct)
         }
         var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
+        let focusedRet = AXUIElementCopyAttributeValue(
             appElement,
             kAXFocusedUIElementAttribute as CFString,
             &focused
-        ) == .success, let focused else {
-            return nil
+        )
+        guard focusedRet == .success, let focused else {
+            return .unsupported
         }
-        return selectedText(of: focused as! AXUIElement)
+        let focusedElement = focused as! AXUIElement
+        var value: CFTypeRef?
+        let selRet = AXUIElementCopyAttributeValue(
+            focusedElement,
+            kAXSelectedTextAttribute as CFString,
+            &value
+        )
+        if selRet == .success {
+            if let text = value as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? .empty : .text(trimmed)
+            }
+            return .empty
+        }
+        return .unsupported
+    }
+
+    /// 读取目标应用当前聚焦控件里的选中文本；原生文本控件与 Chromium 系应用大多可用。
+    public static func readSelectedText(pid: pid_t) -> String? {
+        if case .text(let str) = readSelectionResult(pid: pid) {
+            return str
+        }
+        return nil
     }
 
     private static func selectedText(of element: AXUIElement) -> String? {
@@ -67,46 +98,133 @@ public enum SelectionBridge {
 
     // MARK: - 剪贴板兜底
 
-    /// AX 读不到时的兜底：短暂激活目标应用模拟 Cmd+C 读取，随后还原剪贴板并交还焦点。
-    /// 调用方需先置好焦点交换保护（resign-active 不退出），避免期间进程被终止。
+    /// AX 读不到时的兜底：在目标应用处于前台时模拟 Cmd+C 读取选中文本，随后还原剪贴板。
     public static func captureViaClipboard(app: NSRunningApplication) async -> String? {
         let pasteboard = NSPasteboard.general
         let original = pasteboard.string(forType: .string)
         let originalChangeCount = pasteboard.changeCount
 
-        guard activateApp(app) else { return nil }
-        try? await Task.sleep(nanoseconds: 280_000_000)
-        postKeyCommand(keyCodeC)
+        let isAlreadyFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+        if !isAlreadyFront {
+            activateApp(app)
+            try? await Task.sleep(nanoseconds: 60_000_000)
+        }
+        await postKeyCommand(keyCodeC)
 
         var captured: String?
-        for _ in 0..<8 {
-            try? await Task.sleep(nanoseconds: 50_000_000)
+        for _ in 0..<15 {
+            try? await Task.sleep(nanoseconds: 20_000_000)
             if pasteboard.changeCount != originalChangeCount {
                 captured = pasteboard.string(forType: .string)
                 break
             }
         }
 
-        NSApplication.shared.activate()
         pasteboard.clearContents()
         if let original, !original.isEmpty {
             pasteboard.setString(original, forType: .string)
         }
+
+        // 探测完成后，交还焦点给 VoiceAssistantGUI，确保窗口保持 key 状态接收回车与按键
+        if !isAlreadyFront {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
         guard let captured, !captured.isEmpty else { return nil }
         return captured
     }
 
+    /// 计算智能回贴文本：
+    /// - 若当前编辑框文本（trimmed）等于原选中文本，直接返回新内容；
+    /// - 若包含原选中文本，返回替换后的整段文本；
+    /// - 若不包含，返回 nil（表示无法整段替换，退化为光标处插入）。
+    public static func resolveSmartReplacement(
+        currentContent: String,
+        originalSelection: String,
+        replacement: String
+    ) -> String? {
+        let trimmedCurrent = currentContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSelection = originalSelection.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedCurrent == trimmedSelection {
+            return replacement
+        }
+        if currentContent.contains(originalSelection) {
+            return currentContent.replacingOccurrences(of: originalSelection, with: replacement)
+        }
+        if !trimmedSelection.isEmpty && currentContent.contains(trimmedSelection) {
+            return currentContent.replacingOccurrences(of: trimmedSelection, with: replacement)
+        }
+        return nil
+    }
+
     // MARK: - 粘贴
 
-    /// 把内容写入剪贴板，激活目标应用后模拟 Cmd+V。返回 false 表示未能完成焦点切换。
-    public static func pasteText(_ text: String, to app: NSRunningApplication) async -> Bool {
+    /// 把内容写入剪贴板，向目标应用模拟 Cmd+V。
+    /// 当目标应用（如微信）因失焦取消了选区时，自动通过智能探测覆盖原选中文本，避免在末尾追加。
+    public static func pasteText(
+        _ text: String,
+        to app: NSRunningApplication,
+        originalSelection: String? = nil
+    ) async -> Bool {
+        activateApp(app)
+        try? await Task.sleep(nanoseconds: 120_000_000)
+
+        // 1. 如果目标应用支持 AX 并且当前依然保持着选区（原生 App 或良好支持的 Web 应用）
+        if let axSel = readSelectedText(pid: app.processIdentifier), !axSel.isEmpty {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            await postKeyCommand(keyCodeV)
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            return true
+        }
+
+        // 2. 如果当前没有 AX 选区（例如微信失焦后取消选区，光标留在末尾），但之前捕获到了选中文本：
+        // 尝试智能替换：探测当前编辑框内容
+        if let originalSelection, !originalSelection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let pasteboard = NSPasteboard.general
+            let beforeCount = pasteboard.changeCount
+
+            await postKeyCommand(keyCodeA)
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            await postKeyCommand(keyCodeC)
+
+            var readBack: String? = nil
+            for _ in 0..<12 {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                if pasteboard.changeCount != beforeCount {
+                    readBack = pasteboard.string(forType: .string)
+                    break
+                }
+            }
+
+            if let current = readBack {
+                if let smartText = resolveSmartReplacement(
+                    currentContent: current,
+                    originalSelection: originalSelection,
+                    replacement: text
+                ) {
+                    // 命中！当前处于 Cmd+A 全选状态，直接将替换后文本写入剪贴板并粘贴覆盖
+                    pasteboard.clearContents()
+                    pasteboard.setString(smartText, forType: .string)
+                    await postKeyCommand(keyCodeV)
+                    try? await Task.sleep(nanoseconds: 80_000_000)
+                    return true
+                } else {
+                    // 不包含原选中文本（例如用户划词的是外部网页或历史消息，当前在空输入框准备插入）
+                    // 按向右箭头取消全选并定位到光标末尾
+                    await postKey(keyCodeRightArrow)
+                    try? await Task.sleep(nanoseconds: 30_000_000)
+                }
+            }
+        }
+
+        // 3. 普通粘贴兜底
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        guard activateApp(app) else { return false }
-        try? await Task.sleep(nanoseconds: 350_000_000)
-        postKeyCommand(keyCodeV)
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        await postKeyCommand(keyCodeV)
+        try? await Task.sleep(nanoseconds: 80_000_000)
         return true
     }
 
@@ -118,14 +236,23 @@ public enum SelectionBridge {
         return app.activate()
     }
 
-    /// 模拟带 Command 修饰键的按键（发给系统焦点所在应用）。
-    public static func postKeyCommand(_ keyCode: CGKeyCode) {
-        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else { return }
-        down.flags = .maskCommand
+    /// 模拟按键（发给系统焦点所在应用）。
+    public static func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags = []) async {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) else { return }
+        down.flags = flags
         down.post(tap: .cghidEventTap)
-        if let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) {
-            up.flags = .maskCommand
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        if let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) {
+            up.flags = flags
             up.post(tap: .cghidEventTap)
         }
+        try? await Task.sleep(nanoseconds: 30_000_000)
+    }
+
+    /// 模拟带 Command 修饰键的按键（发给系统焦点所在应用）。
+    /// 使用真实 HID 事件源，并保证 keydown 与 keyup 之间有足够的事件循环间隔。
+    public static func postKeyCommand(_ keyCode: CGKeyCode) async {
+        await postKey(keyCode, flags: .maskCommand)
     }
 }

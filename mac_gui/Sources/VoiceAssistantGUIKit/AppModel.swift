@@ -39,8 +39,10 @@ public final class AppModel: ObservableObject {
 
     /// 窗口激活前的目标应用（选中文本来源，也是粘贴目标）。
     private(set) var selectionTarget: NSRunningApplication?
+    /// 原始未截断的选中文本，用于回贴时的智能字符串替换。
+    private(set) var rawSelectionText: String?
     /// 捕获到的选中文本；AX 失败时剪贴板兜底会稍后异步补上。
-    private(set) var selectionText: String?
+    @Published public private(set) var selectionText: String?
     /// 辅助功能未授权时给用户的提示。
     @Published public private(set) var selectionNotice: String?
     /// 与上一个应用交换焦点期间（读剪贴板兜底 / 回贴），resign-active 不触发退出。
@@ -127,10 +129,16 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    private var selectionCaptureTask: Task<Void, Never>?
+
     private func performRemoteQuery(text: String) {
         applySessionEvent(["type": "status", "phase": "thinking"])
-        let selectedText = selectionText
         Task { @MainActor in
+            // 若剪贴板探测仍在进行中，等待探测结束以携带选中文本
+            if let task = selectionCaptureTask {
+                _ = await task.result
+            }
+            let selectedText = selectionText
             do {
                 guard let client = vaClient else { return }
                 let response = try await client.chat(text: text, selectedText: selectedText)
@@ -150,10 +158,14 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    /// 粘贴完成后窗口静置等待自动退出的状态。
+    public var isPostPasteActive: Bool { postPasteExitTask != nil }
+
     // MARK: 选中文本捕获与回贴
 
     /// 窗口激活前定位上一个前台应用并读取选中文本。
-    /// AX 同步读取优先（无焦点切换）；失败时若已授权，用剪贴板兜底异步补齐。
+    /// 1. AX 优先同步读取；
+    /// 2. AX 未命中（大多数 Web/Electron 划词场景）无缝走 Cmd+C 快速剪贴板探测。
     private func captureSelectionFromPreviousApp() {
         guard SelectionBridge.isAXTrusted else {
             selectionNotice = "未授予「辅助功能」权限：无法读取选中文本与自动粘贴（系统设置 → 隐私与安全性 → 辅助功能，添加 VoiceAssistantGUI）"
@@ -161,21 +173,22 @@ public final class AppModel: ObservableObject {
         }
         guard let target = SelectionBridge.previousUserApp() else { return }
         selectionTarget = target
-        if let text = SelectionBridge.readSelectedText(pid: target.processIdentifier) {
-            selectionText = SelectionBridge.truncateSelection(text)
+
+        // 1. 同步 AX 读取
+        if let direct = SelectionBridge.readSelectedText(pid: target.processIdentifier), !direct.isEmpty {
+            rawSelectionText = direct
+            selectionText = SelectionBridge.truncateSelection(direct)
             return
         }
+
+        // 2. AX 读不到，启动剪贴板 Cmd+C 探测（支持 Orca、浏览器网页、VSCode、Slack、聊天窗口等划选内容）
         isFocusExchangeInFlight = true
-        Task { @MainActor [weak self] in
+        selectionCaptureTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            // 测试环境没有运行中的 NSApplication，跳过焦点交换避免副作用。
-            guard NSApp != nil else {
-                self.isFocusExchangeInFlight = false
-                return
-            }
             let captured = await SelectionBridge.captureViaClipboard(app: target)
             self.isFocusExchangeInFlight = false
-            if let captured {
+            if let captured, !captured.isEmpty {
+                self.rawSelectionText = captured
                 self.selectionText = SelectionBridge.truncateSelection(captured)
             }
         }
@@ -191,7 +204,7 @@ public final class AppModel: ObservableObject {
         }
         isFocusExchangeInFlight = true
         defer { isFocusExchangeInFlight = false }
-        let ok = await SelectionBridge.pasteText(text, to: target)
+        let ok = await SelectionBridge.pasteText(text, to: target, originalSelection: rawSelectionText ?? selectionText)
         if ok {
             schedulePostPasteExit()
             return "已粘贴到 \(target.localizedName ?? "上一个窗口")"
@@ -353,6 +366,10 @@ public final class AppModel: ObservableObject {
         screenMode == .live
             && session.state.status == .idle
             && draftInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public var isRecording: Bool {
+        session.state.status.isRecording
     }
 
     public var canInterruptCurrentRun: Bool {

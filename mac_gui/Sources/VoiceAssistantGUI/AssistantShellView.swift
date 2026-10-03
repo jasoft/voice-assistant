@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import VoiceAssistantGUIKit
 @preconcurrency import MarkdownUI
@@ -54,6 +55,8 @@ struct AssistantShellView: View {
             statusTitleView(fontSize: 28, weight: .bold)
                 .padding(.top, 12)
 
+            selectionPillView
+
             Spacer(minLength: 18)
 
             composer
@@ -77,6 +80,33 @@ struct AssistantShellView: View {
         .padding(.bottom, 18)
     }
 
+    @ViewBuilder
+    private var selectionPillView: some View {
+        if let selection = model.selectionText, !selection.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.on.doc.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.20, green: 0.45, blue: 0.95))
+                Text("已选中文本：\(selection)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(red: 0.18, green: 0.22, blue: 0.32))
+                    .lineLimit(2)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(red: 0.92, green: 0.95, blue: 1.00))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color(red: 0.78, green: 0.84, blue: 0.96), lineWidth: 1)
+            )
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+        }
+    }
+
     private var centerStageContent: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
@@ -94,6 +124,8 @@ struct AssistantShellView: View {
 
             statusTitleView(fontSize: 20, weight: .bold)
                 .padding(.top, 14)
+
+            selectionPillView
 
             Text(mainSubtitle ?? " ")
                 .font(.system(size: 12, weight: .medium))
@@ -138,6 +170,8 @@ struct AssistantShellView: View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: true) {
                 VStack(spacing: 14) {
+                    selectionPillView
+
                     if showTranscriptBubble {
                         transcriptBubble
                     }
