@@ -33,62 +33,42 @@ struct VoiceView: View {
     @State private var playback = PlaybackCoordinator()
 
     var body: some View {
-        VStack(spacing: 0) {
-            content
-            if showsBottomBar {
-                Divider()
-                HStack(spacing: 14) {
-                    bottomBarButtons
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottomTrailing) {
+                cornerButtons
             }
-        }
-        .padding(.horizontal, 4)
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-        }
-        .gesture(
-            DragGesture(minimumDistance: 25).onEnded { value in
-                if value.translation.width < -25,
-                   abs(value.translation.width) > abs(value.translation.height) {
-                    showingSettings = true
-                }
+            .overlay(alignment: .bottomLeading) {
+                thinkingIndicator
             }
-        )
-        .onAppear {
-            playback.onFinish = { isPlayingAudio = false }
-        }
+            .padding(.horizontal, 4)
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+            }
+            .gesture(
+                DragGesture(minimumDistance: 25).onEnded { value in
+                    if value.translation.width < -25,
+                       abs(value.translation.width) > abs(value.translation.height) {
+                        showingSettings = true
+                    }
+                }
+            )
+            .onAppear {
+                playback.onFinish = { isPlayingAudio = false }
+            }
     }
 
-    private var showsBottomBar: Bool {
-        switch state {
-        case .thinking, .reply, .failed: return true
-        default: return false
-        }
-    }
-
-    @ViewBuilder private var bottomBarButtons: some View {
-        switch state {
-        case .thinking:
-            cornerButton(icon: "xmark", isLoading: false) {
-                cancelThinking()
+    /// 思考中的状态提示，悬浮在左下角（与右下角取消钮对称）。
+    @ViewBuilder private var thinkingIndicator: some View {
+        if case .thinking = state {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("正在思考…")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
             }
-        case .reply(_, let text):
-            cornerButton(icon: playIcon, isLoading: isLoadingAudio) {
-                togglePlayback(for: text)
-            }
-            cornerButton(icon: "mic.fill", isLoading: false) {
-                stopAudio()
-                Task { await startRecording() }
-            }
-        case .failed:
-            cornerButton(icon: "mic.fill", isLoading: false) {
-                Task { await startRecording() }
-            }
-        default:
-            EmptyView()
+            .padding(.leading, 6)
+            .padding(.bottom, 26)
         }
     }
 
@@ -124,20 +104,12 @@ struct VoiceView: View {
                 Spacer(minLength: 0)
             }
         case .thinking(let transcript):
-            VStack(spacing: 8) {
-                ScrollView {
-                    Text(transcript)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("正在思考…")
-                        .font(.system(size: 15))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 6)
+            ScrollView {
+                Text(transcript)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 64)
             }
         case .reply(let transcript, let text):
             ScrollView {
@@ -155,6 +127,7 @@ struct VoiceView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 64)
             }
         case .failed(let message):
             ScrollView {
@@ -162,7 +135,34 @@ struct VoiceView: View {
                     .font(.system(size: 14))
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 64)
             }
+        }
+    }
+
+    /// 右下角悬浮的纯图标操作按钮：思考中=取消重录，回复页=播放+录音，失败页=录音。
+    @ViewBuilder private var cornerButtons: some View {
+        switch state {
+        case .thinking:
+            cornerButton(icon: "xmark", isLoading: false) {
+                cancelThinking()
+            }
+        case .reply(_, let text):
+            HStack(spacing: 10) {
+                cornerButton(icon: playIcon, isLoading: isLoadingAudio) {
+                    togglePlayback(for: text)
+                }
+                cornerButton(icon: "mic.fill", isLoading: false) {
+                    stopAudio()
+                    Task { await startRecording() }
+                }
+            }
+        case .failed:
+            cornerButton(icon: "mic.fill", isLoading: false) {
+                Task { await startRecording() }
+            }
+        default:
+            EmptyView()
         }
     }
 
