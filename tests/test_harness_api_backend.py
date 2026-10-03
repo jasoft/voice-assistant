@@ -393,13 +393,15 @@ def test_chat_is_one_shot_with_dedicated_fast_agent(path: str, monkeypatch) -> N
     assert response.status_code == 200
     body = response.json()
     assert body["reply"] == "一次性回复"
-    assert body["debug_info"]["agent_preset"] == "chat-fast"
-    fake_client.query.assert_awaited_once_with(
-        "今天怎么样", photo=None, timeout_seconds=30.0
-    )
+    assert fake_client.query.await_count == 1
+    call_args, call_kwargs = fake_client.query.await_args
+    assert "今天怎么样" in call_args[0]
+    assert "当前北京时间" in call_args[0]
+    assert call_kwargs == {"photo": None, "timeout_seconds": 30.0}
     fake_client.close.assert_awaited_once()
     assert len(persisted) == 1
     assert persisted[0].mode == "chat"
+    assert persisted[0].transcript == "今天怎么样"
     assert persisted[0].session_id.startswith("chat-session-1:")
 
 

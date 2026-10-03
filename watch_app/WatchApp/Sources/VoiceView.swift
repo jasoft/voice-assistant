@@ -60,6 +60,7 @@ final class PCMStreamPlayer {
 
     func stop() {
         playerNode.stop()
+        playerNode.reset()
         engine.stop()
         pendingBuffers = 0
         isPlaying = false
@@ -212,8 +213,10 @@ struct VoiceView: View {
             cornerButton(icon: "xmark", isLoading: false) {
                 cancelThinking()
             }
+            .padding(.trailing, 8)
+            .padding(.bottom, 6)
         case .reply(_, let text):
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 cornerButton(icon: playIcon, isLoading: isLoadingAudio) {
                     togglePlayback(for: text)
                 }
@@ -222,10 +225,14 @@ struct VoiceView: View {
                     Task { await startRecording() }
                 }
             }
+            .padding(.trailing, 8)
+            .padding(.bottom, 6)
         case .failed:
             cornerButton(icon: "mic.fill", isLoading: false) {
                 Task { await startRecording() }
             }
+            .padding(.trailing, 8)
+            .padding(.bottom, 6)
         default:
             EmptyView()
         }
@@ -239,16 +246,18 @@ struct VoiceView: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(Color.accentColor.opacity(0.9))
+                    .fill(Color.accentColor.opacity(0.95))
+                    .frame(width: 36, height: 36)
                 if isLoading {
-                    ProgressView().scaleEffect(0.45)
+                    ProgressView().scaleEffect(0.5)
                 } else {
                     Image(systemName: icon)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white)
                 }
             }
-            .frame(width: 32, height: 32)
+            .frame(width: 46, height: 46)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -401,5 +410,7 @@ struct VoiceView: View {
         streamPlayer.stop()
         isPlayingAudio = false
         isLoadingAudio = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        WKInterfaceDevice.current().play(.click)
     }
 }

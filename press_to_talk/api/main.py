@@ -38,6 +38,7 @@ from ..storage.models import SessionHistoryRecord
 from ..storage.providers.mem0 import Mem0RememberStore
 from .fast_chat import try_fast_memory_chat
 from ..audio.stt import run_stt
+from ..utils.text import current_time_with_weekday_text
 
 
 
@@ -113,10 +114,16 @@ def _persist_harness_history(
 ) -> None:
     """Persist one completed Harness turn to the durable PocketBase history."""
 
+    clean_query = query
+    if clean_query.startswith("【当前北京时间】"):
+        parts = clean_query.split("\n", 1)
+        if len(parts) > 1:
+            clean_query = parts[1].lstrip()
+
     record = SessionHistoryRecord(
         session_id=f"{harness_session_id or 'harness'}:{uuid.uuid4().hex}",
         started_at=datetime.now().astimezone().isoformat(timespec="seconds"),
-        transcript=query,
+        transcript=clean_query,
         reply=reply,
         mode=mode or ExecutionMode.MEMORY_CHAT.value,
     )
@@ -701,28 +708,39 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
     if not _uses_harness_backend():
         raise HTTPException(status_code=404, detail="聊天端点仅在 Harness 模式可用")
 
+    # 慢路径注入当前时间保底，杜绝模型幻觉当前日期
+    current_time = current_time_with_weekday_text()
+    time_prefix = f"【当前北京时间】{current_time}\n"
+    slow_query = f"{time_prefix}{req.query}"
+
     # 慢路径没有 delivery 判定，退化为把选中文本作为上下文拼进问句（播报回答）。
     if req.selected_text and req.selected_text.strip():
         selection = req.selected_text.strip()
         if len(selection) > 20000:
             selection = selection[:20000]
-        req = req.model_copy(update={
-            "query": f"{req.query}\n\n【用户当前选中的文本】\n{selection}",
-        })
+        slow_query = f"{slow_query}\n\n【用户当前选中的文本】\n{selection}"
+
+    slow_req = req.model_copy(update={"query": slow_query})
 
     try:
         client = _chat_harness_client_for(user_id)
         try:
-            return await asyncio.wait_for(
+            harness_resp = await asyncio.wait_for(
                 _execute_harness_query(
                     user_id=user_id,
-                    req=req,
+                    req=slow_req,
                     client=client,
                     mode_name="chat",
                     timeout_seconds=_chat_timeout_seconds(),
                 ),
                 timeout=_chat_timeout_seconds(),
             )
+            # 保证对外返回的 query 为用户原始输入，不暴露系统前缀
+            if harness_resp.query and harness_resp.query.startswith("【当前北京时间】"):
+                parts = harness_resp.query.split("\n", 1)
+                clean_q = parts[1].lstrip() if len(parts) > 1 else req.query
+                harness_resp = harness_resp.model_copy(update={"query": clean_q})
+            return harness_resp
         finally:
             await client.close()
     except asyncio.TimeoutError as exc:

@@ -15,6 +15,7 @@ targets:
     platform: watchOS
     sources:
       - WatchApp/Sources
+      - WatchApp/Resources
     info:
       path: WatchApp/Info.plist
       properties:
