@@ -32,6 +32,7 @@ from ..storage.providers.memos import (
 )
 from ..utils.env import load_workflow_config
 from ..utils.logging import log
+from ..utils.text import current_time_with_weekday_text
 from ..utils.typesafe import ask_intent_and_delivery
 
 _MAX_SELECTION_CHARS = 20000
@@ -92,6 +93,7 @@ async def _extract_keywords_with_harness(query: str, selection: str = "") -> lis
         query_text = f"{query} （参考选中文本：{selection[:200]}）"
 
     prompt = _prompt("harness_keyword_extract")
+    current_time = current_time_with_weekday_text()
     if not prompt:
         prompt = (
             "从下面这句用户问句中提炼 2 到 5 个最核心、最可能命中个人备忘的检索词"
@@ -99,7 +101,11 @@ async def _extract_keywords_with_harness(query: str, selection: str = "") -> lis
             "{\"keywords\":[\"词1\",\"词2\"]}\n\n用户问句：%s" % query_text
         )
     else:
-        prompt = prompt.replace("%%QUERY%%", query_text)
+        prompt = (
+            prompt.replace("%%CURRENT_TIME%%", current_time)
+            .replace("${PTT_CURRENT_TIME}", current_time)
+            .replace("%%QUERY%%", query_text)
+        )
 
     client = _chat_harness_client()
     try:
@@ -117,18 +123,32 @@ async def _extract_keywords_with_harness(query: str, selection: str = "") -> lis
 async def _answer_with_harness(query: str, memos: list[dict[str, Any]], selection: str = "") -> str:
     """Harness(chat-fast) 回答：有匹配备忘则基于备忘回答，有选中文本则作为上下文，无则正常闲聊。"""
     prompt = _prompt("harness_answer")
+    current_time = current_time_with_weekday_text()
     memo_lines = [str(m.get("memory", "")).strip() for m in memos if str(m.get("memory", "")).strip()]
     memos_block = "\n".join(memo_lines) or "（无相关备忘）"
     selection_block = selection.strip() or "（无选中文本）"
     if not prompt:
         prompt = (
-            "根据用户问题、相关备忘以及用户当前选中的文本上下文回答用户问题；"
-            "若无相关备忘则直接根据你的知识回答。\n\n"
+            "你是语音助手的最终回答链路。当前时间：%%CURRENT_TIME%%。人称准则：直接对用户说话，在回答中涉及用户的行为时，严禁使用“用户”一词，必须一律改用“你”或“您”。\n\n"
+            "回答规范：\n"
+            "1. 如果用户当前有选中的文本（上下文），必须将其作为核心上下文，紧密结合选中文本回答用户问题（如解释、总结、答疑等）。\n"
+            "2. 优先参考下面提供的相关备忘内容回答用户问题，不要提及“检索”“备忘”等内部机制。\n"
+            "3. 如果相关备忘不足或没有，直接根据你的知识和联网检索能力回答（例如天气、常识、闲聊等），不要回复“信息不足”。\n"
+            "4. 如果回答涉及多条记录、多个事项，必须使用 Markdown 无序列表（- ）分行陈列。\n"
+            "5. 回答保持简短、直接、适合语音播报。\n\n"
             "用户问题：%%QUERY%%\n\n"
             "用户当前选中的文本（上下文）：\n%%SELECTION%%\n\n"
             "相关备忘：\n%%MEMOS%%"
         )
-    prompt = prompt.replace("%%QUERY%%", query).replace("%%MEMOS%%", memos_block).replace("%%SELECTION%%", selection_block)
+    prompt = (
+        prompt.replace("%%CURRENT_TIME%%", current_time)
+        .replace("${PTT_CURRENT_TIME}", current_time)
+        .replace("%%QUERY%%", query)
+        .replace("%%MEMOS%%", memos_block)
+        .replace("%%SELECTION%%", selection_block)
+    )
+    if current_time not in prompt:
+        prompt = f"当前时间：{current_time}\n\n{prompt}"
     if selection.strip() and "%%SELECTION%%" not in _prompt("harness_answer") and selection_block not in prompt:
         prompt += f"\n\n【用户当前选中的文本（上下文）】\n{selection.strip()}"
 
@@ -144,15 +164,22 @@ async def _compose_with_harness(query: str, selection: str) -> str | None:
     """Harness(chat-fast) 产出要粘贴的最终内容（改写/生成）。失败返回 None。"""
     selection_block = selection or "（无选中文本，按指令直接生成）"
     prompt = _prompt("harness_compose")
+    current_time = current_time_with_weekday_text()
     if not prompt:
         prompt = (
-            "根据用户指令直接输出要替换选中文本、或粘贴到光标处的最终内容本身，"
+            "你是一个文本产出器。当前时间：%%CURRENT_TIME%%。根据用户指令直接输出要替换选中文本、或粘贴到光标处的最终内容本身，"
             "不要任何解释、前缀或代码围栏。若提供了选中文本且指令是对它的加工，"
             "以选中文本为基础完成。\n\n用户指令：%s\n\n用户当前选中的文本（可能为空）：\n%s"
             % (query, selection_block)
         )
-    else:
-        prompt = prompt.replace("%%INSTRUCTION%%", query).replace("%%SELECTION%%", selection_block)
+    prompt = (
+        prompt.replace("%%CURRENT_TIME%%", current_time)
+        .replace("${PTT_CURRENT_TIME}", current_time)
+        .replace("%%INSTRUCTION%%", query)
+        .replace("%%SELECTION%%", selection_block)
+    )
+    if current_time not in prompt:
+        prompt = f"当前时间：{current_time}\n\n{prompt}"
 
     client = _chat_harness_client()
     try:

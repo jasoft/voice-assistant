@@ -268,3 +268,28 @@ async def test_ask_chain_carries_selection_as_context():
     assert captured["answer_selection"] == "def sqrt(x): return math.sqrt(x)"
     assert "平方根" in result["reply"]
     assert result["action"] == "speak"
+
+
+@pytest.mark.anyio
+async def test_harness_answer_and_compose_inject_current_time(monkeypatch):
+    monkeypatch.setenv("PTT_CURRENT_TIME", "2026-10-03 23:00:00 星期六")
+    captured_prompts = []
+
+    class _FakeClient:
+        async def query(self, prompt: str):
+            captured_prompts.append(prompt)
+            return {"reply": "ok"}
+
+        async def close(self):
+            pass
+
+    with patch.object(fast_chat, "_chat_harness_client", return_value=_FakeClient()):
+        ans = await fast_chat._answer_with_harness("今天是星期几", [])
+        assert ans == "ok"
+        assert "2026-10-03 23:00:00 星期六" in captured_prompts[0]
+
+        captured_prompts.clear()
+        comp = await fast_chat._compose_with_harness("写一封邮件", "")
+        assert comp == "ok"
+        assert "2026-10-03 23:00:00 星期六" in captured_prompts[0]
+

@@ -12,6 +12,18 @@ def current_time_text() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def current_time_with_weekday_text() -> str:
+    import os
+    env_time = os.environ.get("PTT_CURRENT_TIME")
+    if env_time:
+        return env_time
+    now = datetime.now().astimezone()
+    weekday_map = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+    weekday = weekday_map[now.weekday()]
+    return f"{now.strftime('%Y-%m-%d %H:%M:%S')} {weekday}"
+
+
+
 
 def format_local_datetime(iso_text: str) -> str:
     try:
