@@ -36,6 +36,13 @@ final class Recorder {
         fileURL = url
     }
 
+    /// 当前输入电平（dBFS，约 -160…0），供录音按钮随音量跳动。
+    func currentPower() -> Float {
+        guard let recorder, recorder.isRecording else { return -160 }
+        recorder.updateMeters()
+        return recorder.averagePower
+    }
+
     func stop() -> URL? {
         recorder?.stop()
         recorder = nil

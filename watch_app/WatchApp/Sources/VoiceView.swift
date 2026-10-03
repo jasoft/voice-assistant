@@ -31,6 +31,7 @@ struct VoiceView: View {
     @State private var isPlayingAudio = false
     @State private var ttsError: String?
     @State private var playback = PlaybackCoordinator()
+    @State private var meterLevel: Double = 0
 
     var body: some View {
         content
@@ -53,9 +54,14 @@ struct VoiceView: View {
                     }
                 }
             )
-            .onAppear {
-                playback.onFinish = { isPlayingAudio = false }
-            }
+        .onAppear {
+            playback.onFinish = { isPlayingAudio = false }
+        }
+        .onReceive(Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()) { _ in
+            guard state == .recording else { return }
+            let power = recorder.currentPower()
+            meterLevel = Double(max(0, min(1, (power + 50) / 50)))
+        }
     }
 
     /// 思考中的状态提示，悬浮在左下角（与右下角取消钮对称）。
@@ -166,26 +172,26 @@ struct VoiceView: View {
         }
     }
 
-    /// 大按钮只在待机（开始录音）和录音中（结束录音）出现。
+    /// 大按钮只在待机（开始录音）和录音中（结束录音）出现；录音时随输入音量跳动。
     private var micButton: some View {
         Button(action: handleTap) {
             ZStack {
                 Circle()
                     .fill(state == .recording ? Color.red : Color.accentColor)
                     .frame(width: 76, height: 76)
-                    .scaleEffect(state == .recording ? 1.1 : 1.0)
-                    .animation(
-                        state == .recording
-                            ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
-                            : .default,
-                        value: state == .recording
-                    )
+                    .scaleEffect(circleScale)
+                    .animation(.easeOut(duration: 0.08), value: meterLevel)
                 Image(systemName: state == .recording ? "stop.fill" : "mic.fill")
                     .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(.white)
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private var circleScale: CGFloat {
+        guard state == .recording else { return 1.0 }
+        return 1.0 + CGFloat(meterLevel) * 0.35
     }
 
     private func cornerButton(icon: String, isLoading: Bool, action: @escaping () -> Void) -> some View {
