@@ -504,7 +504,7 @@ async def try_fast_memory_chat(
 
     elapsed_total = time.monotonic() - t0
     log(
-        f"fast-chat [STAGE: COMPLETE] ask finished in {elapsed_total:.2f}s "
+        f"fast-chat [STAGE: COMPLETE] query finished in {elapsed_total:.2f}s "
         f"(kw={elapsed_kw:.2f}s, search={elapsed_search:.2f}s, ans={elapsed_ans:.2f}s)",
         level="info",
     )
@@ -524,7 +524,7 @@ async def try_fast_memory_chat(
         "query": query,
         "debug_info": {
             "backend": "fast-chat",
-            "intent": "ask",
+            "intent": "query",
             "keywords": keywords,
             "memo_count": len(memos_items),
             "elapsed_s": round(elapsed_total, 2),
