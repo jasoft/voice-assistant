@@ -11,12 +11,58 @@ enum VoiceState: Equatable {
     case failed(String)
 }
 
-/// AVAudioPlayer 播完回调桥（struct 视图无法直接当 delegate）。
-final class PlaybackCoordinator: NSObject, AVAudioPlayerDelegate {
-    var onFinish: (() -> Void)?
+/// 流式 PCM 播放器：音频块边到边播（Gemini TTS 输出 24kHz/16bit/单声道）。
+final class PCMStreamPlayer {
+    private let engine = AVAudioEngine()
+    private let playerNode = AVAudioPlayerNode()
+    private var format: AVAudioFormat? = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false
+    )
+    private var attached = false
+    private(set) var isPlaying = false
 
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        onFinish?()
+    func start() throws {
+        guard let format else {
+            throw PlaybackError.formatUnavailable
+        }
+        if !attached {
+            engine.attach(playerNode)
+            attached = true
+        }
+        engine.connect(playerNode, to: engine.mainMixerNode, format: format)
+        try engine.start()
+        playerNode.play()
+        isPlaying = true
+    }
+
+    func schedule(pcm: Data) {
+        guard let format, pcm.count >= 2 else { return }
+        let sampleCount = pcm.count / 2
+        guard sampleCount > 0,
+              let buffer = AVAudioPCMBuffer(
+                  pcmFormat: format,
+                  frameCapacity: AVAudioFrameCount(sampleCount)
+              ) else { return }
+        buffer.frameLength = AVAudioFrameCount(sampleCount)
+        let floats = buffer.floatChannelData![0]
+        for i in 0..<sampleCount {
+            let index = pcm.startIndex + i * 2
+            let value = Int16(pcm[index]) | (Int16(pcm[index + 1]) << 8)
+            floats[i] = Float(value) / 32768.0
+        }
+        playerNode.scheduleBuffer(buffer)
+    }
+
+    func stop() {
+        playerNode.stop()
+        engine.stop()
+        isPlaying = false
+    }
+
+    enum PlaybackError: LocalizedError {
+        case formatUnavailable
+
+        var errorDescription: String? { "音频格式不可用" }
     }
 }
 
@@ -26,11 +72,11 @@ struct VoiceView: View {
     @State private var apiClient = APIClient()
     @State private var showingSettings = false
     @State private var chatTask: Task<Void, Never>?
-    @State private var audioPlayer: AVAudioPlayer?
+    @State private var streamPlayer = PCMStreamPlayer()
+    @State private var speechTask: Task<Void, Never>?
     @State private var isLoadingAudio = false
     @State private var isPlayingAudio = false
     @State private var ttsError: String?
-    @State private var playback = PlaybackCoordinator()
     @State private var meterLevel: Double = 0
 
     var body: some View {
@@ -54,14 +100,11 @@ struct VoiceView: View {
                     }
                 }
             )
-        .onAppear {
-            playback.onFinish = { isPlayingAudio = false }
-        }
-        .onReceive(Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()) { _ in
-            guard state == .recording else { return }
-            let power = recorder.currentPower()
-            meterLevel = Double(max(0, min(1, (power + 50) / 50)))
-        }
+            .onReceive(Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()) { _ in
+                guard state == .recording else { return }
+                let power = recorder.currentPower()
+                meterLevel = Double(max(0, min(1, (power + 50) / 50)))
+            }
     }
 
     /// 思考中的状态提示，悬浮在左下角（与右下角取消钮对称）。
@@ -172,26 +215,8 @@ struct VoiceView: View {
         }
     }
 
-    /// 大按钮只在待机（开始录音）和录音中（结束录音）出现；录音时随输入音量跳动。
-    private var micButton: some View {
-        Button(action: handleTap) {
-            ZStack {
-                Circle()
-                    .fill(state == .recording ? Color.red : Color.accentColor)
-                    .frame(width: 76, height: 76)
-                    .scaleEffect(circleScale)
-                    .animation(.easeOut(duration: 0.08), value: meterLevel)
-                Image(systemName: state == .recording ? "stop.fill" : "mic.fill")
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var circleScale: CGFloat {
-        guard state == .recording else { return 1.0 }
-        return 1.0 + CGFloat(meterLevel) * 0.35
+    private var playIcon: String {
+        isPlayingAudio ? "stop.fill" : "play.fill"
     }
 
     private func cornerButton(icon: String, isLoading: Bool, action: @escaping () -> Void) -> some View {
@@ -212,8 +237,26 @@ struct VoiceView: View {
         .buttonStyle(.plain)
     }
 
-    private var playIcon: String {
-        isPlayingAudio ? "stop.fill" : "play.fill"
+    /// 大按钮只在待机（开始录音）和录音中（结束录音）出现；录音时随输入音量跳动。
+    private var micButton: some View {
+        Button(action: handleTap) {
+            ZStack {
+                Circle()
+                    .fill(state == .recording ? Color.red : Color.accentColor)
+                    .frame(width: 76, height: 76)
+                    .scaleEffect(circleScale)
+                    .animation(.easeOut(duration: 0.08), value: meterLevel)
+                Image(systemName: state == .recording ? "stop.fill" : "mic.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var circleScale: CGFloat {
+        guard state == .recording else { return 1.0 }
+        return 1.0 + CGFloat(meterLevel) * 0.35
     }
 
     private func handleTap() {
@@ -285,44 +328,61 @@ struct VoiceView: View {
         Task { await startRecording() }
     }
 
-    /// 播放/停止回复语音：按需向服务端 /v1/tts 请求第三方合成音频。
+    /// 播放/停止回复语音：点按即开播，向服务端 /v1/tts 拉流，边收边播。
     private func togglePlayback(for text: String) {
-        if isPlayingAudio, let player = audioPlayer {
-            player.stop()
-            isPlayingAudio = false
+        if isPlayingAudio {
+            stopAudio()
             return
         }
         guard !isLoadingAudio else { return }
         isLoadingAudio = true
         ttsError = nil
-        Task {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback)
+        try? session.setActive(true)
+        do {
+            try streamPlayer.start()
+        } catch {
+            ttsError = "播放启动失败：\(error.localizedDescription)"
+            isLoadingAudio = false
+            return
+        }
+        isPlayingAudio = true
+        WKInterfaceDevice.current().play(.click)
+        speechTask = Task {
+            defer { isLoadingAudio = false }
+            var received = 0
             do {
-                let audio = try await apiClient.synthesize(
+                let stream = apiClient.streamSpeech(
                     text: text,
                     serverBase: AppPrefs.serverURL,
                     apiKey: AppPrefs.apiKey
                 )
-                let url = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("va_reply.mp3")
-                try audio.write(to: url, options: .atomic)
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playback)
-                try session.setActive(true)
-                let player = try AVAudioPlayer(contentsOf: url)
-                player.delegate = playback
-                audioPlayer = player
-                player.play()
-                isPlayingAudio = true
-                WKInterfaceDevice.current().play(.click)
+                for try await chunk in stream {
+                    if Task.isCancelled { return }
+                    received += chunk.count
+                    streamPlayer.schedule(pcm: chunk)
+                }
+                while streamPlayer.isPlaying && !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                }
+                if received == 0 && !Task.isCancelled {
+                    ttsError = "服务端没有返回音频"
+                }
             } catch {
-                ttsError = "播放失败：\(error.localizedDescription)"
+                if !Task.isCancelled {
+                    ttsError = "播放失败：\(error.localizedDescription)"
+                }
             }
-            isLoadingAudio = false
+            streamPlayer.stop()
+            isPlayingAudio = false
         }
     }
 
     private func stopAudio() {
-        audioPlayer?.stop()
+        speechTask?.cancel()
+        speechTask = nil
+        streamPlayer.stop()
         isPlayingAudio = false
     }
 }

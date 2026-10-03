@@ -1,8 +1,9 @@
 from __future__ import annotations
 from fastapi import FastAPI, Depends, File, HTTPException, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, AsyncIterator
 from types import SimpleNamespace
 import os
 import asyncio
@@ -219,67 +220,105 @@ async def lifespan(app: FastAPI):
     await _close_harness_clients()
     close_session_log()
 
-class LoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Only log /v1 requests
-        if not request.url.path.startswith("/v1"):
-            return await call_next(request)
+class LoggingMiddleware:
+    """纯 ASGI 中间件：记录 /v1 请求与 JSON 响应。
 
-        # Read Body
-        body = await request.body()
-        
-        # Prepare log content: Mask Authorization header
-        headers = dict(request.headers)
+    不用 BaseHTTPMiddleware：它对 StreamingResponse 的消息循环处理有缺陷
+    （会以 "Unexpected message received: http.request" 中断流式响应）。
+    这里响应消息全部透传不缓冲，流式端点（如 /v1/tts）得以边合成边下发。
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/v1"):
+            await self.app(scope, receive, send)
+            return
+
+        body = b""
+        client_disconnected = False
+        while True:
+            message = await receive()
+            if message["type"] == "http.request":
+                body += message.get("body", b"")
+                if not message.get("more_body", False):
+                    break
+            elif message["type"] == "http.disconnect":
+                client_disconnected = True
+                break
+
+        if client_disconnected:
+            return
+
+        # Prepare log content: Mask Authorization header（只影响日志，不改写 scope）
+        raw_headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        headers = dict(raw_headers)
         if "authorization" in headers:
             headers["authorization"] = mask_auth_header(headers["authorization"])
-        
-        # Prepare log content: Truncate Body
+
         try:
             body_str = body.decode("utf-8", errors="replace")
         except Exception:
             body_str = "[binary data]"
-            
+
         if len(body_str) > 1000:
             body_str = body_str[:1000] + "... [truncated]"
 
+        client = scope.get("client")
         log_content = [
-            f"Method: {request.method}",
-            f"URL: {request.url}",
-            f"Client: {request.client.host if request.client else 'unknown'}",
+            f"Method: {scope.get('method', '?')}",
+            f"URL: {scope.get('path', '?')}",
+            f"Client: {client[0] if client else 'unknown'}",
             f"Headers: {json.dumps(headers, indent=2)}",
-            f"Body: {body_str}"
+            f"Body: {body_str}",
         ]
         log_multiline("API Request Incoming", "\n".join(log_content), level="info")
 
-        # Re-wrap body for subsequent route handlers
+        # Re-wrap body for subsequent handlers: body 只投递一次，之后断开
+        body_sent = False
+
         async def receive():
+            nonlocal body_sent
+            if body_sent:
+                return {"type": "http.disconnect"}
+            body_sent = True
             return {"type": "http.request", "body": body}
 
-        request._receive = receive
-        
-        response = await call_next(request)
-        
-        # Log Response
-        if request.url.path.startswith("/v1"):
-            response_body = b""
-            async for chunk in response.body_iterator:
-                response_body += chunk
-            
-            # Re-wrap response iterator
-            async def response_iterator():
-                yield response_body
-            response.body_iterator = response_iterator()
+        response_status: list[int] = []
+        response_content_type: list[str] = []
+        response_body = bytearray()
 
-            try:
-                res_str = response_body.decode("utf-8", errors="replace")
-                if len(res_str) > 1000:
-                    res_str = res_str[:1000] + "... [truncated]"
-            except Exception:
-                res_str = "[binary data]"
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                response_status.append(message.get("status", 0))
+                response_content_type.append(
+                    next(
+                        (
+                            v.decode("latin-1")
+                            for k, v in message.get("headers", [])
+                            if k.decode("latin-1").lower() == "content-type"
+                        ),
+                        "",
+                    )
+                )
+            elif message["type"] == "http.response.body":
+                response_body.extend(message.get("body", b""))
+            await send(message)
 
-            log_multiline(f"API Response Sent (Status: {response.status_code})", res_str, level="info")
-
-        return response
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            if response_status:
+                status = response_status[0]
+                content_type = response_content_type[0] or ""
+                if content_type.startswith("application/json"):
+                    res_str = bytes(response_body).decode("utf-8", errors="replace")
+                    if len(res_str) > 1000:
+                        res_str = res_str[:1000] + "... [truncated]"
+                else:
+                    res_str = f"[binary data {len(response_body)} bytes]"
+                log_multiline(f"API Response Sent (Status: {status})", res_str, level="info")
 
 app = FastAPI(title="Press-to-Talk API", lifespan=lifespan)
 os.makedirs("data/photos", exist_ok=True)
@@ -814,39 +853,80 @@ class TTSRequest(BaseModel):
 _TTS_MAX_CHARS = 2000
 
 
-async def _tts_relay(text: str) -> tuple[bytes, str]:
-    """调用 OpenAI 兼容 /audio/speech 后端合成语音，返回 (音频字节, Content-Type)。
+async def _gemini_tts_stream(text: str) -> AsyncIterator[bytes]:
+    """流式调用 Gemini TTS（SSE），逐块 yield 16-bit LE PCM 字节（按 2 字节对齐）。
 
-    默认复用 PTT_STT_URL（litellm elevenlabs bridge 同时提供 TTS 模型），
-    可用 PTT_TTS_URL / PTT_TTS_MODEL / PTT_TTS_VOICE 覆盖。
+    Key 来自 .env 加载后的 GOOGLE_AI_STUDIO_KEY；模型/音色可用
+    PTT_TTS_GEMINI_MODEL / PTT_TTS_GEMINI_VOICE 覆盖。输出固定
+    24kHz/16bit/单声道 PCM（mimeType: audio/l16）。
     """
-    base = os.environ.get("PTT_TTS_URL", "").strip() or os.environ.get("PTT_STT_URL", "").strip()
-    if not base:
-        raise RuntimeError("TTS 服务未配置（PTT_TTS_URL/PTT_STT_URL）")
-    endpoint = base.rstrip("/") + "/audio/speech"
+    key = os.environ.get("GOOGLE_AI_STUDIO_KEY", "").strip()
+    if not key:
+        raise RuntimeError("TTS 未配置（GOOGLE_AI_STUDIO_KEY）")
+    model = os.environ.get("PTT_TTS_GEMINI_MODEL", "gemini-3.8-flash-lite-tts")
+    voice = os.environ.get("PTT_TTS_GEMINI_VOICE", "Kore")
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:streamGenerateContent?alt=sse&key={key}"
+    )
     payload = {
-        "model": os.environ.get("PTT_TTS_MODEL", "elevenlabs-tts"),
-        "input": text[:_TTS_MAX_CHARS],
-        "voice": os.environ.get("PTT_TTS_VOICE", "Xb7hH8MSUJpSbSDYk0k2"),
+        "contents": [{"parts": [{"text": text[:_TTS_MAX_CHARS]}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}
+            },
+        },
     }
     import httpx
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(endpoint, json=payload)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("POST", url, json=payload) as resp:
+                if resp.status_code != 200:
+                    body = (await resp.aread()).decode("utf-8", "replace")[:300]
+                    raise RuntimeError(f"Gemini TTS 上游返回 {resp.status_code}：{body}")
+                carry = b""
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[5:].strip()
+                    if not data_str:
+                        continue
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    parts = (
+                        (chunk.get("candidates") or [{}])[0]
+                        .get("content", {})
+                        .get("parts", [])
+                    )
+                    for part in parts:
+                        inline = part.get("inlineData") or {}
+                        if inline.get("data"):
+                            carry += base64.b64decode(inline["data"])
+                            if len(carry) % 2:
+                                carry, out = carry[-1:], carry[:-1]
+                            else:
+                                carry, out = b"", carry
+                            if out:
+                                yield out
+                if len(carry) >= 2:
+                    yield carry
+    except RuntimeError:
+        raise
     except Exception as exc:
-        raise RuntimeError(f"TTS 上游连接失败：{exc}") from exc
-    if resp.status_code != 200:
-        raise RuntimeError(f"TTS 上游返回 {resp.status_code}：{resp.text[:200]}")
-    return resp.content, resp.headers.get("content-type", "audio/mpeg")
+        raise RuntimeError(f"Gemini TTS 连接失败：{exc}") from exc
 
 
 @app.post(
     "/v1/tts",
-    summary="文本转语音：中继到 ElevenLabs 兼容后端，返回音频流",
+    summary="文本转语音：Gemini TTS 流式合成，返回 24kHz/16bit/单声道 PCM 字节流",
     description=(
-        "接收 {\"text\": ...}，服务端调用配置的 TTS 后端合成语音并原样返回音频字节"
-        "（默认 audio/mpeg）。客户端拿到后可直接用 AVAudioPlayer 播放。"
+        "接收 {\"text\": ...}，服务端流式调用 gemini-3.8-flash-lite-tts，"
+        "边合成边推送裸 PCM（16bit LE/24kHz/单声道）。客户端可边收边播，"
+        "点按即播无需等全量。"
     ),
 )
 async def tts(req: TTSRequest, user_id: str = Depends(get_user_id)):
@@ -854,13 +934,27 @@ async def tts(req: TTSRequest, user_id: str = Depends(get_user_id)):
     text = req.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="文本为空")
+    stream = _gemini_tts_stream(text)
+    # 快速失败：首块拿到再返回流式响应，连接/鉴权错误在这里变成 502。
     try:
-        audio, content_type = await _tts_relay(text)
+        first = await stream.__anext__()
+    except StopAsyncIteration:
+        first = b""
     except RuntimeError as exc:
         log(f"tts: {exc}", level="error")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    log(f"tts: synthesized {len(audio)} bytes ({content_type})", level="info")
-    return Response(content=audio, media_type=content_type)
+
+    async def _gen() -> AsyncIterator[bytes]:
+        if first:
+            yield first
+        async for chunk in stream:
+            yield chunk
+
+    return StreamingResponse(
+        _gen(),
+        media_type="application/octet-stream",
+        headers={"X-Audio-Format": "pcm;rate=24000;channels=1;bits=16"},
+    )
 
 
 @app.post(

@@ -66,32 +66,58 @@ final class APIClient {
         }
     }
 
-    /// 请求服务端 /v1/tts 合成回复语音（第三方音色），返回音频字节（mp3）。
-    func synthesize(text: String, serverBase: String, apiKey: String) async throws -> Data {
-        let base = serverBase.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-        guard let endpoint = URL(string: "\(base)/v1/tts") else {
-            throw APIError.invalidURL
-        }
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 45
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text])
+    /// 流式请求服务端 /v1/tts（Gemini 合成，24kHz/16bit/单声道 PCM），逐块产出音频字节。
+    /// 返回的流被取消时，底层请求一并取消。
+    func streamSpeech(text: String, serverBase: String, apiKey: String) -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                let base = serverBase.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+                guard let endpoint = URL(string: "\(base)/v1/tts") else {
+                    continuation.finish(throwing: APIError.invalidURL)
+                    return
+                }
+                var request = URLRequest(url: endpoint)
+                request.httpMethod = "POST"
+                request.timeoutInterval = 90
+                request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text])
 
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                throw APIError.transport("响应异常")
+                do {
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    guard let http = response as? HTTPURLResponse else {
+                        throw APIError.transport("响应异常")
+                    }
+                    guard (200..<300).contains(http.statusCode) else {
+                        var body = Data()
+                        for try await byte in bytes {
+                            body.append(byte)
+                            if body.count > 4096 { break }
+                        }
+                        throw APIError.http(status: http.statusCode, message: Self.serverMessage(from: body))
+                    }
+                    // 攒 ~100ms（4800 字节）再交给播放器，避免过碎的调度
+                    var buffer = Data()
+                    buffer.reserveCapacity(4800)
+                    for try await byte in bytes {
+                        buffer.append(byte)
+                        if buffer.count >= 4800 {
+                            continuation.yield(buffer)
+                            buffer = Data()
+                            buffer.reserveCapacity(4800)
+                        }
+                    }
+                    if !buffer.isEmpty {
+                        continuation.yield(buffer)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
             }
-            guard (200..<300).contains(http.statusCode) else {
-                throw APIError.http(status: http.statusCode, message: Self.serverMessage(from: data))
+            continuation.onTermination = { _ in
+                task.cancel()
             }
-            return data
-        } catch let error as APIError {
-            throw error
-        } catch let urlError as URLError {
-            throw APIError.transport(urlError.localizedDescription)
         }
     }
 
