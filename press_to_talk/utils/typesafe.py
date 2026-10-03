@@ -20,10 +20,15 @@ from ..utils.logging import log
 
 _DEFAULT_API_URL = "https://api.typesafe.ai/v1/systemone"
 _DEFAULT_MODEL = "jev-latest"
+_DEFAULT_CF_MODEL = "clef-flash"
 
 
 def is_configured() -> bool:
-    """TypeSafe 仅在配置了 API key 时启用。"""
+    """决策模型在配置了 Cloudflare Workers AI 或 TypeSafe API key 时启用。"""
+    cf_token = (os.environ.get("CLOUDFLARE_AUTH_TOKEN") or "").strip()
+    cf_account = (os.environ.get("CLOUDFLARE_ACCOUNT_ID") or "").strip()
+    if cf_token and cf_account:
+        return True
     return bool((os.environ.get("TYPESAFE_API_KEY") or "").strip())
 
 
@@ -32,12 +37,51 @@ def _cfg() -> dict[str, Any]:
     return cfg if isinstance(cfg, dict) else {}
 
 
+def _get_request_config(cfg: dict[str, Any]) -> tuple[str, str, dict[str, str]] | None:
+    """返回 (api_url, model, headers)，若未配置有效凭证则返回 None。"""
+    cf_token = (os.environ.get("CLOUDFLARE_AUTH_TOKEN") or "").strip()
+    cf_account = (os.environ.get("CLOUDFLARE_ACCOUNT_ID") or "").strip()
+    ts_key = (os.environ.get("TYPESAFE_API_KEY") or "").strip()
+
+    if cf_token and cf_account:
+        raw_url = str(os.environ.get("CLOUDFLARE_API_URL") or cfg.get("api_url") or "").strip()
+        if not raw_url or "typesafe.ai" in raw_url or "${CLOUDFLARE_ACCOUNT_ID}" in raw_url or "//ai/run" in raw_url:
+            api_url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/@cf/cloudflare/clef-flash"
+        elif "{account_id}" in raw_url:
+            api_url = raw_url.format(account_id=cf_account)
+        else:
+            api_url = raw_url
+
+        configured_model = str(cfg.get("model") or "").strip()
+        model = (
+            configured_model
+            if configured_model and configured_model != "jev-latest"
+            else _DEFAULT_CF_MODEL
+        )
+        headers = {
+            "Authorization": f"Bearer {cf_token}",
+            "Content-Type": "application/json",
+        }
+        return api_url, model, headers
+
+    if ts_key:
+        api_url = str(os.environ.get("TYPESAFE_API_URL") or cfg.get("api_url") or _DEFAULT_API_URL)
+        model = str(cfg.get("model") or _DEFAULT_MODEL)
+        headers = {
+            "Authorization": f"Bearer {ts_key}",
+            "Content-Type": "application/json",
+        }
+        return api_url, model, headers
+
+    return None
+
+
 def _post_systemone(
     payload: dict[str, Any],
     *,
     api_url: str,
     timeout: float,
-    api_key: str,
+    headers: dict[str, str],
 ) -> dict[str, Any] | None:
     try:
         import httpx
@@ -46,16 +90,13 @@ def _post_systemone(
             resp = client.post(
                 api_url,
                 json=payload,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
             )
             resp.raise_for_status()
             return resp.json()
     except Exception as exc:
         log(
-            f"typesafe: systemone call failed: {type(exc).__name__}: {exc}",
+            f"typesafe: decision call failed: {type(exc).__name__}: {exc}",
             level="warn",
         )
         return None
@@ -76,7 +117,7 @@ def ask_intent_and_delivery(
     query: str,
     selected_text: str | None = None,
 ) -> dict[str, Any] | None:
-    """一次 TypeSafe 调用并行判断两个独立问题：
+    """一次 Clef / TypeSafe 调用并行判断两个独立问题：
 
     - ``intent``：这句话是"记录"还是"其他（询问）"；
     - ``delivery``：期望产出是"paste"（改写/生成一段要插入光标处的内容）
@@ -89,12 +130,11 @@ def ask_intent_and_delivery(
     if not is_configured():
         return None
     cfg = _cfg()
-    api_url = str(os.environ.get("TYPESAFE_API_URL") or cfg.get("api_url") or _DEFAULT_API_URL)
-    model = str(cfg.get("model") or _DEFAULT_MODEL)
-    timeout = float(cfg.get("timeout_seconds", 3.0))
-    api_key = (os.environ.get("TYPESAFE_API_KEY") or "").strip()
-    if not api_key:
+    req_config = _get_request_config(cfg)
+    if req_config is None:
         return None
+    api_url, model, headers = req_config
+    timeout = float(cfg.get("timeout_seconds", 3.0))
 
     intent_q = cfg.get("intent_question")
     if not isinstance(intent_q, dict):
@@ -128,11 +168,16 @@ def ask_intent_and_delivery(
         "questions": questions,
     }
 
-    data = _post_systemone(payload, api_url=api_url, timeout=timeout, api_key=api_key)
+    data = _post_systemone(payload, api_url=api_url, timeout=timeout, headers=headers)
     if data is None:
         return None
 
-    answers = data.get("answers") or {}
+    result = data.get("result")
+    if isinstance(result, dict) and "answers" in result:
+        answers = result.get("answers")
+    else:
+        answers = data.get("answers")
+
     intent = _choice_answer(answers, "intent", ("record", "other"))
     if intent is None:
         log("typesafe: intent 无法二分，交由上层回退", level="info")

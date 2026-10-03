@@ -15,9 +15,22 @@ from press_to_talk.utils import typesafe
 @pytest.fixture(autouse=True)
 def _typesafe_env():
     """Ensure a key is present so is_configured() is True for parser tests."""
+    old_ts_key = os.environ.get("TYPESAFE_API_KEY")
+    old_cf_token = os.environ.get("CLOUDFLARE_AUTH_TOKEN")
+    old_cf_acc = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
     os.environ["TYPESAFE_API_KEY"] = "test-key"
+    os.environ.pop("CLOUDFLARE_AUTH_TOKEN", None)
+    os.environ.pop("CLOUDFLARE_ACCOUNT_ID", None)
     yield
-    os.environ.pop("TYPESAFE_API_KEY", None)
+    for k, v in [
+        ("TYPESAFE_API_KEY", old_ts_key),
+        ("CLOUDFLARE_AUTH_TOKEN", old_cf_token),
+        ("CLOUDFLARE_ACCOUNT_ID", old_cf_acc),
+    ]:
+        if v is not None:
+            os.environ[k] = v
+        else:
+            os.environ.pop(k, None)
 
 
 def _fake_response(payload: dict):
@@ -43,6 +56,8 @@ def _client_post_mock(mock_client_cls, *, payload=None, side_effect=None):
 
 def test_returns_none_without_key():
     os.environ.pop("TYPESAFE_API_KEY", None)
+    os.environ.pop("CLOUDFLARE_AUTH_TOKEN", None)
+    os.environ.pop("CLOUDFLARE_ACCOUNT_ID", None)
     assert typesafe.is_configured() is False
     assert typesafe.ask_is_record("我的护照在哪里") is None
 
@@ -183,3 +198,58 @@ def test_intent_and_delivery_returns_none_on_bad_intent():
         _client_post_mock(mock_client_cls, payload=payload)
         result = typesafe.ask_intent_and_delivery("我的护照在哪里")
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Cloudflare clef-flash mode
+# ---------------------------------------------------------------------------
+
+def test_cloudflare_clef_flash_request_and_response_parsing():
+    """配置 Cloudflare 凭据时，端点、Header 和 Model 正确指向 clef-flash，且兼容 Workers AI envelope 响应。"""
+    os.environ.pop("TYPESAFE_API_KEY", None)
+    os.environ["CLOUDFLARE_AUTH_TOKEN"] = "test-token"
+    os.environ["CLOUDFLARE_ACCOUNT_ID"] = "test-acc-123"
+
+    assert typesafe.is_configured() is True
+
+    cf_envelope = {
+        "result": {
+            "model": "clef-flash",
+            "answers": {
+                "intent": {
+                    "type": "choice",
+                    "choice": "record",
+                    "confidence": 0.98,
+                    "probabilities": {"record": 0.98, "other": 0.02},
+                },
+                "delivery": {
+                    "type": "choice",
+                    "choice": "paste",
+                    "confidence": 0.95,
+                    "probabilities": {"paste": 0.95, "speak": 0.05},
+                },
+            },
+            "usage": {"input_tokens": 100, "output_tokens": 0},
+        },
+        "success": True,
+        "errors": [],
+        "messages": [],
+    }
+
+    with patch("httpx.Client") as mock_client_cls:
+        mock_client = _client_post_mock(mock_client_cls, payload=cf_envelope)
+        result = typesafe.ask_intent_and_delivery("帮我记一下明天下午开会", "会议纪要草稿")
+        call = mock_client.post.call_args
+
+    assert result == {"intent": "record", "delivery": "paste"}
+    # 验证 URL
+    url = call.args[0] if call.args else call.kwargs.get("url")
+    assert "https://api.cloudflare.com/client/v4/accounts/test-acc-123/ai/run/@cf/cloudflare/clef-flash" in url
+    # 验证 headers
+    headers = call.kwargs.get("headers", {})
+    assert headers.get("Authorization") == "Bearer test-token"
+    # 验证 payload 中的 model
+    body = call.kwargs.get("json", {})
+    assert body.get("model") == "clef-flash"
+    assert body.get("state") == {"instruction": "帮我记一下明天下午开会", "selected_text": "会议纪要草稿"}
+
