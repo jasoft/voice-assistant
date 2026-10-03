@@ -6,13 +6,32 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-ENV_FILE="${ENV_FILE:-$(pwd)/../.env}"
 server_url="${WATCH_SERVER_URL:-https://va.soj.myds.me:1443}"
-api_key=""
+api_key="${PTT_API_KEY:-}"
 
-if [ -f "$ENV_FILE" ]; then
-  key_from_env=$(grep -m1 '^PTT_API_KEY=' "$ENV_FILE" | cut -d= -f2- | tr -d '\r' || true)
-  api_key="${key_from_env:-}"
+# 寻找 .env 文件的候选路径
+CANDIDATES=(
+  "${ENV_FILE:-}"
+  "$(pwd)/../.env"
+  "$(git rev-parse --show-toplevel 2>/dev/null || true)/.env"
+  "$(cd "$(git rev-parse --git-common-dir 2>/dev/null || true)/.." 2>/dev/null && pwd)/.env"
+)
+
+for f in "${CANDIDATES[@]}"; do
+  if [ -n "$f" ] && [ -f "$f" ]; then
+    key_from_env=$(grep -m1 '^PTT_API_KEY=' "$f" | cut -d= -f2- | tr -d '\r"' || true)
+    if [ -n "$key_from_env" ]; then
+      api_key="$key_from_env"
+      echo "==> 从 $f 提取到 PTT_API_KEY"
+      break
+    fi
+  fi
+done
+
+# 如果仍未找到，回退到已知默认值，避免手表构建出无凭证安装包
+if [ -z "$api_key" ]; then
+  echo "⚠️  未在 .env 中找到 PTT_API_KEY，回退到默认 soj-default-token"
+  api_key="soj-default-token"
 fi
 
 cat > WatchApp/Sources/Secrets.swift <<EOF
@@ -22,4 +41,4 @@ enum Secrets {
     static let defaultAPIKey = "${api_key}"
 }
 EOF
-echo "Secrets.swift generated (server=${server_url}, api_key=$([ -n "$api_key" ] && echo '<set>' || echo '<empty>'))"
+echo "Secrets.swift generated (server=${server_url}, api_key=<set>)"
