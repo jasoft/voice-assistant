@@ -14,19 +14,11 @@ cd "$(dirname "$0")"
 ./gen-secrets.sh
 xcodegen generate
 
-echo "==> 构建 watchOS App（Release / 真机）"
-xcodebuild -project VoiceAssistantWatch.xcodeproj \
-  -scheme WatchApp -configuration Release \
-  -destination 'generic/platform=watchOS' \
-  -allowProvisioningUpdates \
-  -derivedDataPath build clean build
-
-APP_PATH=$(find build/Build/Products/Release-watchos -maxdepth 1 -name '*.app' | head -n 1)
-echo "==> 产物: $APP_PATH"
-
 echo "==> 查找已连接的 Apple Watch"
 xcrun devicectl list devices
 
+# 先确定手表设备：用具体设备目的地构建，Xcode 才会把该手表注册进描述文件
+# （generic 目的地生成的 profile 不含设备 UDID，安装时报 0xe8008012）
 DEVICE_ID="${WATCH_DEVICE_ID:-}"
 if [ -z "$DEVICE_ID" ]; then
   DEVJSON=$(mktemp)
@@ -45,7 +37,7 @@ for d in devices:
     if hardware.get("deviceType") != "appleWatch":
         continue
     if d.get("visibilityClass", state.get("visibilityClass")) == "simulators":
-        continue  # 跳过模拟器，只装真机
+        continue
     watches.append(d)
 if watches:
     print(watches[0].get("identifier", ""))
@@ -53,6 +45,22 @@ PY
 ) || true
   rm -f "$DEVJSON"
 fi
+
+DESTINATION='generic/platform=watchOS'
+if [ -n "$DEVICE_ID" ]; then
+  DESTINATION="id=$DEVICE_ID"
+  echo "==> 使用设备目的地: $DEVICE_ID"
+fi
+
+echo "==> 构建 watchOS App（Release / 真机）"
+xcodebuild -project VoiceAssistantWatch.xcodeproj \
+  -scheme WatchApp -configuration Release \
+  -destination "$DESTINATION" \
+  -allowProvisioningUpdates \
+  -derivedDataPath build clean build
+
+APP_PATH=$(find build/Build/Products/Release-watchos -maxdepth 1 -name '*.app' | head -n 1)
+echo "==> 产物: $APP_PATH"
 
 if [ -z "$DEVICE_ID" ]; then
   echo "!! 未发现 Apple Watch。"
