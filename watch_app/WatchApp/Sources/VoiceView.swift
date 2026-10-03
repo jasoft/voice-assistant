@@ -19,6 +19,7 @@ final class PCMStreamPlayer {
         commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false
     )
     private var attached = false
+    private(set) var pendingBuffers = 0
     private(set) var isPlaying = false
 
     func start() throws {
@@ -50,12 +51,17 @@ final class PCMStreamPlayer {
             let value = Int16(pcm[index]) | (Int16(pcm[index + 1]) << 8)
             floats[i] = Float(value) / 32768.0
         }
-        playerNode.scheduleBuffer(buffer)
+        pendingBuffers += 1
+        playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            guard let self else { return }
+            self.pendingBuffers = max(0, self.pendingBuffers - 1)
+        }
     }
 
     func stop() {
         playerNode.stop()
         engine.stop()
+        pendingBuffers = 0
         isPlaying = false
     }
 
@@ -224,15 +230,15 @@ struct VoiceView: View {
             ZStack {
                 Circle()
                     .fill(Color.accentColor.opacity(0.9))
-                    .frame(width: 40, height: 40)
                 if isLoading {
-                    ProgressView().scaleEffect(0.7)
+                    ProgressView().scaleEffect(0.45)
                 } else {
                     Image(systemName: icon)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
                 }
             }
+            .frame(width: 32, height: 32)
         }
         .buttonStyle(.plain)
     }
@@ -363,8 +369,8 @@ struct VoiceView: View {
                     received += chunk.count
                     streamPlayer.schedule(pcm: chunk)
                 }
-                while streamPlayer.isPlaying && !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 200_000_000)
+                while streamPlayer.pendingBuffers > 0 && !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 150_000_000)
                 }
                 if received == 0 && !Task.isCancelled {
                     ttsError = "服务端没有返回音频"
