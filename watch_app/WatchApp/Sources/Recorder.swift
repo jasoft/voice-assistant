@@ -40,7 +40,7 @@ final class Recorder {
     func currentPower() -> Float {
         guard let recorder, recorder.isRecording else { return -160 }
         recorder.updateMeters()
-        return recorder.averagePower
+        return recorder.averagePower(forChannel: 0)
     }
 
     func stop() -> URL? {
