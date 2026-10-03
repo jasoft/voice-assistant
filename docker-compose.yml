@@ -35,6 +35,7 @@ services:
       - path: ./config/deepseek-harness/runtime/.env
         required: false
     environment:
+      TZ: Asia/Shanghai
       DSH_HOME: /root/.dsh
       DSH_WEB_PORT: 3080
       # The Harness container is disposable and the minimal agent needs one
