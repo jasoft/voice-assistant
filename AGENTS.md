@@ -17,8 +17,8 @@
 
 ## fast-path 简化链路（Cloudflare clef-flash / TypeSafe + Harness + Memos）
 
-- fast-path（`fast_chat.py`）先一次决策模型调用（优先 Cloudflare Workers AI `clef-flash`，兼容 TypeSafe Jev System One）`POST` 并行问两个 choice 问题（`ask_intent_and_delivery`）：`intent` 二分 `record` / `other`；`delivery` 二分 `paste` / `speak`（期望产出是"粘贴到光标处的内容"还是"播报回答"，配置在 `typesafe.delivery_question`），输出 `debug_info.typesafe_s`。
-- `record` → 直写 Memos；`paste` → Harness（chat-fast）按 `harness_compose` 提示词（占位符 `%%INSTRUCTION%%`/`%%SELECTION%%`）产出最终内容，响应带 `action: "paste"`；`other`（询问/闲聊）→ Harness（chat-fast preset）拆词 → 一次 Memos CEL 查询（`memos.query_timeout_seconds` 默认 1.5s 短超时，异常/空 = 无上下文）→ Harness（chat-fast）带上下文回答，无匹配则正常闲聊（可 web_search）。
+- fast-path（`fast_chat.py`）先一次决策模型调用（优先 Cloudflare Workers AI `clef-flash`，兼容 TypeSafe Jev System One）`POST` 并行问两个 choice 问题（`ask_intent_and_delivery`）：`intent` 三分 `record` / `query` / `chat`；`delivery` 二分 `paste` / `speak`（期望产出是"粘贴到光标处的内容"还是"播报回答"，配置在 `typesafe.delivery_question`），输出 `debug_info.typesafe_s`。
+- `record` → 直写 Memos；`paste` → Harness（chat-fast）按 `harness_compose` 提示词（占位符 `%%INSTRUCTION%%`/`%%SELECTION%%`）产出最终内容，响应带 `action: "paste"`；`query`（用户明确要求查询个人备忘/记忆）→ Harness（chat-fast preset）拆词 → 一次 Memos CEL 查询（`memos.query_timeout_seconds` 默认 1.5s 短超时，异常/空 = 无上下文）→ Harness（chat-fast）带上下文回答；`chat`（闲聊、常识问答等未明确要求查备忘的请求）→ Harness（chat-fast）直接回答，**不检索 Memos**（避免不相关记忆污染上下文）。
 - `/v1/chat` 请求可选 `selected_text`（GUI 在窗口激活前从上一个前台应用捕获的选中文本）；响应新增 `action` 字段：`speak`（默认，播报）或 `paste`（reply 即应回贴的最终内容，GUI 用 Cmd+V 粘贴而非朗读）。慢路径（决策模型不可用）退化为把选中文本拼进问句播报回答，不粘贴。
 - 提示词在 `workflow_config.json`：`typesafe` 段（`intent_question` / `delivery_question`）与 `prompts` 段（`harness_keyword_extract` / `harness_answer` / `harness_compose`，占位符用 `%%QUERY%%`/`%%MEMOS%%`/`%%INSTRUCTION%%`/`%%SELECTION%%`，避免被 `${ENV}` 展开吞掉）；凭据在 `.env` 的 `CLOUDFLARE_AUTH_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`（或 `TYPESAFE_API_KEY`，gitignore，远程 docker 机器需手动补写）。
 - 未配置 key、网络失败或意图无法二分（返回 None）时静默降级：fast-path 返回 None，memo_web / main.py 回退 Harness Agent 兜底。

@@ -423,7 +423,42 @@ async def try_fast_memory_chat(
             )
             return None
 
-    # -- OTHER（询问）：Harness 拆词 → 一次 CEL → Harness 回答 --
+    # -- CHAT：用户没有明确要求查询备忘/记忆，直接 Harness 回答，不检索 Memos --
+    if intent == "chat":
+        stage = "harness_answer"
+        t_ans = time.monotonic()
+        try:
+            try:
+                reply = await _answer_with_harness(query, [], selection=selection)
+            except TypeError:
+                reply = await _answer_with_harness(query, [])
+        except Exception as exc:
+            log(
+                f"fast-chat [STAGE: CHAT_ANSWER_ERROR] {type(exc).__name__}: {exc}",
+                level="error",
+            )
+            return None
+        elapsed_ans = time.monotonic() - t_ans
+        reply = str(reply or "").strip()
+        if not reply:
+            reply = "大王，这个问题我暂时没有好的答案。"
+        elapsed_total = time.monotonic() - t0
+        log(f"fast-chat: chat answered in {elapsed_total:.2f}s", level="info")
+        return {
+            "reply": reply,
+            "action": "speak",
+            "memories": [],
+            "query": query,
+            "debug_info": {
+                "backend": "fast-chat",
+                "intent": "chat",
+                "elapsed_s": round(elapsed_total, 2),
+                "typesafe_s": round(elapsed_ts, 2),
+                "elapsed_ans_s": round(elapsed_ans, 2),
+            },
+        }
+
+    # -- QUERY（明确要查备忘/记忆）：Harness 拆词 → 一次 CEL → Harness 回答 --
     stage = "extract_keywords"
     keywords: list[str] = []
     memos_items: list[dict[str, Any]] = []
