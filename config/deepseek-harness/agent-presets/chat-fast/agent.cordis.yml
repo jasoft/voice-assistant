@@ -15,7 +15,7 @@
       【回复规范】
       保持自然语言交流，中文用户使用中文，回答简洁明了、直击要害。
     complete: true
-    includeRuntimeContext: false
+    includeRuntimeContext: true
 
 - id: memory-shell
   name: '@deepseek-ai/dsh-tool-bash'

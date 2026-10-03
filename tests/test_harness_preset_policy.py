@@ -188,9 +188,9 @@ def test_base_bundle_mounts_native_time_context() -> None:
         assert "- id: web-fetch-http" in patch
         assert '"@deepseek-ai/dsh-web-fetch-http": "workspace:^"' in package
 
-    # The one-shot chat persona intentionally suppresses runtime context, so the
-    # native clock plugin must remain independent at the base bundle layer.
-    assert "includeRuntimeContext: false" in (PRESET_ROOT / "chat-fast" / "agent.cordis.yml").read_text(
+    # The one-shot chat persona preserves runtime context so that
+    # time and date information are accessible to the model.
+    assert "includeRuntimeContext: true" in (PRESET_ROOT / "chat-fast" / "agent.cordis.yml").read_text(
         encoding="utf-8"
     )
 
