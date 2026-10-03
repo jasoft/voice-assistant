@@ -5,7 +5,8 @@ import WatchKit
 enum VoiceState: Equatable {
     case idle
     case recording
-    case thinking
+    case transcribing
+    case thinking(transcript: String)
     case reply(transcript: String, text: String)
     case failed(String)
 }
@@ -24,6 +25,7 @@ struct VoiceView: View {
     @State private var recorder = Recorder()
     @State private var apiClient = APIClient()
     @State private var showingSettings = false
+    @State private var chatTask: Task<Void, Never>?
     @State private var audioPlayer: AVAudioPlayer?
     @State private var isLoadingAudio = false
     @State private var isPlayingAudio = false
@@ -31,17 +33,19 @@ struct VoiceView: View {
     @State private var playback = PlaybackCoordinator()
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 0) {
             content
-            Spacer(minLength: 0)
-            Text("左滑打开设置")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+            if showsBottomBar {
+                Divider()
+                HStack(spacing: 14) {
+                    bottomBarButtons
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
         .padding(.horizontal, 4)
-        .overlay(alignment: .bottomTrailing) {
-            cornerButtons
-        }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
         }
@@ -55,6 +59,36 @@ struct VoiceView: View {
         )
         .onAppear {
             playback.onFinish = { isPlayingAudio = false }
+        }
+    }
+
+    private var showsBottomBar: Bool {
+        switch state {
+        case .thinking, .reply, .failed: return true
+        default: return false
+        }
+    }
+
+    @ViewBuilder private var bottomBarButtons: some View {
+        switch state {
+        case .thinking:
+            cornerButton(icon: "xmark", isLoading: false) {
+                cancelThinking()
+            }
+        case .reply(_, let text):
+            cornerButton(icon: playIcon, isLoading: isLoadingAudio) {
+                togglePlayback(for: text)
+            }
+            cornerButton(icon: "mic.fill", isLoading: false) {
+                stopAudio()
+                Task { await startRecording() }
+            }
+        case .failed:
+            cornerButton(icon: "mic.fill", isLoading: false) {
+                Task { await startRecording() }
+            }
+        default:
+            EmptyView()
         }
     }
 
@@ -78,16 +112,32 @@ struct VoiceView: View {
                 micButton
                 Spacer(minLength: 0)
             }
-        case .thinking:
-            VStack(spacing: 12) {
+        case .transcribing:
+            VStack(spacing: 10) {
                 Spacer(minLength: 0)
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("识别中…")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+        case .thinking(let transcript):
+            VStack(spacing: 8) {
+                ScrollView {
+                    Text(transcript)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 HStack(spacing: 8) {
                     ProgressView()
                     Text("正在思考…")
                         .font(.system(size: 15))
                         .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 0)
+                .padding(.vertical, 6)
             }
         case .reply(let transcript, let text):
             ScrollView {
@@ -105,7 +155,6 @@ struct VoiceView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 56)
             }
         case .failed(let message):
             ScrollView {
@@ -113,42 +162,30 @@ struct VoiceView: View {
                     .font(.system(size: 14))
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 56)
             }
         }
     }
 
-    /// 固定在右下角的纯图标操作按钮：回复页为「播放 + 继续新问题」，失败页只有「继续新问题」。
-    @ViewBuilder private var cornerButtons: some View {
-        switch state {
-        case .reply(_, let text):
-            HStack(spacing: 10) {
-                cornerButton(icon: playIcon, isLoading: isLoadingAudio) {
-                    togglePlayback(for: text)
-                }
-                cornerButton(icon: "mic.fill", isLoading: false) {
-                    stopAudio()
-                    Task { await startRecording() }
-                }
+    /// 大按钮只在待机（开始录音）和录音中（结束录音）出现。
+    private var micButton: some View {
+        Button(action: handleTap) {
+            ZStack {
+                Circle()
+                    .fill(state == .recording ? Color.red : Color.accentColor)
+                    .frame(width: 76, height: 76)
+                    .scaleEffect(state == .recording ? 1.1 : 1.0)
+                    .animation(
+                        state == .recording
+                            ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
+                            : .default,
+                        value: state == .recording
+                    )
+                Image(systemName: state == .recording ? "stop.fill" : "mic.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(.white)
             }
-            .padding(.trailing, 6)
-            .padding(.bottom, 24)
-        case .failed:
-            HStack(spacing: 10) {
-                cornerButton(icon: "mic.fill", isLoading: false) {
-                    stopAudio()
-                    Task { await startRecording() }
-                }
-            }
-            .padding(.trailing, 6)
-            .padding(.bottom, 24)
-        default:
-            EmptyView()
         }
-    }
-
-    private var playIcon: String {
-        isPlayingAudio ? "stop.fill" : "play.fill"
+        .buttonStyle(.plain)
     }
 
     private func cornerButton(icon: String, isLoading: Bool, action: @escaping () -> Void) -> some View {
@@ -169,34 +206,8 @@ struct VoiceView: View {
         .buttonStyle(.plain)
     }
 
-    /// 大按钮只在待机（开始录音）和录音中（结束录音）出现。
-    private var micButton: some View {
-        Button(action: handleTap) {
-            ZStack {
-                Circle()
-                    .fill(circleColor)
-                    .frame(width: 76, height: 76)
-                    .scaleEffect(state == .recording ? 1.1 : 1.0)
-                    .animation(
-                        state == .recording
-                            ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
-                            : .default,
-                        value: state == .recording
-                    )
-                Image(systemName: iconName)
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var circleColor: Color {
-        state == .recording ? .red : .accentColor
-    }
-
-    private var iconName: String {
-        state == .recording ? "stop.fill" : "mic.fill"
+    private var playIcon: String {
+        isPlayingAudio ? "stop.fill" : "play.fill"
     }
 
     private func handleTap() {
@@ -222,32 +233,50 @@ struct VoiceView: View {
         }
     }
 
+    /// 结束录音：先只做转写并立即展示文字，随后自动开始思考（可取消）。
     private func stopAndSend() {
         WKInterfaceDevice.current().play(.click)
         guard let fileURL = recorder.stop() else {
             state = .failed("录音文件不可用")
             return
         }
-        state = .thinking
-        Task {
+        state = .transcribing
+        chatTask = Task {
             do {
-                let response = try await apiClient.askAudio(
+                let transcript = try await apiClient.transcribe(
                     fileURL: fileURL,
                     serverBase: AppPrefs.serverURL,
                     apiKey: AppPrefs.apiKey
                 )
+                guard !Task.isCancelled else { return }
+                state = .thinking(transcript: transcript)
+                let reply = try await apiClient.chat(
+                    query: transcript,
+                    serverBase: AppPrefs.serverURL,
+                    apiKey: AppPrefs.apiKey
+                )
+                guard !Task.isCancelled else { return }
                 ttsError = nil
                 stopAudio()
-                state = .reply(transcript: response.transcript, text: response.reply)
+                state = .reply(transcript: transcript, text: reply)
                 WKInterfaceDevice.current().play(.success)
                 if AppPrefs.autoPlay {
-                    togglePlayback(for: response.reply)
+                    togglePlayback(for: reply)
                 }
             } catch {
+                if Task.isCancelled { return }
                 state = .failed(error.localizedDescription)
                 WKInterfaceDevice.current().play(.failure)
             }
         }
+    }
+
+    /// 识别文字不对：跳过思考，直接重新录音。
+    private func cancelThinking() {
+        chatTask?.cancel()
+        chatTask = nil
+        WKInterfaceDevice.current().play(.click)
+        Task { await startRecording() }
     }
 
     /// 播放/停止回复语音：按需向服务端 /v1/tts 请求第三方合成音频。

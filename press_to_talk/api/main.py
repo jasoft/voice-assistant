@@ -783,6 +783,28 @@ async def ask_audio(file: UploadFile = File(...), user_id: str = Depends(get_use
     return AudioAskResponse(transcript=transcript, **response.model_dump())
 
 
+class TranscribeResponse(BaseModel):
+    """仅转写响应：客户端先展示识别文本，再决定是否继续问答。"""
+
+    transcript: str = Field(..., description="服务端 STT 识别出的用户语音文本。")
+
+
+@app.post(
+    "/v1/transcribe",
+    response_model=TranscribeResponse,
+    summary="仅语音转写：上传录音，返回识别文本（不触发问答）",
+    description=(
+        "与 /v1/ask-audio 的转写步骤一致，但只做 STT；客户端可先展示/确认识别文本，"
+        "再单独调用 /v1/chat 继续问答。"
+    ),
+)
+async def transcribe(file: UploadFile = File(...), user_id: str = Depends(get_user_id)):
+    del user_id
+    transcript = await _transcribe_upload(file)
+    log(f"transcribe: transcript={transcript[:80]}", level="info")
+    return TranscribeResponse(transcript=transcript)
+
+
 class TTSRequest(BaseModel):
     """文本转语音请求。"""
 
