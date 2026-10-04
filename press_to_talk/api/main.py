@@ -363,8 +363,14 @@ async def api_debug_page():
     """Interactive Web Playground for API debugging, inspecting DeepSeek reasoning and streaming TTS."""
     debug_html_path = Path(__file__).parent / "static" / "debug.html"
     if debug_html_path.is_file():
-        return HTMLResponse(content=debug_html_path.read_text(encoding="utf-8"))
-    return HTMLResponse(content="<h1>Voice Assistant API Debugger</h1><p>static/debug.html not found</p>")
+        return HTMLResponse(
+            content=debug_html_path.read_text(encoding="utf-8"),
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
+        )
+    return HTMLResponse(
+        content="<h1>Voice Assistant API Debugger</h1><p>static/debug.html not found</p>",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
+    )
 
 
 
