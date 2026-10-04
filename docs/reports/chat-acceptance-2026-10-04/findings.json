@@ -1,0 +1,44 @@
+[
+  {
+    "cases": [
+      "P03",
+      "P04"
+    ],
+    "priority": "P1",
+    "title": "文本生成任务误写 Memos",
+    "observed": "6/6 次错误新增备忘并返回 speak。",
+    "cause_evidence": "Clef 同时返回 intent=record、delivery=paste；后端 record 分支优先于 paste 分支。",
+    "suggested_fix": "让分类问题明确区分保存备忘与写文本、总结；在模型决策层处理相互矛盾的结果，不用关键词强行改路由。"
+  },
+  {
+    "cases": [
+      "A03"
+    ],
+    "priority": "P1",
+    "title": "搜索关键词覆盖正确的记录意图，写到了临时文件",
+    "observed": "3/3 次未写 Memos，Harness 用 bash 写入 todo.md，却回复已记录。",
+    "cause_evidence": "Clef 本来返回 record；fast_chat.py 的 search_keywords 覆盖随后把 intent 改成 agent。",
+    "suggested_fix": "移除或收紧关键词覆盖，由模型依据整句语义区分记录将来的搜索事项与立即执行搜索。"
+  },
+  {
+    "cases": [
+      "Q02"
+    ],
+    "priority": "P2",
+    "title": "证件无法召回护照记录",
+    "observed": "3/3 次搜索为空，而同一 fixture 的 Q01、Q06 都返回正确位置。",
+    "cause_evidence": "关键词拆解产出证件，单次 CEL 使用字面 contains，未覆盖护照这种下位概念。",
+    "suggested_fix": "让拆词模型产生受控的同义词或下位概念检索词，仍保持一次 CEL 查询；用不确定答案避免“没检索到”等同于“从未记录”。"
+  },
+  {
+    "cases": [
+      "A01",
+      "A02"
+    ],
+    "priority": "P2",
+    "title": "联网检索结果相关性与时效性不足",
+    "observed": "A01 1/3 次未给出剧名；另外两次经多轮检索才回答，耗时约26–29秒。A02 3/3 次未拿到最新官方资料。",
+    "cause_evidence": "工具实际执行了，但初始 FreeSerp 结果包含无关站点或旧资料；A01 多次用 bash 继续检索，A02 某次执行了第二次搜索，均偏离 preset 的一次搜索约束。",
+    "suggested_fix": "评估检索源的相关性与时效性，技术问题优先官方来源；用工具执行预算控制单次搜索与延迟，不只靠提示词约束。"
+  }
+]
