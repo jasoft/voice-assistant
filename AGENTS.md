@@ -19,7 +19,7 @@
 
 ## 语音合成（TTS）
 
-- 服务端流式 TTS（`/v1/tts`）：优先调用阿里云百炼 DashScope `qwen3-tts-flash`（同时兼容 `qwen-audio-3.1-tts-flash` 别名），输出 24kHz/16-bit/单声道 PCM；服务端已内置自动检测并剥离 SSE 首个音频块中的 44 字节标准 WAV/RIFF 头，避免客户端播放器首帧爆音。未配置 `DASHSCOPE_API_KEY` 时自动回退至 Google Gemini TTS。
+- 服务端流式 TTS（`/v1/tts`）：使用阿里云百炼 DashScope `qwen-audio-3.1-tts-flash` 模型，请求端点 `/services/audio/tts/SpeechSynthesizer`，默认音色 `yuxiaoyun_v3.1`，格式直接请求 `pcm` 并输出 24kHz/16-bit/单声道 PCM；服务端自动剥离可能存在的头部以防爆音。不添加多余的降级或 fallback 逻辑。
 
 ## fast-path 简化链路（Cloudflare clef-flash / TypeSafe + Harness + Memos）
 

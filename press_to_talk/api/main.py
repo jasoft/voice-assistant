@@ -965,28 +965,20 @@ async def _qwen_tts_stream(text: str) -> AsyncIterator[bytes]:
         os.environ.get("DASHSCOPE_BASE_URL", "").strip()
         or "https://llm-p6d84x694t9d455p.cn-beijing.maas.aliyuncs.com/api/v1"
     ).rstrip("/")
+    url = f"{base_url}/services/audio/tts/SpeechSynthesizer"
 
-    model = os.environ.get("PTT_TTS_MODEL", "qwen-audio-3.1-tts-flash").strip()
-    voice = os.environ.get("PTT_TTS_VOICE", "yuxiaoyun_v3.1").strip()
+    model = os.environ.get("PTT_TTS_MODEL", "qwen-audio-3.1-tts-flash").strip() or "qwen-audio-3.1-tts-flash"
+    voice = os.environ.get("PTT_TTS_VOICE", "yuxiaoyun_v3.1").strip() or "yuxiaoyun_v3.1"
 
-    if model.startswith("qwen-audio") or model.startswith("cosyvoice"):
-        url = f"{base_url}/services/audio/tts/SpeechSynthesizer"
-        payload = {
-            "model": model,
-            "input": {
-                "text": text[:_TTS_MAX_CHARS],
-                "voice": voice,
-                "format": "pcm",
-                "sample_rate": 24000,
-            },
-        }
-    else:
-        url = f"{base_url}/services/aigc/multimodal-generation/generation"
-        payload = {
-            "model": model,
-            "input": {"text": text[:_TTS_MAX_CHARS]},
-            "parameters": {"voice": voice},
-        }
+    payload = {
+        "model": model,
+        "input": {
+            "text": text[:_TTS_MAX_CHARS],
+            "voice": voice,
+            "format": "pcm",
+            "sample_rate": 24000,
+        },
+    }
 
     headers = {
         "Authorization": f"Bearer {key}",
@@ -1117,16 +1109,9 @@ _original_qwen_tts_stream = _qwen_tts_stream
 
 
 async def _tts_stream(text: str) -> AsyncIterator[bytes]:
-    """流式 TTS 统一入口：优先使用阿里云百炼 Qwen TTS，未配置时回退到 Gemini TTS。"""
-    if os.environ.get("DASHSCOPE_API_KEY", "").strip():
-        async for chunk in _qwen_tts_stream(text):
-            yield chunk
-        return
-    if os.environ.get("GOOGLE_AI_STUDIO_KEY", "").strip():
-        async for chunk in _gemini_tts_stream(text):
-            yield chunk
-        return
-    raise RuntimeError("TTS 未配置（DASHSCOPE_API_KEY）")
+    """流式 TTS 入口：调用阿里云百炼 Qwen-Audio-TTS（qwen-audio-3.1-tts-flash）。"""
+    async for chunk in _qwen_tts_stream(text):
+        yield chunk
 
 
 _original_tts_stream = _tts_stream
@@ -1134,9 +1119,9 @@ _original_tts_stream = _tts_stream
 
 @app.post(
     "/v1/tts",
-    summary="文本转语音：Qwen/Gemini TTS 流式合成，返回 24kHz/16bit/单声道 PCM 字节流",
+    summary="文本转语音：阿里云百炼 qwen-audio-3.1-tts-flash 流式合成，返回 24kHz/16bit/单声道 PCM 字节流",
     description=(
-        "接收 {\"text\": ...}，服务端流式调用 qwen3-tts-flash，"
+        "接收 {\"text\": ...}，服务端流式调用 qwen-audio-3.1-tts-flash，"
         "边合成边推送裸 PCM（16bit LE/24kHz/单声道）。客户端可边收边播，"
         "点按即播无需等全量。"
     ),
