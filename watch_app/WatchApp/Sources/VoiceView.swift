@@ -85,7 +85,7 @@ struct VoiceView: View {
     @State private var isPlayingAudio = false
     @State private var ttsError: String?
     @State private var meterLevel: Double = 0
-    @State private var wasActive = false
+    @State private var hasAppeared = false
     @State private var isStartingRecording = false
     @Environment(\.scenePhase) private var scenePhase
 
@@ -122,11 +122,10 @@ struct VoiceView: View {
             meterLevel = Double(max(0, min(1, (power + 50) / 50)))
         }
         .onAppear {
-            if scenePhase == .active && !wasActive {
-                wasActive = true
-                if !showingSettings {
-                    startFreshRecording()
-                }
+            guard !hasAppeared else { return }
+            hasAppeared = true
+            if !showingSettings {
+                triggerAutoRecordIfNeeded()
             }
         }
         .onChange(of: scenePhase) { phase in
@@ -134,7 +133,7 @@ struct VoiceView: View {
         }
         .onChange(of: showingSettings) { isShowing in
             if !isShowing && scenePhase == .active {
-                startFreshRecording()
+                triggerAutoRecordIfNeeded()
             }
         }
     }
@@ -303,16 +302,23 @@ struct VoiceView: View {
     }
 
     private func handleScenePhaseChange(to newPhase: ScenePhase) {
-        if newPhase == .active {
-            if !wasActive {
-                wasActive = true
-                if !showingSettings {
-                    startFreshRecording()
-                }
+        switch newPhase {
+        case .active:
+            if !showingSettings {
+                triggerAutoRecordIfNeeded()
             }
-        } else {
-            wasActive = false
+        case .background:
+            // 真正离开应用退入后台：彻底清除所有状态与音频，下次切回前台从头开始
             resetToIdle()
+        case .inactive:
+            // 暂时失去焦点（如启动动画过渡、手腕微倾等）：
+            // 若不是在录音中，则清空上次回答/错误，防止下次唤醒停留在旧输出；
+            // 若已经在录音中，绝不掐断，避免启动时或说话时被误中断！
+            if state != .recording && !recorder.isRecording {
+                resetToIdle()
+            }
+        @unknown default:
+            break
         }
     }
 
@@ -321,14 +327,21 @@ struct VoiceView: View {
         chatTask?.cancel()
         chatTask = nil
         ttsError = nil
-        if state == .recording {
+        if state == .recording || recorder.isRecording {
             _ = recorder.stop()
         }
         state = .idle
     }
 
-    private func startFreshRecording() {
-        resetToIdle()
+    private func triggerAutoRecordIfNeeded() {
+        guard state != .recording, !recorder.isRecording, !isStartingRecording else {
+            return
+        }
+        stopAudio(playHaptic: false)
+        chatTask?.cancel()
+        chatTask = nil
+        ttsError = nil
+        state = .idle
         Task {
             await startRecording()
         }
@@ -336,6 +349,7 @@ struct VoiceView: View {
 
     private func startRecording() async {
         guard !isStartingRecording else { return }
+        guard state != .recording, !recorder.isRecording else { return }
         isStartingRecording = true
         defer { isStartingRecording = false }
 

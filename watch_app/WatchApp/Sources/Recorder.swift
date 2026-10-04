@@ -5,6 +5,10 @@ final class Recorder {
     private var recorder: AVAudioRecorder?
     private(set) var fileURL: URL?
 
+    var isRecording: Bool {
+        recorder?.isRecording ?? false
+    }
+
     func requestPermission() async -> Bool {
         await withCheckedContinuation { continuation in
             AVAudioSession.sharedInstance().requestRecordPermission { granted in
