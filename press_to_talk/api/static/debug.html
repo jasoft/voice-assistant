@@ -376,12 +376,13 @@
             <label>运行模式 (Execution Pipeline)</label>
             <select id="pipelineSelect" onchange="onPipelineChange()">
               <option value="auto" selected>⚡ 智能全自动分流 (/v1/chat - 推荐)</option>
+              <option value="web_search">🌐 联网全网搜索 (FreeSerp / chat-fast)</option>
               <option value="direct">🚀 强制极速直通 Fast LLM (跳过Agent)</option>
               <option value="memo_query">📝 个人备忘查询与检索 (Memos)</option>
               <option value="agent">🤖 深度 Agent 状态机 (/v1/query)</option>
             </select>
             <div class="mode-desc" id="pipelineDesc">
-              【智能分流】：由 Cloudflare clef-flash 前置秒级决策。简单常识/闲聊直接调 fast LLM 直出；明确提到“备忘/memo/记忆”才查询 Memos；复杂任务自动交由 Agent。
+              【智能分流】：由 Cloudflare clef 前置秒级决策。简单常识/闲聊直接调 fast LLM 直出；要求查网络/最新时事自动调用 FreeSerp 全网搜索；明确提到“备忘/memo/记忆”才查询 Memos。
             </div>
           </div>
 
@@ -399,6 +400,7 @@
             <textarea id="queryInput" rows="4" placeholder="输入要发送给助手的语音文本或指令…">今天星期几？按北京时间说一下</textarea>
             <div class="presets">
               <button class="preset-btn" onclick="setPreset('今天星期几？按北京时间说一下')">北京时间</button>
+              <button class="preset-btn" onclick="setPreset('最近有什么热播的电视剧查一下网络')">查网络热播剧</button>
               <button class="preset-btn" onclick="setPreset('9.11和9.8哪个更大？')">数字陷阱</button>
               <button class="preset-btn" onclick="setPreset('写一篇 1000 字关于自律的文章。')">千字长文生成</button>
               <button class="preset-btn" onclick="setPreset('查一下我的备忘，明天有什么事？')">查个人备忘</button>
@@ -491,7 +493,10 @@
       const legacy = document.getElementById("legacyModeGroup");
 
       if (p === "auto") {
-        desc.innerText = "【智能分流】：由 Cloudflare clef 前置秒级决策。简单常识/闲聊直接调 fast LLM 直出；明确提到“备忘/memo/记忆”才查询 Memos；复杂任务自动交由 Agent。";
+        desc.innerText = "【智能分流】：由 Cloudflare clef 前置秒级决策。简单常识/闲聊直接调 fast LLM 直出；要求查网络/最新时事自动调用 FreeSerp 全网搜索；明确提到“备忘/memo/记忆”才查询 Memos。";
+        legacy.style.display = "none";
+      } else if (p === "web_search") {
+        desc.innerText = "【全网搜索与 Agent】：强制调用具备 FreeSerp MCP 搜索能力的 chat-fast Agent，实时抓取网络最新信息、热播剧、新闻等。";
         legacy.style.display = "none";
       } else if (p === "direct") {
         desc.innerText = "【强制直通 Fast LLM】：跳过一切备忘查询和 DSH Agent 轮询，直接调用 cliproxy fast 模型做单次 completion，1~2 秒内极速返回。";
@@ -552,6 +557,11 @@
       if (pipeline === "agent") {
         endpoint = "/v1/query";
         payload.mode = mode;
+      } else if (pipeline === "web_search") {
+        endpoint = "/v1/chat";
+        if (!query.includes("查网络") && !query.includes("搜索网络") && !query.includes("查一下网络")) {
+          payload.query = `查一下网络：${query}`;
+        }
       } else if (pipeline === "direct") {
         // 如果用户选强制直通且问题里带有备忘字眼，做轻微引导提示
         endpoint = "/v1/chat";
