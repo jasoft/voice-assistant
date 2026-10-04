@@ -17,6 +17,17 @@ class HarnessError(RuntimeError):
     """Raised when DeepSeek Harness cannot accept or complete a request."""
 
 
+class HarnessReply(str):
+    """A string response that optionally carries model reasoning (thinking)."""
+
+    reasoning: str
+
+    def __new__(cls, text: str, reasoning: str = ""):
+        obj = super().__new__(cls, text)
+        obj.reasoning = reasoning
+        return obj
+
+
 JsonRequester = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 _WRAPPER_COMMAND_RE = re.compile(
@@ -159,14 +170,17 @@ class DeepSeekHarnessClient:
                     timeout_seconds=timeout_seconds,
                 )
 
+            reasoning = getattr(reply, "reasoning", "") or ""
             return {
                 "reply": reply,
+                "reasoning": reasoning or None,
                 "memories": [],
                 "query": prompt,
                 "debug_info": {
                     "backend": "deepseek-harness",
                     "agent_preset": self.agent_preset,
                     "session_id": session_id,
+                    "reasoning": reasoning or None,
                 },
             }
 
@@ -249,9 +263,10 @@ class DeepSeekHarnessClient:
                 and self._event(entry).get("type") == "assistant/message"
             ]
             if candidates:
-                reply = self._assistant_text(candidates[-1])
-                if reply:
-                    return reply
+                reply_text = self._assistant_text(candidates[-1])
+                reasoning = self._assistant_reasoning(candidates[-1])
+                if reply_text:
+                    return HarnessReply(reply_text, reasoning)
                 # An assistant/message with no text can be an intermediate
                 # tool-call/reasoning boundary. Keep polling for the final
                 # text message instead of mistaking that boundary for the
@@ -259,7 +274,7 @@ class DeepSeekHarnessClient:
 
             tool_reply = self._completed_tool_reply(entries, baseline_seq)
             if tool_reply:
-                return tool_reply
+                return HarnessReply(tool_reply, "")
 
             failure = self._turn_failure(entries, baseline_seq)
             if failure:
@@ -334,6 +349,27 @@ class DeepSeekHarnessClient:
         ):
             return ""
         return cls._message_text(message)
+
+    @classmethod
+    def _assistant_reasoning(cls, candidate: dict[str, Any]) -> str:
+        event = cls._event(candidate)
+        data = event.get("data") if isinstance(event, dict) else None
+        message = data.get("message") if isinstance(data, dict) else None
+        if not isinstance(message, dict):
+            return ""
+        return cls._content_reasoning(message.get("content")).strip()
+
+    @staticmethod
+    def _content_reasoning(content: object) -> str:
+        if not isinstance(content, list):
+            return ""
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "reasoning" and block.get("text"):
+                parts.append(str(block["text"]))
+        return "\n\n".join(parts)
 
     @staticmethod
     def _message_text(message: dict[str, Any]) -> str:

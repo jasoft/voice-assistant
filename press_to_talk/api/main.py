@@ -1,6 +1,6 @@
 from __future__ import annotations
 from fastapi import FastAPI, Depends, File, HTTPException, Response, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, AsyncIterator
@@ -357,6 +357,16 @@ async def get_version_endpoint():
     return {"version": get_version()}
 
 
+@app.get("/debug", tags=["System"], response_class=HTMLResponse)
+@app.get("/", tags=["System"], response_class=HTMLResponse)
+async def api_debug_page():
+    """Interactive Web Playground for API debugging, inspecting DeepSeek reasoning and streaming TTS."""
+    debug_html_path = Path(__file__).parent / "static" / "debug.html"
+    if debug_html_path.is_file():
+        return HTMLResponse(content=debug_html_path.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>Voice Assistant API Debugger</h1><p>static/debug.html not found</p>")
+
+
 
 from enum import Enum
 
@@ -462,6 +472,10 @@ class QueryResponse(BaseModel):
             "'paste' 表示 reply 是应替换选中文本、或粘贴到目标窗口光标处的内容，"
             "调用方（如 Mac GUI）应以 Cmd+V 回贴而不是朗读。"
         )
+    )
+    reasoning: Optional[str] = Field(
+        None,
+        description="DeepSeek 或大模型的思考过程（Thinking / Reasoning），供调试与查看思考脉络。"
     )
     memories: List[MemoryItem] = Field(
         default_factory=list, 
@@ -978,7 +992,12 @@ async def tts(req: TTSRequest, user_id: str = Depends(get_user_id)):
     return StreamingResponse(
         _gen(),
         media_type="application/octet-stream",
-        headers={"X-Audio-Format": "pcm;rate=24000;channels=1;bits=16"},
+        headers={
+            "X-Audio-Format": "pcm;rate=24000;channels=1;bits=16",
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+        },
     )
 
 

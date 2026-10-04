@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Assistant API 调试工作台</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --card-border: #30363d;
+      --text-main: #e6edf3;
+      --text-muted: #8b949e;
+      --primary: #58a6ff;
+      --primary-hover: #1f6feb;
+      --success: #3fb950;
+      --warning: #d29922;
+      --danger: #f85149;
+      --accent-purple: #bc8cff;
+      --accent-purple-bg: rgba(188, 140, 255, 0.1);
+      --accent-purple-border: rgba(188, 140, 255, 0.3);
+      --font-mono: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      line-height: 1.5;
+      padding: 24px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 24px;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .badge {
+      font-size: 12px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--primary);
+      border: 1px solid rgba(88, 166, 255, 0.3);
+    }
+    .api-config {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .input-sm {
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: var(--font-mono);
+      outline: none;
+    }
+    .input-sm:focus { border-color: var(--primary); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 460px 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    textarea, select, input[type="text"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      outline: none;
+      font-family: inherit;
+      resize: vertical;
+    }
+    textarea:focus, select:focus, input[type="text"]:focus {
+      border-color: var(--primary);
+    }
+    .presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .preset-btn {
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .preset-btn:hover {
+      color: var(--text-main);
+      border-color: var(--primary);
+    }
+
+    button.btn-primary {
+      width: 100%;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 11px;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s;
+    }
+    button.btn-primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Thinking Section */
+    .thinking-card {
+      border-color: var(--accent-purple-border);
+      background: var(--card-bg);
+      position: relative;
+      overflow: hidden;
+    }
+    .thinking-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, #bc8cff, #58a6ff);
+    }
+    .thinking-title {
+      color: var(--accent-purple);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .thinking-body {
+      background: var(--bg);
+      border: 1px solid var(--accent-purple-border);
+      border-radius: 6px;
+      padding: 14px;
+      font-size: 13.5px;
+      color: #d2a8ff;
+      white-space: pre-wrap;
+      font-family: var(--font-mono);
+      line-height: 1.6;
+      max-height: 380px;
+      overflow-y: auto;
+    }
+
+    /* Reply Section */
+    .reply-body {
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 16px;
+      font-size: 15px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+
+    /* Action bar */
+    .action-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--card-border);
+    }
+    .action-tag {
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .action-speak { background: rgba(63, 185, 80, 0.15); color: var(--success); border: 1px solid rgba(63, 185, 80, 0.3); }
+    .action-paste { background: rgba(210, 153, 34, 0.15); color: var(--warning); border: 1px solid rgba(210, 153, 34, 0.3); }
+
+    .tts-player {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .btn-audio {
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-audio:hover { border-color: var(--primary); }
+    .audio-status {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Metrics */
+    .metrics-bar {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      background: var(--bg);
+      padding: 10px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--card-border);
+      font-size: 12px;
+      font-family: var(--font-mono);
+      margin-top: 12px;
+    }
+    .metric-item span { color: var(--text-muted); margin-right: 4px; }
+    .metric-item b { color: var(--primary); }
+
+    /* JSON Drawer */
+    details {
+      margin-top: 16px;
+    }
+    summary {
+      font-size: 13px;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+    }
+    pre.raw-json {
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      max-height: 250px;
+      overflow: auto;
+      margin-top: 8px;
+      color: #8b949e;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>🎙️ Voice Assistant API 调试工作台 <span class="badge">Live Playground</span></h1>
+      </div>
+      <div class="api-config">
+        <label style="margin:0; font-size:12px;">Token:</label>
+        <input type="text" id="apiKey" class="input-sm" style="width: 170px;" value="soj-default-token" placeholder="Bearer Token">
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- 左侧：输入与控制 -->
+      <div>
+        <div class="card">
+          <div class="card-title">
+            <span>请求配置</span>
+            <select id="endpointSelect" class="input-sm" style="width: 140px;">
+              <option value="/v1/chat">POST /v1/chat</option>
+              <option value="/v1/query">POST /v1/query</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Query（用户提问 / 指令）</label>
+            <textarea id="queryInput" rows="4" placeholder="输入要发送给助手的语音文本或指令…">今天星期几？按北京时间说一下</textarea>
+            <div class="presets">
+              <button class="preset-btn" onclick="setPreset('今天星期几？按北京时间说一下')">北京时间</button>
+              <button class="preset-btn" onclick="setPreset('写一篇 1000 字关于自律的文章。')">千字长文生成</button>
+              <button class="preset-btn" onclick="setPreset('帮我润色并改写这段话，显得更专业得体。', '产品上线延期了，大家抓紧修Bug。')">润色选中文本</button>
+              <button class="preset-btn" onclick="setPreset('帮我查一下我之前记录的护照放在哪了？')">记忆备忘查询</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Selected Text（当前选中的文本上下文，可选）</label>
+            <textarea id="selectedTextInput" rows="3" placeholder="模拟客户端（如 Mac GUI）在窗口选中的文本…"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>Execution Mode（针对 /v1/query）</label>
+            <select id="modeSelect">
+              <option value="memory-chat" selected>memory-chat（默认综合问答）</option>
+              <option value="database">database（纯数据库/记忆查询）</option>
+              <option value="hermes">hermes（行为树深度推理）</option>
+            </select>
+          </div>
+
+          <button id="sendBtn" class="btn-primary" onclick="executeRequest()">
+            <span id="btnIcon">🚀</span> <span id="btnText">执行 API 调用</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 右侧：输出与深度调试 -->
+      <div>
+        <!-- 思考过程卡片（若有） -->
+        <div class="card thinking-card" id="thinkingSection" style="display: none;">
+          <div class="card-title">
+            <div class="thinking-title">
+              <span>🧠 DeepSeek 思考过程 (Thinking / Reasoning)</span>
+            </div>
+            <button class="preset-btn" onclick="copyText('thinkingText')">复制思考过程</button>
+          </div>
+          <div class="thinking-body" id="thinkingText"></div>
+        </div>
+
+        <!-- 最终回复卡片 -->
+        <div class="card" id="replySection">
+          <div class="card-title">
+            <span>💬 回复结果 (Reply)</span>
+            <span id="statusBadge" class="badge" style="display: none;">HTTP 200</span>
+          </div>
+
+          <div class="reply-body" id="replyText">等待请求执行…</div>
+
+          <div class="action-bar" id="actionBar" style="display: none;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 13px; color: var(--text-muted);">交付方式:</span>
+              <span id="actionBadge" class="action-tag action-speak">SPEAK</span>
+            </div>
+
+            <div class="tts-player">
+              <button id="ttsPlayBtn" class="btn-audio" onclick="toggleStreamTTS()">
+                <span id="ttsIcon">🔊</span> <span id="ttsBtnText">流式试听 (TTS)</span>
+              </button>
+              <span id="ttsStatus" class="audio-status"></span>
+            </div>
+          </div>
+
+          <div class="metrics-bar" id="metricsBar" style="display: none;">
+            <div class="metric-item"><span>总耗时:</span><b id="mTotal">-</b></div>
+            <div class="metric-item"><span>TypeSafe意图:</span><b id="mTypesafe">-</b></div>
+            <div class="metric-item"><span>生成耗时:</span><b id="mAns">-</b></div>
+            <div class="metric-item"><span>字符数:</span><b id="mChars">-</b></div>
+          </div>
+
+          <details id="rawJsonDetails" style="display: none;">
+            <summary>查看原始完整响应 JSON</summary>
+            <pre class="raw-json" id="rawJsonContent"></pre>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentReplyText = "";
+    let audioContext = null;
+    let isPlayingAudio = false;
+    let ttsAbortController = null;
+
+    // Load saved API Key
+    const savedKey = localStorage.getItem("ptt_api_key");
+    if (savedKey) document.getElementById("apiKey").value = savedKey;
+    document.getElementById("apiKey").addEventListener("change", (e) => {
+      localStorage.setItem("ptt_api_key", e.target.value.trim());
+    });
+
+    function setPreset(query, selection = "") {
+      document.getElementById("queryInput").value = query;
+      document.getElementById("selectedTextInput").value = selection;
+    }
+
+    async function executeRequest() {
+      const endpoint = document.getElementById("endpointSelect").value;
+      const apiKey = document.getElementById("apiKey").value.trim();
+      const query = document.getElementById("queryInput").value.trim();
+      const selectedText = document.getElementById("selectedTextInput").value.trim();
+      const mode = document.getElementById("modeSelect").value;
+
+      if (!query) {
+        alert("请输入 Query！");
+        return;
+      }
+
+      // Stop current TTS
+      stopAudio();
+
+      const sendBtn = document.getElementById("sendBtn");
+      const btnIcon = document.getElementById("btnIcon");
+      const btnText = document.getElementById("btnText");
+      sendBtn.disabled = true;
+      btnIcon.innerHTML = '<div class="spinner"></div>';
+      btnText.innerText = "请求处理中…";
+
+      document.getElementById("replyText").innerText = "正在等待后端与模型响应…";
+      document.getElementById("thinkingSection").style.display = "none";
+      document.getElementById("actionBar").style.display = "none";
+      document.getElementById("metricsBar").style.display = "none";
+      document.getElementById("rawJsonDetails").style.display = "none";
+      document.getElementById("statusBadge").style.display = "none";
+
+      const startTime = performance.now();
+      const payload = { query };
+      if (selectedText) payload.selected_text = selectedText;
+      if (endpoint === "/v1/query") payload.mode = mode;
+
+      try {
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const elapsedTotal = ((performance.now() - startTime) / 1000).toFixed(2);
+        const statusBadge = document.getElementById("statusBadge");
+        statusBadge.style.display = "inline-block";
+        statusBadge.innerText = `HTTP ${resp.status}`;
+        statusBadge.style.background = resp.ok ? "rgba(63, 185, 80, 0.15)" : "rgba(248, 81, 73, 0.15)";
+        statusBadge.style.color = resp.ok ? "var(--success)" : "var(--danger)";
+        statusBadge.style.borderColor = resp.ok ? "rgba(63, 185, 80, 0.3)" : "rgba(248, 81, 73, 0.3)";
+
+        const data = await resp.json();
+        document.getElementById("rawJsonContent").innerText = JSON.stringify(data, null, 2);
+        document.getElementById("rawJsonDetails").style.display = "block";
+
+        if (!resp.ok) {
+          document.getElementById("replyText").innerText = `请求失败 [${resp.status}]: ${JSON.stringify(data)}`;
+          return;
+        }
+
+        currentReplyText = data.reply || "";
+        document.getElementById("replyText").innerText = currentReplyText;
+
+        // 思考过程展示
+        const reasoning = data.reasoning || (data.debug_info && data.debug_info.reasoning) || "";
+        if (reasoning) {
+          document.getElementById("thinkingText").innerText = reasoning;
+          document.getElementById("thinkingSection").style.display = "block";
+        } else {
+          document.getElementById("thinkingSection").style.display = "none";
+        }
+
+        // Action Tag
+        const action = data.action || "speak";
+        const actionBadge = document.getElementById("actionBadge");
+        actionBadge.innerText = action === "paste" ? "PASTE (回贴替换)" : "SPEAK (播报回答)";
+        actionBadge.className = `action-tag ${action === "paste" ? "action-paste" : "action-speak"}`;
+        document.getElementById("actionBar").style.display = "flex";
+
+        // Metrics
+        const debug = data.debug_info || {};
+        document.getElementById("mTotal").innerText = `${debug.elapsed_s || elapsedTotal}s`;
+        document.getElementById("mTypesafe").innerText = debug.typesafe_s ? `${debug.typesafe_s}s` : "-";
+        document.getElementById("mAns").innerText = (debug.elapsed_ans_s || debug.elapsed_compose_s) ? `${debug.elapsed_ans_s || debug.elapsed_compose_s}s` : "-";
+        document.getElementById("mChars").innerText = `${currentReplyText.length} 字`;
+        document.getElementById("metricsBar").style.display = "flex";
+
+      } catch (err) {
+        document.getElementById("replyText").innerText = `网络异常：${err.message}`;
+      } finally {
+        sendBtn.disabled = false;
+        btnIcon.innerText = "🚀";
+        btnText.innerText = "执行 API 调用";
+      }
+    }
+
+    // TTS Stream Playback using Web Audio API
+    async function toggleStreamTTS() {
+      if (isPlayingAudio) {
+        stopAudio();
+        return;
+      }
+      if (!currentReplyText) return;
+
+      const apiKey = document.getElementById("apiKey").value.trim();
+      const ttsBtnText = document.getElementById("ttsBtnText");
+      const ttsIcon = document.getElementById("ttsIcon");
+      const ttsStatus = document.getElementById("ttsStatus");
+
+      isPlayingAudio = true;
+      ttsIcon.innerText = "⏹️";
+      ttsBtnText.innerText = "停止播放";
+      ttsStatus.innerText = "正在请求流式 TTS…";
+
+      ttsAbortController = new AbortController();
+      const startTime = performance.now();
+
+      try {
+        if (!audioContext || audioContext.state === "closed") {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+        }
+        if (audioContext.state === "suspended") {
+          await audioContext.resume();
+        }
+
+        const resp = await fetch("/v1/tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({ text: currentReplyText }),
+          signal: ttsAbortController.signal
+        });
+
+        if (!resp.ok) {
+          throw new Error(`TTS HTTP ${resp.status}`);
+        }
+
+        const reader = resp.body.getReader();
+        let totalBytes = 0;
+        let nextPlayTime = audioContext.currentTime + 0.05;
+        let firstChunk = true;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (firstChunk) {
+            const ttfb = ((performance.now() - startTime) / 1000).toFixed(2);
+            ttsStatus.innerText = `首包到达: ${ttfb}s, 正在播放…`;
+            firstChunk = false;
+          }
+          totalBytes += value.length;
+
+          // Convert PCM 16bit LE to Float32
+          const sampleCount = Math.floor(value.length / 2);
+          if (sampleCount === 0) continue;
+          const audioBuffer = audioContext.createBuffer(1, sampleCount, 24000);
+          const channelData = audioBuffer.getChannelData(0);
+          const dataView = new DataView(value.buffer, value.byteOffset, value.byteLength);
+
+          for (let i = 0; i < sampleCount; i++) {
+            channelData[i] = dataView.getInt16(i * 2, true) / 32768.0;
+          }
+
+          const source = audioContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(audioContext.destination);
+
+          const now = audioContext.currentTime;
+          if (nextPlayTime < now) nextPlayTime = now + 0.02;
+          source.start(nextPlayTime);
+          nextPlayTime += audioBuffer.duration;
+        }
+
+        ttsStatus.innerText = `流式播放完毕 (${(totalBytes/1024).toFixed(1)} KB)`;
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          ttsStatus.innerText = `TTS 出错: ${err.message}`;
+        }
+      } finally {
+        isPlayingAudio = false;
+        ttsIcon.innerText = "🔊";
+        ttsBtnText.innerText = "流式试听 (TTS)";
+      }
+    }
+
+    function stopAudio() {
+      if (ttsAbortController) {
+        ttsAbortController.abort();
+        ttsAbortController = null;
+      }
+      if (audioContext && audioContext.state !== "closed") {
+        audioContext.close();
+        audioContext = null;
+      }
+      isPlayingAudio = false;
+      document.getElementById("ttsIcon").innerText = "🔊";
+      document.getElementById("ttsBtnText").innerText = "流式试听 (TTS)";
+      document.getElementById("ttsStatus").innerText = "";
+    }
+
+    function copyText(id) {
+      const text = document.getElementById(id).innerText;
+      navigator.clipboard.writeText(text);
+      alert("已复制到剪贴板！");
+    }
+  </script>
+</body>
+</html>

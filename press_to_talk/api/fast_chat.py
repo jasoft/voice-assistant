@@ -155,7 +155,10 @@ async def _answer_with_harness(query: str, memos: list[dict[str, Any]], selectio
     client = _chat_harness_client()
     try:
         result = await client.query(prompt)
-        return str(result.get("reply", "")).strip()
+        reply = str(result.get("reply", "")).strip()
+        reasoning = str(result.get("reasoning", "") or "").strip()
+        from ..harness.client import HarnessReply
+        return HarnessReply(reply, reasoning)
     finally:
         await client.close()
 
@@ -185,8 +188,12 @@ async def _compose_with_harness(query: str, selection: str) -> str | None:
     try:
         result = await client.query(prompt)
         reply = str(result.get("reply", "")).strip()
+        reasoning = str(result.get("reasoning", "") or "").strip()
         log(f"fast-chat: harness 产出粘贴内容 {len(reply)} 字", level="info")
-        return reply or None
+        if not reply:
+            return None
+        from ..harness.client import HarnessReply
+        return HarnessReply(reply, reasoning)
     except Exception as exc:
         log(f"fast-chat: harness 产出内容失败: {type(exc).__name__}: {exc}", level="warn")
         return None
@@ -399,15 +406,18 @@ async def try_fast_memory_chat(
                 }
             elapsed_total = time.monotonic() - t0
             log(f"fast-chat: compose done in {elapsed_total:.2f}s", level="info")
+            reasoning = getattr(reply, "reasoning", None) or None
             return {
                 "reply": reply,
                 "action": "paste",
+                "reasoning": reasoning,
                 "memories": [],
                 "query": query,
                 "debug_info": {
                     "backend": "fast-chat",
                     "intent": "compose",
                     "has_selection": bool(selection),
+                    "reasoning": reasoning,
                     "elapsed_s": round(elapsed_total, 2),
                     "typesafe_s": round(elapsed_ts, 2),
                     "elapsed_compose_s": round(elapsed_comp, 2),
@@ -439,19 +449,22 @@ async def try_fast_memory_chat(
             )
             return None
         elapsed_ans = time.monotonic() - t_ans
-        reply = str(reply or "").strip()
-        if not reply:
-            reply = "大王，这个问题我暂时没有好的答案。"
+        reply_str = str(reply or "").strip()
+        if not reply_str:
+            reply_str = "大王，这个问题我暂时没有好的答案。"
         elapsed_total = time.monotonic() - t0
         log(f"fast-chat: chat answered in {elapsed_total:.2f}s", level="info")
+        reasoning = getattr(reply, "reasoning", None) or None
         return {
-            "reply": reply,
+            "reply": reply_str,
             "action": "speak",
+            "reasoning": reasoning,
             "memories": [],
             "query": query,
             "debug_info": {
                 "backend": "fast-chat",
                 "intent": "chat",
+                "reasoning": reasoning,
                 "elapsed_s": round(elapsed_total, 2),
                 "typesafe_s": round(elapsed_ts, 2),
                 "elapsed_ans_s": round(elapsed_ans, 2),
@@ -517,14 +530,17 @@ async def try_fast_memory_chat(
         }
         for m in memos_items
     ]
+    reasoning = getattr(reply, "reasoning", None) or None
     return {
-        "reply": reply,
+        "reply": str(reply),
         "action": "speak",
+        "reasoning": reasoning,
         "memories": memories_out,
         "query": query,
         "debug_info": {
             "backend": "fast-chat",
             "intent": "query",
+            "reasoning": reasoning,
             "keywords": keywords,
             "memo_count": len(memos_items),
             "elapsed_s": round(elapsed_total, 2),
