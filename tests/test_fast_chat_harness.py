@@ -5,11 +5,22 @@ Mocks TypeSafe and the DeepSeek Harness chat-fast calls; exercises the
 and the TypeSafe-failure fallback (None).
 """
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from press_to_talk.api import fast_chat
+
+
+@pytest.fixture(autouse=True)
+def isolate_harness_tests_from_live_completions():
+    """Harness tests must reach their mocked Harness, never the live fast model."""
+    with (
+        patch.object(fast_chat, "_answer_with_direct_llm", new=AsyncMock(return_value=None)),
+        patch.object(fast_chat, "_compose_with_direct_llm", new=AsyncMock(return_value=None)),
+    ):
+        yield
 
 
 class _FakeMemos:
@@ -17,8 +28,10 @@ class _FakeMemos:
 
     def __init__(self, items: list[dict]):
         self.items = items
+        self.created: list[str] = []
 
     def create_memo(self, content: str, visibility: str = "PRIVATE") -> dict:
+        self.created.append(content)
         return {"name": "memos/new"}
 
     def list_memos(self, *, page_size: int = 10, filter_expr: str = "", timeout=None, **kwargs) -> dict:
@@ -35,12 +48,64 @@ async def test_record_branch_writes_memo():
             return_value={"intent": "record", "delivery": None},
         ),
         patch.object(fast_chat, "_build_memos_client", return_value=fake),
+        patch.object(fast_chat, "_summarize_record_content", new=AsyncMock(return_value="护照在书房")) as summarize,
     ):
         result = await fast_chat.try_fast_memory_chat("帮我记一下护照在书房")
     assert result is not None
     assert result["action"] == "speak"
     assert result["debug_info"]["intent"] == "record"
     assert "已记入" in result["reply"]
+    summarize.assert_awaited_once_with("帮我记一下护照在书房", "")
+    assert fake.created == ["护照在书房\n\n> 语音原文: 帮我记一下护照在书房\n\n#voice"]
+
+
+@pytest.mark.anyio
+async def test_record_summary_failure_does_not_write_or_fall_back():
+    fake = _FakeMemos([])
+    with (
+        patch.object(fast_chat, "ask_intent_and_delivery", return_value={"intent": "record", "delivery": "paste"}),
+        patch.object(fast_chat, "_build_memos_client", return_value=fake),
+        patch.object(fast_chat, "_summarize_record_content", new=AsyncMock(side_effect=TimeoutError("summary timeout"))),
+    ):
+        result = await fast_chat.try_fast_memory_chat("帮我记录一下，今天做了一个手表 App。")
+    assert result is not None
+    assert result["debug_info"]["stage"] == "record_summary"
+    assert "记录失败" in result["reply"]
+    assert fake.created == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("content,finish_reason,valid", [
+    ("今天做了一个手表 App，保存了录音记录。", "stop", True),
+    ("", "stop", False),
+    ("   ", "stop", False),
+    ("今天做了一个", "length", False),
+])
+async def test_record_chat_completion_uses_full_original_and_selection(content, finish_reason, valid):
+    query = "帮我记录一下，今天做了一个手表 App，保存了录音记录。"
+    selection = "设计草稿"
+    response = SimpleNamespace(choices=[SimpleNamespace(
+        finish_reason=finish_reason, message=SimpleNamespace(content=content),
+    )])
+    client = AsyncMock()
+    client.chat.completions.create = AsyncMock(return_value=response)
+    client.__aenter__.return_value = client
+    with (
+        patch("openai.AsyncOpenAI", return_value=client),
+        patch.object(fast_chat, "_prompt", return_value="外部配置的语义整理提示词") as prompt,
+    ):
+        if valid:
+            assert await fast_chat._summarize_record_content(query, selection) == content
+        else:
+            with pytest.raises(ValueError):
+                await fast_chat._summarize_record_content(query, selection)
+    prompt.assert_called_once_with("memo_record_summary")
+    messages = client.chat.completions.create.call_args.kwargs["messages"]
+    import json
+    source = json.loads(messages[1]["content"])
+    assert source["original_text"] == query
+    assert source["selected_text"] == selection
+    client.__aexit__.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -292,4 +357,3 @@ async def test_harness_answer_and_compose_inject_current_time(monkeypatch):
         comp = await fast_chat._compose_with_harness("写一封邮件", "")
         assert comp == "ok"
         assert "2026-10-03 23:00:00 星期六" in captured_prompts[0]
-

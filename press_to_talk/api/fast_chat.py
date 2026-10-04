@@ -4,7 +4,7 @@ Pipeline:
   1. TypeSafe once: ask_intent_and_delivery(query, selected_text)
      - intent: "record" | "other"
      - delivery: "paste" | "speak" | None（期望产出是粘贴内容还是播报回答）
-  2. record -> direct Memos REST API insertion (~0.1-0.3s)
+  2. record -> ChatCompletion semantic summary -> Memos REST API insertion
   3. other + delivery=paste -> Harness(chat-fast) 按"指令 + 可选选中文本"产出
      最终内容（改写/生成），调用方直接粘贴到光标处（action="paste"）
   4. other + 其他（询问）:
@@ -346,20 +346,39 @@ def _build_memos_client() -> MemosClient:
     return MemosClient(base_url=base_url, token=token, timeout=timeout)
 
 
-_RECORD_STOP_WORDS = [
-    "帮我记一下", "帮我记录", "帮我记住", "帮我记下", "帮我存一下", "帮我保存",
-    "帮我记个", "帮忙记一下", "帮忙记录", "请记录", "请记住",
-    "记一下", "记录一下", "记住", "记下", "存一下", "保存", "记录",
-]
+async def _summarize_record_content(query: str, selection: str = "") -> str:
+    """Use a single ChatCompletion to prepare memo text; never clean by keywords."""
+    from openai import AsyncOpenAI
 
-
-def _clean_record_content(text: str) -> str:
-    """Strip record command prefixes to get the actual memory content."""
-    clean = text.strip()
-    for sw in sorted(_RECORD_STOP_WORDS, key=len, reverse=True):
-        clean = clean.replace(sw, "")
-    clean = re.sub(r"^[：:，。,.\s]+", "", clean).strip()
-    return clean or text.strip()
+    prompt = _prompt("memo_record_summary")
+    if not prompt:
+        raise ValueError("memo_record_summary prompt is missing")
+    model = os.environ.get("PTT_MODEL") or "fast"
+    async with AsyncOpenAI(
+        base_url=(os.environ.get("OPENAI_BASE_URL") or "http://cliproxy.docker.home/v1").rstrip("/"),
+        api_key=os.environ.get("OPENAI_API_KEY") or "sk-1234",
+        timeout=12.0,
+        max_retries=0,
+    ) as client:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": json.dumps({
+                    "original_text": query,
+                    "selected_text": selection,
+                    "current_time": current_time_with_weekday_text(),
+                }, ensure_ascii=False)},
+            ],
+            max_tokens=4096,
+        )
+    if not response.choices or response.choices[0].finish_reason != "stop":
+        raise ValueError("memo summary completion is incomplete")
+    content = (response.choices[0].message.content or "").strip()
+    if not content:
+        raise ValueError("memo summary completion is empty")
+    log(f"fast-chat: record summary model={model} chars={len(content)}", level="info")
+    return content
 
 
 def _record_memo(client: MemosClient, content: str, original_text: str) -> str:
@@ -470,21 +489,20 @@ async def try_fast_memory_chat(
         log(f"fast-chat: cannot build Memos client: {exc}", level="warn")
         return None
 
-    # -- RECORD：直写 Memos --
+    # -- RECORD：语义整理后写 Memos，失败不回退到关键词清洗或原文直写 --
     if intent == "record":
-        content = _clean_record_content(query)
-        if selection:
-            if not content or content in ("这段话", "这个", "这段内容", "选中文本"):
-                content = selection
-            else:
-                content = f"{content}\n\n【选中文本】\n{selection}"
+        stage = "record_summary"
+        t_summary = time.monotonic()
         try:
+            content = await _summarize_record_content(query, selection)
+            summary_s = time.monotonic() - t_summary
+            stage = "record_memo"
             result_text = await asyncio.to_thread(
                 _record_memo, memos_client, content, query,
             )
         except Exception as exc:
             err_type = type(exc).__name__
-            log(f"fast-chat [STAGE: RECORD] Memos creation failed: {err_type}: {exc}", level="error")
+            log(f"fast-chat [STAGE: {stage}] failed: {err_type}: {exc}", level="error")
             return {
                 "reply": "记录失败，请稍后再试。",
                 "action": "speak",
@@ -493,7 +511,7 @@ async def try_fast_memory_chat(
                 "debug_info": {
                     "backend": "fast-chat",
                     "intent": "record",
-                    "stage": "record_memo",
+                    "stage": stage,
                     "error_type": err_type,
                     "error_detail": str(exc) or err_type,
                 },
@@ -510,6 +528,7 @@ async def try_fast_memory_chat(
                 "intent": "record",
                 "elapsed_s": round(elapsed_total, 2),
                 "typesafe_s": round(elapsed_ts, 2),
+                "summary_s": round(summary_s, 2),
             },
         }
 
