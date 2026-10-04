@@ -2,6 +2,7 @@
 
 uv run python watch_app/Tests/simulator_server.py
 Only external decision/LLM/TTS/history boundaries are replaced; no personal data writes.
+STT uses the configured real service for microphone checks.
 PCM is a test tone, not a claim of real TTS quality. Use a real API for voice validation.
 """
 from pathlib import Path
@@ -18,6 +19,9 @@ from types import SimpleNamespace
 import uvicorn
 from fastapi import Request
 from fastapi.responses import StreamingResponse
+
+from press_to_talk.utils.env import load_env_files
+load_env_files()
 
 os.environ.update(PTT_QUERY_BACKEND="harness", PTT_API_KEY="watch-simulator-test", OPENAI_BASE_URL="http://localhost:10039/simulator-upstream", OPENAI_API_KEY="fixture", PTT_MODEL="fixture", PTT_CHAT_TIMEOUT_SECONDS="30")
 from press_to_talk.api import main, fast_chat
