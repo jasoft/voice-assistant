@@ -178,7 +178,7 @@ def ask_intent_and_delivery(
     else:
         answers = data.get("answers")
 
-    intent = _choice_answer(answers, "intent", ("record", "query", "chat"))
+    intent = _choice_answer(answers, "intent", ("record", "query", "chat", "agent"))
     if intent is None:
         log("typesafe: intent 无法二分，交由上层回退", level="info")
         return None

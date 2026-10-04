@@ -201,6 +201,128 @@ async def _compose_with_harness(query: str, selection: str) -> str | None:
         await client.close()
 
 
+async def _answer_with_direct_llm(
+    query: str,
+    memos: list[dict[str, Any]] | None = None,
+    selection: str = "",
+) -> Any | None:
+    """直接调用 fast 模型 completion（直连 cliproxy），跳过 DSH Agent 轮询。失败返回 None。"""
+    try:
+        from openai import AsyncOpenAI
+        from ..harness.client import HarnessReply
+
+        base_url = (os.environ.get("OPENAI_BASE_URL") or "http://cliproxy.docker.home/v1").rstrip("/")
+        api_key = os.environ.get("OPENAI_API_KEY") or "sk-1234"
+        model = os.environ.get("PTT_MODEL") or "fast"
+
+        prompt = _prompt("harness_answer")
+        current_time = current_time_with_weekday_text()
+        memo_lines = [str(m.get("memory", "")).strip() for m in (memos or []) if str(m.get("memory", "")).strip()]
+        memos_block = "\n".join(memo_lines) or "（无相关备忘）"
+        selection_block = selection.strip() or "（无选中文本）"
+        if not prompt:
+            prompt = (
+                "你是语音助手的最终回答链路。当前时间：%%CURRENT_TIME%%。人称准则：直接对用户说话，严禁使用“用户”一词，必须一律改用“你”或“您”。\n\n"
+                "用户问题：%%QUERY%%\n\n"
+                "用户当前选中的文本（上下文）：\n%%SELECTION%%\n\n"
+                "相关备忘：\n%%MEMOS%%"
+            )
+        prompt = (
+            prompt.replace("%%CURRENT_TIME%%", current_time)
+            .replace("${PTT_CURRENT_TIME}", current_time)
+            .replace("%%QUERY%%", query)
+            .replace("%%MEMOS%%", memos_block)
+            .replace("%%SELECTION%%", selection_block)
+        )
+        if current_time not in prompt:
+            prompt = f"当前时间：{current_time}\n\n{prompt}"
+        if selection.strip() and "%%SELECTION%%" not in _prompt("harness_answer") and selection_block not in prompt:
+            prompt += f"\n\n【用户当前选中的文本（上下文）】\n{selection.strip()}"
+
+        client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=12.0)
+        messages = [
+            {"role": "system", "content": "你是个人语音助手。直接对用户说话，涉及用户时称“你”或“您”，不提UTC，回答自然简短。"},
+            {"role": "user", "content": prompt},
+        ]
+        resp = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=4096,
+        )
+        if not resp.choices:
+            return None
+        msg = resp.choices[0].message
+        reply = str(msg.content or "").strip()
+        reasoning = (
+            getattr(msg, "reasoning_content", None)
+            or (getattr(msg, "model_extra", {}) or {}).get("reasoning_content")
+            or ""
+        )
+        if reply:
+            log(f"fast-chat: direct llm({model}) answered {len(reply)} chars in fast-path", level="info")
+            return HarnessReply(reply, str(reasoning or "").strip())
+        return None
+    except Exception as exc:
+        log(f"fast-chat: direct llm failed ({exc}), falling back to harness", level="info")
+        return None
+
+
+async def _compose_with_direct_llm(query: str, selection: str) -> Any | None:
+    """直接调用 fast 模型产出要回贴的内容，跳过 DSH Agent 轮询。失败返回 None。"""
+    try:
+        from openai import AsyncOpenAI
+        from ..harness.client import HarnessReply
+
+        base_url = (os.environ.get("OPENAI_BASE_URL") or "http://cliproxy.docker.home/v1").rstrip("/")
+        api_key = os.environ.get("OPENAI_API_KEY") or "sk-1234"
+        model = os.environ.get("PTT_MODEL") or "fast"
+
+        selection_block = selection or "（无选中文本，按指令直接生成）"
+        prompt = _prompt("harness_compose")
+        current_time = current_time_with_weekday_text()
+        if not prompt:
+            prompt = (
+                "你是一个文本产出器。当前时间：%%CURRENT_TIME%%。根据用户指令直接输出要替换选中文本、或粘贴到光标处的最终内容本身，"
+                "不要任何解释、前缀或代码围栏。\n\n用户指令：%s\n\n用户当前选中的文本（可能为空）：\n%s"
+                % (query, selection_block)
+            )
+        prompt = (
+            prompt.replace("%%CURRENT_TIME%%", current_time)
+            .replace("${PTT_CURRENT_TIME}", current_time)
+            .replace("%%INSTRUCTION%%", query)
+            .replace("%%SELECTION%%", selection_block)
+        )
+        if current_time not in prompt:
+            prompt = f"当前时间：{current_time}\n\n{prompt}"
+
+        client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=12.0)
+        messages = [
+            {"role": "system", "content": "你是文本产出器。只输出最终内容，不要任何解释。"},
+            {"role": "user", "content": prompt},
+        ]
+        resp = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=4096,
+        )
+        if not resp.choices:
+            return None
+        msg = resp.choices[0].message
+        reply = str(msg.content or "").strip()
+        reasoning = (
+            getattr(msg, "reasoning_content", None)
+            or (getattr(msg, "model_extra", {}) or {}).get("reasoning_content")
+            or ""
+        )
+        if reply:
+            log(f"fast-chat: direct llm({model}) composed {len(reply)} chars in fast-path", level="info")
+            return HarnessReply(reply, str(reasoning or "").strip())
+        return None
+    except Exception as exc:
+        log(f"fast-chat: direct llm compose failed ({exc}), falling back to harness", level="info")
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Memos helpers
 # ---------------------------------------------------------------------------
@@ -384,12 +506,20 @@ async def try_fast_memory_chat(
             },
         }
 
-    # -- OTHER + PASTE：Harness 按"指令 + 可选选中文本"产出内容，调用方回贴 --
+    # -- AGENT：复杂任务或需要工具执行，直接交由慢路径 Harness Agent 处理 --
+    if intent == "agent":
+        log("fast-chat: clef 判定为复杂任务/需要外部工具，直接交由 DSH Agent 状态机处理", level="info")
+        return None
+
+    # -- OTHER + PASTE：按"指令 + 可选选中文本"产出内容，调用方回贴 --
     if delivery == "paste":
         try:
             stage = "compose"
             t_comp = time.monotonic()
-            reply = await _compose_with_harness(query, selection)
+            # 优先尝试直连 fast LLM 极速产出文本
+            reply = await _compose_with_direct_llm(query, selection)
+            if not reply:
+                reply = await _compose_with_harness(query, selection)
             elapsed_comp = time.monotonic() - t_comp
             if not reply:
                 log("fast-chat: compose 产出为空，降级为播报", level="warn")
@@ -433,27 +563,31 @@ async def try_fast_memory_chat(
             )
             return None
 
-    # -- CHAT：用户没有明确要求查询备忘/记忆，直接 Harness 回答，不检索 Memos --
-    if intent == "chat":
-        stage = "harness_answer"
+    # -- CHAT / SIMPLE：简单问题直接直通 fast LLM，跳过 DSH Agent 状态机，不检索 Memos --
+    if intent in ("chat", "simple"):
+        stage = "direct_llm_answer"
         t_ans = time.monotonic()
-        try:
+        reply = await _answer_with_direct_llm(query, selection=selection)
+        backend_name = "fast-chat-direct-llm"
+        if not reply:
+            backend_name = "fast-chat-harness-fallback"
             try:
-                reply = await _answer_with_harness(query, [], selection=selection)
-            except TypeError:
-                reply = await _answer_with_harness(query, [])
-        except Exception as exc:
-            log(
-                f"fast-chat [STAGE: CHAT_ANSWER_ERROR] {type(exc).__name__}: {exc}",
-                level="error",
-            )
-            return None
+                try:
+                    reply = await _answer_with_harness(query, [], selection=selection)
+                except TypeError:
+                    reply = await _answer_with_harness(query, [])
+            except Exception as exc:
+                log(
+                    f"fast-chat [STAGE: CHAT_ANSWER_ERROR] {type(exc).__name__}: {exc}",
+                    level="error",
+                )
+                return None
         elapsed_ans = time.monotonic() - t_ans
         reply_str = str(reply or "").strip()
         if not reply_str:
             reply_str = "大王，这个问题我暂时没有好的答案。"
         elapsed_total = time.monotonic() - t0
-        log(f"fast-chat: chat answered in {elapsed_total:.2f}s", level="info")
+        log(f"fast-chat: {backend_name} answered in {elapsed_total:.2f}s", level="info")
         reasoning = getattr(reply, "reasoning", None) or None
         return {
             "reply": reply_str,
@@ -462,7 +596,7 @@ async def try_fast_memory_chat(
             "memories": [],
             "query": query,
             "debug_info": {
-                "backend": "fast-chat",
+                "backend": backend_name,
                 "intent": "chat",
                 "reasoning": reasoning,
                 "elapsed_s": round(elapsed_total, 2),
@@ -471,7 +605,7 @@ async def try_fast_memory_chat(
             },
         }
 
-    # -- QUERY（明确要查备忘/记忆）：Harness 拆词 → 一次 CEL → Harness 回答 --
+    # -- QUERY（明确要查备忘/memo/记忆）：拆词 → 一次 CEL → 极速回答 --
     stage = "extract_keywords"
     keywords: list[str] = []
     memos_items: list[dict[str, Any]] = []
@@ -495,12 +629,14 @@ async def try_fast_memory_chat(
             level="info",
         )
 
-        stage = "harness_answer"
+        stage = "answer"
         t_ans = time.monotonic()
-        try:
-            reply = await _answer_with_harness(query, memos_items, selection=selection)
-        except TypeError:
-            reply = await _answer_with_harness(query, memos_items)
+        reply = await _answer_with_direct_llm(query, memos_items, selection=selection)
+        if not reply:
+            try:
+                reply = await _answer_with_harness(query, memos_items, selection=selection)
+            except TypeError:
+                reply = await _answer_with_harness(query, memos_items)
         elapsed_ans = time.monotonic() - t_ans
         reasoning = getattr(reply, "reasoning", None) or None
         reply_str = str(reply or "").strip()
