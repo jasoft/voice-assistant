@@ -7,13 +7,19 @@
 - 执行层保持行为树架构。日志写 `stderr`，`stdout` 留给数据与事件。
 - 终端保留 rich 动态 UI，非 TTY（如 Raycast）降级为纯文本。
 - Mac GUI 代码变更运行 `cd mac_gui && swift build -c release`，匹配 `run-gui.sh` 使用的发布构建。
+- **服务端修改与凭证更新必须同步部署远程 Docker**：Apple Watch（真机与模拟器）默认直连远程 Docker 服务端（`https://va.soj.myds.me:1443`）。任何涉及服务端代码、API 端点（如 `/v1/chat`、`/v1/tts`）或环境变量的修改，在合并到 `main` 后**必须执行 `./scripts/deploy.sh` 同步并重启远程 Docker 服务**；若引入新凭据（如 `.env` 中的 API Key），必须先 SSH 到远程机器补齐 `~/voice-assistant/.env`，否则客户端仍将请求旧服务或因缺凭据降级。
 
 ## 入口与验证
 
 - CLI 入口和参数以 `pyproject.toml` 与当前 CLI 帮助为准。`press_to_talk/` 是 Python 包，配置在外部 JSON。
 - Python 测试用 pytest，选择受影响的用例；涉及录音或后端行为时再做对应链路验证。
 - CLI 操作、Docker 部署和场景压测分别查 `.agents/skills/` 下的 `ptt-voice`、`deploy-to-docker`、`vibe-report`。
+- 服务端部署：运行 `./scripts/deploy.sh` 自动升级补丁版本并发布至远程 `docker.home`，触发容器重建与重启。
 - 历史架构和旧命令见 `docs/agent-context-reference.md`；不把其中的旧后端快照当作当前运行状态。
+
+## 语音合成（TTS）
+
+- 服务端流式 TTS（`/v1/tts`）：优先调用阿里云百炼 DashScope `qwen3-tts-flash`（同时兼容 `qwen-audio-3.1-tts-flash` 别名），输出 24kHz/16-bit/单声道 PCM；服务端已内置自动检测并剥离 SSE 首个音频块中的 44 字节标准 WAV/RIFF 头，避免客户端播放器首帧爆音。未配置 `DASHSCOPE_API_KEY` 时自动回退至 Google Gemini TTS。
 
 ## fast-path 简化链路（Cloudflare clef-flash / TypeSafe + Harness + Memos）
 
