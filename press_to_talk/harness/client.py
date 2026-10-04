@@ -357,6 +357,9 @@ class DeepSeekHarnessClient:
         message = data.get("message") if isinstance(data, dict) else None
         if not isinstance(message, dict):
             return ""
+        direct = message.get("reasoning") or message.get("thinking") or ""
+        if isinstance(direct, str) and direct.strip():
+            return direct.strip()
         return cls._content_reasoning(message.get("content")).strip()
 
     @staticmethod
@@ -367,8 +370,13 @@ class DeepSeekHarnessClient:
         for block in content:
             if not isinstance(block, dict):
                 continue
-            if block.get("type") == "reasoning" and block.get("text"):
-                parts.append(str(block["text"]))
+            btype = str(block.get("type") or "").lower()
+            if btype in {"reasoning", "thinking"}:
+                text = block.get("text") or block.get("reasoning") or block.get("thinking") or ""
+                if text:
+                    parts.append(str(text))
+            elif block.get("reasoning"):
+                parts.append(str(block["reasoning"]))
         return "\n\n".join(parts)
 
     @staticmethod

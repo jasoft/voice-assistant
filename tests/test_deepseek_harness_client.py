@@ -283,3 +283,58 @@ def test_harness_client_lists_completed_history_turns() -> None:
         "reply": "钥匙在抽屉里。",
         "created_at": "2026-08-20T10:00:00+08:00",
     }]
+
+
+def test_harness_client_extracts_reasoning() -> None:
+    history_calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal history_calls
+        body = json.loads(request.content)
+        method = body["method"]
+        rpc_id = body["rpcId"]
+        if method == "session.create":
+            return _response(rpc_id, {"sessionId": "session-reasoning"})
+        if method == "session.prompt":
+            return _response(rpc_id, {"accepted": True})
+        if method == "session.history":
+            history_calls += 1
+            if history_calls == 1:
+                return _response(rpc_id, {"events": [], "hasMore": False})
+            return _response(rpc_id, {
+                "events": [
+                    {
+                        "event": {
+                            "seq": 1,
+                            "type": "assistant/message",
+                            "data": {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": [
+                                        {"type": "reasoning", "text": "用户想比较数字大小，9.8 > 9.11"},
+                                        {"type": "text", "text": "9.8 更大。"},
+                                    ],
+                                },
+                            },
+                        },
+                    },
+                ],
+                "hasMore": False,
+            })
+        raise AssertionError(method)
+
+    async def run() -> dict:
+        client = DeepSeekHarnessClient(
+            "http://harness.test",
+            transport=httpx.MockTransport(handler),
+            poll_interval_seconds=0.01,
+        )
+        try:
+            return await client.query("9.11和9.8哪个大")
+        finally:
+            await client.close()
+
+    result = asyncio.run(run())
+    assert result["reply"] == "9.8 更大。"
+    assert result["reasoning"] == "用户想比较数字大小，9.8 > 9.11"
+
