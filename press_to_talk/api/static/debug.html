@@ -784,7 +784,6 @@
         document.getElementById("actionBar").style.display = "flex";
 
         // Backend Tag
-        const debug = data.debug_info || {};
         const backendBadge = document.getElementById("backendBadge");
         const backendName = debug.backend || (endpoint === "/v1/query" ? "deepseek-harness" : "fast-chat");
         backendBadge.innerText = backendName;
