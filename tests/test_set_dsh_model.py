@@ -36,7 +36,7 @@ agent-default-model:
     text = settings.read_text(encoding="utf-8")
     assert (
         "- id: fast\n"
-        "          maxTokens: 512\n"
+        "          maxTokens: 4096\n"
     ) in text
     assert "model: fast" in text
 
@@ -90,7 +90,7 @@ agent-default-model:
     assert "- id: slow\n          maxTokens: 6000" in text
     assert (
         "- id: fast\n"
-        "          maxTokens: 512\n"
+        "          maxTokens: 4096\n"
     ) in text
     assert (
         "- id: gemini-3.1-flash-lite\n"
