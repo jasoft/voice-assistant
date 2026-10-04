@@ -15,6 +15,7 @@ final class VoiceSession: ObservableObject {
     private let recorder = Recorder()
     private let api = APIClient()
     private var task: Task<Void, Never>?
+    private var milestoneHapticTask: Task<Void, Never>?
     private var generation = UUID()
     private var recordingStarted = Date()
     private var recordingFile: URL?
@@ -66,6 +67,7 @@ final class VoiceSession: ObservableObject {
     private func reset() {
         generation = UUID()
         task?.cancel(); task = nil
+        milestoneHapticTask?.cancel(); milestoneHapticTask = nil
         speech.stop()
         autoSpeaking = false
         recorder.stop()?.deleteTemporaryRecording()
@@ -90,13 +92,14 @@ final class VoiceSession: ObservableObject {
                 try recorder.start()
                 recordingStarted = Date()
                 phase = .recording
-                WKInterfaceDevice.current().play(.notification)
+                playMilestoneHaptic()
             } catch { fail("录音未能启动，请重新试试") }
         }
     }
 
     func sendRecording() {
         guard phase == .recording else { return }
+        milestoneHapticTask?.cancel(); milestoneHapticTask = nil
         recordingFile = recorder.stop()
         guard recordingFile != nil else { fail("没有录到声音，请重新说"); return }
         WKInterfaceDevice.current().play(.click)
@@ -134,7 +137,7 @@ final class VoiceSession: ObservableObject {
                         guard !text.isEmpty else { continue }
                         if reply.isEmpty {
                             logger.info("text_first_delta")
-                            WKInterfaceDevice.current().play(.notification)
+                            playMilestoneHaptic()
                             if AppPrefs.autoPlay { autoSpeaking = true; speech.begin() }
                         }
                         reply += text
@@ -173,7 +176,22 @@ final class VoiceSession: ObservableObject {
         WKInterfaceDevice.current().play(.click)
     }
 
+    /// Two spaced taps make the cue noticeable without the notification chime.
+    /// watchOS controls any accompanying system sound through Silent Mode.
+    private func playMilestoneHaptic() {
+        milestoneHapticTask?.cancel()
+        WKInterfaceDevice.current().play(.click)
+        let id = generation
+        milestoneHapticTask = Task {
+            do { try await Task.sleep(nanoseconds: 500_000_000) }
+            catch { return }
+            guard !Task.isCancelled, generation == id else { return }
+            WKInterfaceDevice.current().play(.click)
+        }
+    }
+
     private func fail(_ message: String) {
+        milestoneHapticTask?.cancel(); milestoneHapticTask = nil
         error = message; phase = .failed
         WKInterfaceDevice.current().play(.failure)
     }
