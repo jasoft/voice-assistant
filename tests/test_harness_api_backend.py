@@ -431,3 +431,61 @@ def test_chat_returns_504_within_configured_deadline(monkeypatch) -> None:
     assert "0.01 秒" in response.json()["detail"]
     fake_client.close.assert_awaited_once()
     assert persisted == []
+
+
+def test_chat_slow_path_preserves_typesafe_debug(monkeypatch) -> None:
+    """当快路径判断为 agent 或失败回退到 Harness 慢路径时，debug_info 仍应保留 typesafe 决策信息。"""
+    monkeypatch.setenv("PTT_QUERY_BACKEND", "deepseek-harness")
+    monkeypatch.setattr(api_main, "base_config", SimpleNamespace())
+    api_main.app.dependency_overrides[get_user_id] = lambda: "test-user"
+
+    fake_client = AsyncMock()
+    fake_client.query.return_value = {
+        "reply": "网络搜索结果",
+        "memories": [],
+        "images": [],
+        "query": "最近有什么热播剧",
+        "debug_info": {"backend": "deepseek-harness", "session_id": "chat-session-2"},
+    }
+    history_service, persisted = _fake_history_service([])
+    monkeypatch.setattr(api_main, "_chat_harness_client_for", lambda _user_id: fake_client)
+    monkeypatch.setattr(api_main, "_history_service_for", lambda _user_id: history_service)
+
+    # 模拟 fast_chat 发生并记录了 last_typesafe_debug 后返回 None（触发慢路径）
+    async def fake_fast_chat(query, selected_text=None):
+        api_main.last_typesafe_debug.set({
+            "model": "clef-flash",
+            "elapsed_s": 0.45,
+            "intent": {
+                "choice": "agent",
+                "confidence": 0.96,
+                "probabilities": {"record": 0.01, "query": 0.01, "chat": 0.02, "agent": 0.96},
+            },
+            "delivery": {
+                "choice": "speak",
+                "confidence": 0.88,
+                "probabilities": {"paste": 0.12, "speak": 0.88},
+            },
+        })
+        return None
+
+    monkeypatch.setattr(api_main, "try_fast_memory_chat", fake_fast_chat)
+
+    try:
+        with TestClient(api_main.app) as client:
+            response = client.post("/v1/chat", json={"query": "最近有什么热播剧"})
+    finally:
+        api_main.app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply"] == "网络搜索结果"
+    debug = body.get("debug_info", {})
+    assert "typesafe" in debug
+    ts = debug["typesafe"]
+    assert ts["model"] == "clef-flash"
+    assert ts["intent"]["choice"] == "agent"
+    assert ts["intent"]["confidence"] == 0.96
+    assert ts["intent"]["probabilities"]["agent"] == 0.96
+    assert debug["typesafe_s"] == 0.45
+

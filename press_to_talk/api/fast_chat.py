@@ -19,11 +19,14 @@ All prompts are strictly loaded from external workflow_config.json.
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import json
 import os
 import re
 import time
 from typing import Any
+
+last_typesafe_debug: ContextVar[dict[str, Any] | None] = ContextVar("last_typesafe_debug", default=None)
 
 from ..harness import DeepSeekHarnessClient
 from .reply_stream import complete_reply, has_partial_reply, watch_prompt
@@ -444,6 +447,7 @@ async def try_fast_memory_chat(
     back to Harness).
     """
     t0 = time.monotonic()
+    last_typesafe_debug.set(None)
     selection = (selected_text or "").strip()
     if len(selection) > _MAX_SELECTION_CHARS:
         log(f"fast-chat: 选中文本过长（{len(selection)} 字符），截断至 {_MAX_SELECTION_CHARS}", level="info")
@@ -452,21 +456,39 @@ async def try_fast_memory_chat(
 
     # -- Step 1: TypeSafe 一次调用，二分"记录 / 其他（询问）"+ 期望产出方式 --
     t_ts = time.monotonic()
-    decision = await asyncio.to_thread(ask_intent_and_delivery, query, selection or None)
+    try:
+        decision = await asyncio.to_thread(ask_intent_and_delivery, query, selection or None, return_details=True)
+    except TypeError:
+        decision = await asyncio.to_thread(ask_intent_and_delivery, query, selection or None)
     elapsed_ts = time.monotonic() - t_ts
     if decision is None:
         log(f"fast-chat: TypeSafe 未启用或调用失败，交由 Harness Agent 回退", level="info")
         return None
     intent = decision["intent"]
     delivery = decision.get("delivery")
+    details = decision.get("details") or {}
     log(f"fast-chat: typesafe intent={intent} delivery={delivery} in {elapsed_ts:.2f}s", level="info")
 
+    rule_override = None
     # 显式网络搜索与时效性查询嗅探：明确要求联网搜索时，转交具备 FreeSerp 搜索工具的 Agent
     search_keywords = ("查网络", "查一下网络", "搜索网络", "搜一下网络", "上网查", "联网搜索", "百度一下", "谷歌一下", "全网搜索", "查下网络", "搜索一下")
     has_memo_kw = any(k in query for k in ("备忘", "memo", "记忆"))
     if not has_memo_kw and any(kw in query for kw in search_keywords):
         log(f"fast-chat: 触发显式网络搜索规则，转向 Agent (chat-fast) 处理 query={query}", level="info")
         intent = "agent"
+        rule_override = "显式网络搜索关键词命中，强制转交 Agent"
+
+    typesafe_debug = {
+        "model": details.get("model") or "clef-flash",
+        "elapsed_s": round(elapsed_ts, 3),
+        "intent": details.get("intent") or {"choice": intent},
+        "delivery": details.get("delivery") or {"choice": delivery},
+    }
+    if rule_override:
+        typesafe_debug["rule_override"] = rule_override
+        typesafe_debug["final_intent"] = "agent"
+
+    last_typesafe_debug.set(typesafe_debug)
 
     try:
         memos_client = _build_memos_client()
@@ -499,6 +521,8 @@ async def try_fast_memory_chat(
                     "stage": stage,
                     "error_type": err_type,
                     "error_detail": str(exc) or err_type,
+                    "typesafe": typesafe_debug,
+                    "typesafe_s": round(elapsed_ts, 2),
                 },
             }
         elapsed_total = time.monotonic() - t0
@@ -513,6 +537,7 @@ async def try_fast_memory_chat(
                 "intent": "record",
                 "elapsed_s": round(elapsed_total, 2),
                 "typesafe_s": round(elapsed_ts, 2),
+                "typesafe": typesafe_debug,
                 "summary_s": round(summary_s, 2),
             },
         }
@@ -543,6 +568,8 @@ async def try_fast_memory_chat(
                         "backend": "fast-chat",
                         "intent": "compose",
                         "stage": "compose_empty",
+                        "typesafe": typesafe_debug,
+                        "typesafe_s": round(elapsed_ts, 2),
                     },
                 }
             elapsed_total = time.monotonic() - t0
@@ -561,6 +588,7 @@ async def try_fast_memory_chat(
                     "reasoning": reasoning,
                     "elapsed_s": round(elapsed_total, 2),
                     "typesafe_s": round(elapsed_ts, 2),
+                    "typesafe": typesafe_debug,
                     "elapsed_compose_s": round(elapsed_comp, 2),
                 },
             }
@@ -614,6 +642,7 @@ async def try_fast_memory_chat(
                 "reasoning": reasoning,
                 "elapsed_s": round(elapsed_total, 2),
                 "typesafe_s": round(elapsed_ts, 2),
+                "typesafe": typesafe_debug,
                 "elapsed_ans_s": round(elapsed_ans, 2),
             },
         }
@@ -696,6 +725,7 @@ async def try_fast_memory_chat(
             "memo_count": len(memos_items),
             "elapsed_s": round(elapsed_total, 2),
             "typesafe_s": round(elapsed_ts, 2),
+            "typesafe": typesafe_debug,
             "elapsed_kw_s": round(elapsed_kw, 2),
             "elapsed_search_s": round(elapsed_search, 2),
             "elapsed_ans_s": round(elapsed_ans, 2),

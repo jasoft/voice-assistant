@@ -282,6 +282,116 @@
       color: var(--text-muted);
     }
 
+    /* TypeSafe Card */
+    .typesafe-card {
+      border-color: rgba(88, 166, 255, 0.3);
+      position: relative;
+      overflow: hidden;
+    }
+    .typesafe-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, #58a6ff, #bc8cff);
+    }
+    .typesafe-title {
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .typesafe-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 10px;
+    }
+    @media (max-width: 700px) {
+      .typesafe-grid { grid-template-columns: 1fr; }
+    }
+    .typesafe-col {
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      min-width: 0;
+    }
+    .typesafe-col-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .typesafe-col-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    .typesafe-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+    }
+    .typesafe-meta b {
+      color: var(--accent-purple);
+    }
+    .typesafe-bar-row {
+      margin-bottom: 10px;
+    }
+    .typesafe-bar-row:last-child {
+      margin-bottom: 2px;
+    }
+    .typesafe-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 4px;
+      font-family: var(--font-mono);
+    }
+    .typesafe-bar-label .opt-name {
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .typesafe-bar-label .opt-name.winner {
+      color: var(--text-main);
+      font-weight: 600;
+    }
+    .typesafe-bar-label .opt-pct {
+      font-weight: 600;
+      margin-left: 8px;
+    }
+    .typesafe-bar-track {
+      background: #21262d;
+      border-radius: 4px;
+      height: 7px;
+      overflow: hidden;
+      position: relative;
+    }
+    .typesafe-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+      background: #30363d;
+    }
+    .typesafe-bar-fill.winner {
+      background: linear-gradient(90deg, #1f6feb, #58a6ff);
+    }
+    .typesafe-bar-fill.winner-paste {
+      background: linear-gradient(90deg, #9e6a03, #d29922);
+    }
+    .typesafe-bar-fill.winner-speak {
+      background: linear-gradient(90deg, #238636, #3fb950);
+    }
+
     /* Metrics */
     .metrics-bar {
       display: flex;
@@ -421,6 +531,49 @@
 
       <!-- 右侧：输出与深度调试 -->
       <div style="min-width: 0; max-width: 100%; overflow: hidden;">
+        <!-- TypeSafe 意图与分类裁决卡片 -->
+        <div class="card typesafe-card" id="typesafeSection" style="display: none;">
+          <div class="card-title">
+            <div class="typesafe-title">
+              <span>⚡ TypeSafe 前置意图与产出裁决 (System One / Clef)</span>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <span id="tsModelBadge" class="action-tag backend-tag">-</span>
+              <span id="tsElapsedBadge" class="badge" style="background: rgba(88, 166, 255, 0.15); color: var(--primary);">-</span>
+            </div>
+          </div>
+
+          <div class="typesafe-grid">
+            <!-- 意图分类 (Intent) -->
+            <div class="typesafe-col">
+              <div class="typesafe-col-header">
+                <span class="typesafe-col-title">🎯 意图分类 (Intent)</span>
+                <span id="tsIntentWinner" class="action-tag action-speak">-</span>
+              </div>
+              <div class="typesafe-meta">
+                <span>置信度 (Confidence):</span>
+                <b id="tsIntentConfidence">-</b>
+              </div>
+              <div class="typesafe-bars" id="tsIntentBars"></div>
+            </div>
+
+            <!-- 交付方式 (Delivery) -->
+            <div class="typesafe-col">
+              <div class="typesafe-col-header">
+                <span class="typesafe-col-title">📋 期望产出交付 (Delivery)</span>
+                <span id="tsDeliveryWinner" class="action-tag action-paste">-</span>
+              </div>
+              <div class="typesafe-meta">
+                <span>置信度 (Confidence):</span>
+                <b id="tsDeliveryConfidence">-</b>
+              </div>
+              <div class="typesafe-bars" id="tsDeliveryBars"></div>
+            </div>
+          </div>
+
+          <div id="tsRuleOverrideNote" style="display: none; margin-top: 12px; padding: 8px 12px; background: rgba(210, 153, 34, 0.1); border: 1px solid rgba(210, 153, 34, 0.3); border-radius: 6px; font-size: 12px; color: var(--warning);"></div>
+        </div>
+
         <!-- 思考过程卡片（若有） -->
         <div class="card thinking-card" id="thinkingSection" style="display: none;">
           <div class="card-title">
@@ -542,6 +695,7 @@
       btnText.innerText = "请求处理中…";
 
       document.getElementById("replyText").innerText = "正在等待后端与模型响应…";
+      document.getElementById("typesafeSection").style.display = "none";
       document.getElementById("thinkingSection").style.display = "none";
       document.getElementById("actionBar").style.display = "none";
       document.getElementById("metricsBar").style.display = "none";
@@ -602,8 +756,19 @@
         currentReplyText = data.reply || "";
         document.getElementById("replyText").innerText = currentReplyText;
 
+        const debug = data.debug_info || {};
+
+        // TypeSafe 意图与分类裁决展示
+        const tsData = debug.typesafe;
+        if (tsData && (tsData.intent || tsData.delivery)) {
+          renderTypesafeCard(tsData);
+          document.getElementById("typesafeSection").style.display = "block";
+        } else {
+          document.getElementById("typesafeSection").style.display = "none";
+        }
+
         // 思考过程展示
-        const reasoning = data.reasoning || (data.debug_info && data.debug_info.reasoning) || "";
+        const reasoning = data.reasoning || (debug && debug.reasoning) || "";
         if (reasoning) {
           document.getElementById("thinkingText").innerText = reasoning;
           document.getElementById("thinkingSection").style.display = "block";
@@ -776,6 +941,122 @@
       navigator.clipboard.writeText(text).then(() => {
         alert("已复制到剪贴板！");
       });
+    }
+
+    function renderTypesafeCard(ts) {
+      if (!ts) return;
+      document.getElementById("tsModelBadge").innerText = ts.model || "clef-flash";
+      document.getElementById("tsElapsedBadge").innerText = ts.elapsed_s ? `${ts.elapsed_s}s` : "-";
+
+      // 意图 (Intent)
+      const intentObj = ts.intent || {};
+      const intentChoice = intentObj.choice || "-";
+      const intentWinnerBadge = document.getElementById("tsIntentWinner");
+
+      const intentMap = {
+        record: { label: "📝 记录备忘 (record)", cls: "action-speak" },
+        query: { label: "🔍 个人备忘查询 (query)", cls: "backend-tag" },
+        chat: { label: "💬 常识问答/闲聊 (chat)", cls: "action-tag" },
+        agent: { label: "🤖 全网搜索/复杂任务 (agent)", cls: "action-paste" }
+      };
+
+      const winnerInfo = intentMap[intentChoice] || { label: intentChoice, cls: "action-tag" };
+      intentWinnerBadge.innerText = winnerInfo.label;
+      intentWinnerBadge.className = `action-tag ${winnerInfo.cls}`;
+
+      const intentConf = document.getElementById("tsIntentConfidence");
+      if (intentObj.confidence !== undefined && intentObj.confidence !== null) {
+        intentConf.innerText = `${(intentObj.confidence * 100).toFixed(1)}%`;
+      } else {
+        intentConf.innerText = "-";
+      }
+
+      // 渲染 Intent 候选选项及概率进度条
+      const intentBars = document.getElementById("tsIntentBars");
+      intentBars.innerHTML = "";
+      const intentProbs = intentObj.probabilities || {};
+      const defaultIntents = ["record", "query", "chat", "agent"];
+      const allIntents = Array.from(new Set([...defaultIntents, ...Object.keys(intentProbs)]));
+
+      allIntents.forEach(key => {
+        const prob = intentProbs[key];
+        if (prob === undefined && Object.keys(intentProbs).length > 0) return;
+        const pctVal = typeof prob === "number" ? (prob * 100).toFixed(1) : (key === intentChoice ? "100.0" : "0.0");
+        const isWinner = key === intentChoice;
+        const optInfo = intentMap[key] || { label: key };
+
+        const row = document.createElement("div");
+        row.className = "typesafe-bar-row";
+        row.innerHTML = `
+          <div class="typesafe-bar-label">
+            <span class="opt-name ${isWinner ? 'winner' : ''}">${isWinner ? '👉 ' : ''}${optInfo.label}</span>
+            <span class="opt-pct" style="color: ${isWinner ? 'var(--primary)' : 'var(--text-muted)'};">${pctVal}%</span>
+          </div>
+          <div class="typesafe-bar-track">
+            <div class="typesafe-bar-fill ${isWinner ? 'winner' : ''}" style="width: ${pctVal}%;"></div>
+          </div>
+        `;
+        intentBars.appendChild(row);
+      });
+
+      // 交付方式 (Delivery)
+      const deliveryObj = ts.delivery || {};
+      const deliveryChoice = deliveryObj.choice || "-";
+      const deliveryWinnerBadge = document.getElementById("tsDeliveryWinner");
+
+      const deliveryMap = {
+        speak: { label: "🔊 语音播报回答 (speak)", cls: "action-speak" },
+        paste: { label: "📋 光标回贴/生成 (paste)", cls: "action-paste" }
+      };
+
+      const dWinnerInfo = deliveryMap[deliveryChoice] || { label: deliveryChoice, cls: "action-tag" };
+      deliveryWinnerBadge.innerText = dWinnerInfo.label;
+      deliveryWinnerBadge.className = `action-tag ${dWinnerInfo.cls}`;
+
+      const deliveryConf = document.getElementById("tsDeliveryConfidence");
+      if (deliveryObj.confidence !== undefined && deliveryObj.confidence !== null) {
+        deliveryConf.innerText = `${(deliveryObj.confidence * 100).toFixed(1)}%`;
+      } else {
+        deliveryConf.innerText = "-";
+      }
+
+      // 渲染 Delivery 候选选项及概率进度条
+      const deliveryBars = document.getElementById("tsDeliveryBars");
+      deliveryBars.innerHTML = "";
+      const deliveryProbs = deliveryObj.probabilities || {};
+      const defaultDeliveries = ["speak", "paste"];
+      const allDeliveries = Array.from(new Set([...defaultDeliveries, ...Object.keys(deliveryProbs)]));
+
+      allDeliveries.forEach(key => {
+        const prob = deliveryProbs[key];
+        if (prob === undefined && Object.keys(deliveryProbs).length > 0) return;
+        const pctVal = typeof prob === "number" ? (prob * 100).toFixed(1) : (key === deliveryChoice ? "100.0" : "0.0");
+        const isWinner = key === deliveryChoice;
+        const optInfo = deliveryMap[key] || { label: key };
+        const fillClass = isWinner ? (key === "paste" ? "winner-paste" : "winner-speak") : "";
+
+        const row = document.createElement("div");
+        row.className = "typesafe-bar-row";
+        row.innerHTML = `
+          <div class="typesafe-bar-label">
+            <span class="opt-name ${isWinner ? 'winner' : ''}">${isWinner ? '👉 ' : ''}${optInfo.label}</span>
+            <span class="opt-pct" style="color: ${isWinner ? (key === 'paste' ? 'var(--warning)' : 'var(--success)') : 'var(--text-muted)'};">${pctVal}%</span>
+          </div>
+          <div class="typesafe-bar-track">
+            <div class="typesafe-bar-fill ${fillClass}" style="width: ${pctVal}%;"></div>
+          </div>
+        `;
+        deliveryBars.appendChild(row);
+      });
+
+      // 规则重载提示
+      const ruleNote = document.getElementById("tsRuleOverrideNote");
+      if (ts.rule_override) {
+        ruleNote.innerText = `💡 决策调整说明：${ts.rule_override}（模型原始意图：${intentChoice} -> 最终执行意图：${ts.final_intent || 'agent'}）`;
+        ruleNote.style.display = "block";
+      } else {
+        ruleNote.style.display = "none";
+      }
     }
   </script>
 </body>

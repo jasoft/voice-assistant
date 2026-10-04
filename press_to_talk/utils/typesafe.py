@@ -116,6 +116,8 @@ def _choice_answer(answers: Any, question: str, valid: tuple[str, ...]) -> str |
 def ask_intent_and_delivery(
     query: str,
     selected_text: str | None = None,
+    *,
+    return_details: bool = False,
 ) -> dict[str, Any] | None:
     """一次 Clef / TypeSafe 调用并行判断两个独立问题：
 
@@ -126,6 +128,7 @@ def ask_intent_and_delivery(
     有选中文本时 state 用命名字段（instruction + selected_text），让模型能同时
     参考指令与选中内容。Returns ``{"intent": ..., "delivery": ...}`` or ``None``
     when disabled / failed / intent 无法二分 (caller falls back to Harness).
+    当 ``return_details=True`` 时，返回字典中额外包含 ``details``（模型名、逐项概率、置信度等）。
     """
     if not is_configured():
         return None
@@ -184,7 +187,28 @@ def ask_intent_and_delivery(
         return None
     delivery = _choice_answer(answers, "delivery", ("paste", "speak"))
     log(f"typesafe: intent={intent} delivery={delivery}", level="info")
-    return {"intent": intent, "delivery": delivery}
+
+    if not return_details:
+        return {"intent": intent, "delivery": delivery}
+
+    intent_obj = answers.get("intent") if isinstance(answers, dict) else {}
+    delivery_obj = answers.get("delivery") if isinstance(answers, dict) else {}
+
+    details = {
+        "model": model,
+        "intent": {
+            "choice": intent,
+            "confidence": intent_obj.get("confidence") if isinstance(intent_obj, dict) else None,
+            "probabilities": intent_obj.get("probabilities") if isinstance(intent_obj, dict) else {},
+        },
+        "delivery": {
+            "choice": delivery,
+            "confidence": delivery_obj.get("confidence") if isinstance(delivery_obj, dict) else None,
+            "probabilities": delivery_obj.get("probabilities") if isinstance(delivery_obj, dict) else {},
+        },
+        "raw_answers": answers,
+    }
+    return {"intent": intent, "delivery": delivery, "details": details}
 
 
 def ask_is_record(query: str) -> str | None:

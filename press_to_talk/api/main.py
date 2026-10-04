@@ -36,7 +36,7 @@ from ..reminders import (
 )
 from ..storage.models import SessionHistoryRecord
 from ..storage.providers.mem0 import Mem0RememberStore
-from .fast_chat import try_fast_memory_chat
+from .fast_chat import last_typesafe_debug, try_fast_memory_chat
 from .reply_stream import ReplyStream, current_stream, has_partial_reply, watch_prompt
 from ..audio.stt import run_stt
 from ..utils.text import current_time_with_weekday_text
@@ -768,6 +768,14 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
                 parts = harness_resp.query.split("\n", 1)
                 clean_q = parts[1].lstrip() if len(parts) > 1 else req.query
                 harness_resp = harness_resp.model_copy(update={"query": clean_q})
+
+            ts_debug = last_typesafe_debug.get()
+            if ts_debug:
+                resp_debug = dict(harness_resp.debug_info or {})
+                resp_debug["typesafe"] = ts_debug
+                if "typesafe_s" not in resp_debug and "elapsed_s" in ts_debug:
+                    resp_debug["typesafe_s"] = ts_debug["elapsed_s"]
+                harness_resp = harness_resp.model_copy(update={"debug_info": resp_debug})
             return harness_resp
         finally:
             await client.close()

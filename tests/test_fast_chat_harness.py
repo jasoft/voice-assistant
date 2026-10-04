@@ -357,3 +357,50 @@ async def test_harness_answer_and_compose_inject_current_time(monkeypatch):
         comp = await fast_chat._compose_with_harness("写一封邮件", "")
         assert comp == "ok"
         assert "2026-10-03 23:00:00 星期六" in captured_prompts[0]
+
+
+@pytest.mark.anyio
+async def test_typesafe_debug_info_included_in_fast_chat_result():
+    """验证 fast_chat 返回的 debug_info 中包含完整的 typesafe 裁决详情与打分。"""
+    fake = _FakeMemos([])
+    ts_decision = {
+        "intent": "chat",
+        "delivery": "speak",
+        "details": {
+            "model": "clef-flash",
+            "intent": {
+                "choice": "chat",
+                "confidence": 0.95,
+                "probabilities": {"record": 0.01, "query": 0.02, "chat": 0.95, "agent": 0.02},
+            },
+            "delivery": {
+                "choice": "speak",
+                "confidence": 0.98,
+                "probabilities": {"paste": 0.02, "speak": 0.98},
+            },
+        },
+    }
+
+    async def fake_answer(query: str, memos: list[dict], selection: str = "") -> str:
+        return "今天星期一。"
+
+    with (
+        patch.object(fast_chat, "ask_intent_and_delivery", return_value=ts_decision),
+        patch.object(fast_chat, "_build_memos_client", return_value=fake),
+        patch.object(fast_chat, "_answer_with_direct_llm", return_value="今天星期一。"),
+    ):
+        result = await fast_chat.try_fast_memory_chat("今天星期几？")
+
+    assert result is not None
+    assert "debug_info" in result
+    debug = result["debug_info"]
+    assert "typesafe" in debug
+    ts = debug["typesafe"]
+    assert ts["model"] == "clef-flash"
+    assert ts["intent"]["choice"] == "chat"
+    assert ts["intent"]["confidence"] == 0.95
+    assert ts["intent"]["probabilities"]["chat"] == 0.95
+    assert ts["delivery"]["choice"] == "speak"
+    assert ts["delivery"]["confidence"] == 0.98
+    assert ts["delivery"]["probabilities"]["speak"] == 0.98
+

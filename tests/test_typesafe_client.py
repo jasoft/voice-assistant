@@ -253,3 +253,53 @@ def test_cloudflare_clef_flash_request_and_response_parsing():
     assert body.get("model") == "clef-flash"
     assert body.get("state") == {"instruction": "帮我记一下明天下午开会", "selected_text": "会议纪要草稿"}
 
+
+def test_cloudflare_clef_flash_return_details():
+    """当 return_details=True 时，返回结果包含 details 字典，含模型名、概率分布和置信度。"""
+    os.environ.pop("TYPESAFE_API_KEY", None)
+    os.environ["CLOUDFLARE_AUTH_TOKEN"] = "test-token"
+    os.environ["CLOUDFLARE_ACCOUNT_ID"] = "test-acc-123"
+
+    cf_envelope = {
+        "result": {
+            "model": "clef-flash",
+            "answers": {
+                "intent": {
+                    "type": "choice",
+                    "choice": "record",
+                    "confidence": 0.98,
+                    "probabilities": {"record": 0.98, "chat": 0.02},
+                },
+                "delivery": {
+                    "type": "choice",
+                    "choice": "paste",
+                    "confidence": 0.95,
+                    "probabilities": {"paste": 0.95, "speak": 0.05},
+                },
+            },
+            "usage": {"input_tokens": 100, "output_tokens": 0},
+        },
+        "success": True,
+        "errors": [],
+        "messages": [],
+    }
+
+    with patch("httpx.Client") as mock_client_cls:
+        _client_post_mock(mock_client_cls, payload=cf_envelope)
+        result = typesafe.ask_intent_and_delivery(
+            "帮我记一下明天下午开会", "会议纪要草稿", return_details=True
+        )
+
+    assert result["intent"] == "record"
+    assert result["delivery"] == "paste"
+    assert "details" in result
+    details = result["details"]
+    assert details["model"] == "clef-flash"
+    assert details["intent"]["choice"] == "record"
+    assert details["intent"]["confidence"] == 0.98
+    assert details["intent"]["probabilities"] == {"record": 0.98, "chat": 0.02}
+    assert details["delivery"]["choice"] == "paste"
+    assert details["delivery"]["confidence"] == 0.95
+    assert details["delivery"]["probabilities"] == {"paste": 0.95, "speak": 0.05}
+
+
