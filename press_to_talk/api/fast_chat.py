@@ -502,9 +502,10 @@ async def try_fast_memory_chat(
         except TypeError:
             reply = await _answer_with_harness(query, memos_items)
         elapsed_ans = time.monotonic() - t_ans
-        reply = str(reply or "").strip()
-        if not reply:
-            reply = "大王，这个问题我暂时没有好的答案。"
+        reasoning = getattr(reply, "reasoning", None) or None
+        reply_str = str(reply or "").strip()
+        if not reply_str:
+            reply_str = "大王，这个问题我暂时没有好的答案。"
     except Exception as exc:
         import traceback
         tb = traceback.format_exc()
@@ -530,9 +531,8 @@ async def try_fast_memory_chat(
         }
         for m in memos_items
     ]
-    reasoning = getattr(reply, "reasoning", None) or None
     return {
-        "reply": str(reply),
+        "reply": reply_str,
         "action": "speak",
         "reasoning": reasoning,
         "memories": memories_out,

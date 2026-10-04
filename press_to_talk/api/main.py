@@ -710,6 +710,7 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
             return QueryResponse(
                 reply=str(fast_result.get("reply", "")),
                 action=str(fast_result.get("action") or "speak"),
+                reasoning=fast_result.get("reasoning"),
                 memories=memories_out,
                 images=[],
                 query=fast_result.get("query") or req.query,
