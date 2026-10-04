@@ -26,6 +26,7 @@ import time
 from typing import Any
 
 from ..harness import DeepSeekHarnessClient
+from .reply_stream import complete_reply, has_partial_reply, watch_prompt
 from ..storage.providers.memos import (
     MemosClient,
     _strip_tags_and_voice_prefix,
@@ -154,7 +155,7 @@ async def _answer_with_harness(query: str, memos: list[dict[str, Any]], selectio
 
     client = _chat_harness_client()
     try:
-        result = await client.query(prompt)
+        result = await client.query(prompt + ("\n\n" + watch_prompt() if watch_prompt() else ""))
         reply = str(result.get("reply", "")).strip()
         reasoning = str(result.get("reasoning", "") or "").strip()
         from ..harness.client import HarnessReply
@@ -186,7 +187,7 @@ async def _compose_with_harness(query: str, selection: str) -> str | None:
 
     client = _chat_harness_client()
     try:
-        result = await client.query(prompt)
+        result = await client.query(prompt + ("\n\n" + watch_prompt() if watch_prompt() else ""))
         reply = str(result.get("reply", "")).strip()
         reasoning = str(result.get("reasoning", "") or "").strip()
         log(f"fast-chat: harness 产出粘贴内容 {len(reply)} 字", level="info")
@@ -244,25 +245,17 @@ async def _answer_with_direct_llm(
             {"role": "system", "content": "你是个人语音助手。直接对用户说话，涉及用户时称“你”或“您”，不提UTC，回答自然简短。"},
             {"role": "user", "content": prompt},
         ]
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=4096,
-        )
-        if not resp.choices:
-            return None
-        msg = resp.choices[0].message
-        reply = str(msg.content or "").strip()
-        reasoning = (
-            getattr(msg, "reasoning_content", None)
-            or (getattr(msg, "model_extra", {}) or {}).get("reasoning_content")
-            or ""
-        )
+        try:
+            reply = await complete_reply(client, model=model, messages=messages)
+        finally:
+            await client.close()
         if reply:
-            log(f"fast-chat: direct llm({model}) answered {len(reply)} chars in fast-path", level="info")
-            return HarnessReply(reply, str(reasoning or "").strip())
+            log(f"fast-chat: direct llm({model}) answered {len(reply)} chars", level="info")
+            return reply
         return None
     except Exception as exc:
+        if has_partial_reply():
+            raise
         log(f"fast-chat: direct llm failed ({exc}), falling back to harness", level="info")
         return None
 
@@ -300,25 +293,17 @@ async def _compose_with_direct_llm(query: str, selection: str) -> Any | None:
             {"role": "system", "content": "你是文本产出器。只输出最终内容，不要任何解释。"},
             {"role": "user", "content": prompt},
         ]
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=4096,
-        )
-        if not resp.choices:
-            return None
-        msg = resp.choices[0].message
-        reply = str(msg.content or "").strip()
-        reasoning = (
-            getattr(msg, "reasoning_content", None)
-            or (getattr(msg, "model_extra", {}) or {}).get("reasoning_content")
-            or ""
-        )
+        try:
+            reply = await complete_reply(client, model=model, messages=messages)
+        finally:
+            await client.close()
         if reply:
-            log(f"fast-chat: direct llm({model}) composed {len(reply)} chars in fast-path", level="info")
-            return HarnessReply(reply, str(reasoning or "").strip())
+            log(f"fast-chat: direct llm({model}) composed {len(reply)} chars", level="info")
+            return reply
         return None
     except Exception as exc:
+        if has_partial_reply():
+            raise
         log(f"fast-chat: direct llm compose failed ({exc}), falling back to harness", level="info")
         return None
 
@@ -467,7 +452,7 @@ async def try_fast_memory_chat(
 
     # -- Step 1: TypeSafe 一次调用，二分"记录 / 其他（询问）"+ 期望产出方式 --
     t_ts = time.monotonic()
-    decision = ask_intent_and_delivery(query, selection or None)
+    decision = await asyncio.to_thread(ask_intent_and_delivery, query, selection or None)
     elapsed_ts = time.monotonic() - t_ts
     if decision is None:
         log(f"fast-chat: TypeSafe 未启用或调用失败，交由 Harness Agent 回退", level="info")
@@ -580,6 +565,8 @@ async def try_fast_memory_chat(
                 },
             }
         except Exception as exc:
+            if has_partial_reply():
+                raise
             import traceback
             tb = traceback.format_exc()
             log(
@@ -609,7 +596,7 @@ async def try_fast_memory_chat(
                 )
                 return None
         elapsed_ans = time.monotonic() - t_ans
-        reply_str = str(reply or "").strip()
+        reply_str = str(reply or "") if has_partial_reply() else str(reply or "").strip()
         if not reply_str:
             reply_str = "大王，这个问题我暂时没有好的答案。"
         elapsed_total = time.monotonic() - t0
@@ -665,10 +652,12 @@ async def try_fast_memory_chat(
                 reply = await _answer_with_harness(query, memos_items)
         elapsed_ans = time.monotonic() - t_ans
         reasoning = getattr(reply, "reasoning", None) or None
-        reply_str = str(reply or "").strip()
+        reply_str = str(reply or "") if has_partial_reply() else str(reply or "").strip()
         if not reply_str:
             reply_str = "大王，这个问题我暂时没有好的答案。"
     except Exception as exc:
+        if has_partial_reply():
+            raise
         import traceback
         tb = traceback.format_exc()
         log(

@@ -8,6 +8,11 @@ struct ChatResponse: Decodable {
     let reply: String
 }
 
+enum ChatStreamEvent {
+    case delta(String)
+    case done(String)
+}
+
 enum APIError: LocalizedError {
     case invalidURL
     case http(status: Int, message: String)
@@ -26,6 +31,64 @@ enum APIError: LocalizedError {
 }
 
 final class APIClient {
+    /// Actual SSE deltas. An EOF without done is an interrupted reply, never success.
+    func streamChat(query: String, serverBase: String, apiKey: String) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let base = serverBase.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+                    guard let url = URL(string: "\(base)/v1/chat") else { throw APIError.invalidURL }
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.timeoutInterval = 60
+                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "stream": true, "response_style": "watch"])
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    guard let http = response as? HTTPURLResponse else { throw APIError.transport("响应异常") }
+                    guard (200..<300).contains(http.statusCode) else {
+                        var body = Data()
+                        for try await byte in bytes { body.append(byte); if body.count >= 4096 { break } }
+                        throw APIError.http(status: http.statusCode, message: Self.serverMessage(from: body))
+                    }
+                    if http.value(forHTTPHeaderField: "Content-Type")?.contains("application/json") == true {
+                        // Older servers ignore stream=true. Consume this same response;
+                        // never send a second request that might duplicate a memo write.
+                        var body = Data()
+                        for try await byte in bytes { try Task.checkCancellation(); body.append(byte) }
+                        let reply = try JSONDecoder().decode(ChatResponse.self, from: body).reply
+                        guard !reply.isEmpty else { throw APIError.transport("回答为空") }
+                        continuation.yield(.delta(reply))
+                        continuation.yield(.done(reply))
+                        continuation.finish()
+                        return
+                    }
+                    guard http.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true else {
+                        throw APIError.transport("服务器响应格式不支持")
+                    }
+                    var event = ""
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        if line.hasPrefix("event:") { event = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces) }
+                        guard line.hasPrefix("data:"), let data = String(line.dropFirst(5)).data(using: .utf8),
+                              let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                        switch event {
+                        case "delta": continuation.yield(.delta(payload["text"] as? String ?? ""))
+                        case "done":
+                            continuation.yield(.done(payload["reply"] as? String ?? ""))
+                            continuation.finish()
+                            return
+                        case "error": throw APIError.transport(payload["message"] as? String ?? "回答中断")
+                        default: break
+                        }
+                    }
+                    throw APIError.transport("回答连接中断，请重新提问")
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
     /// 上传录音，仅转写为文本（不触发问答）。
     func transcribe(fileURL: URL, serverBase: String, apiKey: String) async throws -> String {
         let data = try await upload(
