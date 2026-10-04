@@ -85,56 +85,71 @@ struct VoiceView: View {
     @State private var isPlayingAudio = false
     @State private var ttsError: String?
     @State private var meterLevel: Double = 0
+    @State private var wasActive = false
+    @State private var isStartingRecording = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .bottomTrailing) {
+        ZStack(alignment: .bottom) {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 4)
+
+            HStack(alignment: .bottom) {
+                thinkingIndicator
+                Spacer()
                 cornerButtons
             }
-            .overlay(alignment: .bottomLeading) {
-                thinkingIndicator
-            }
-            .padding(.horizontal, 4)
-            .sheet(isPresented: $showingSettings) {
-                SettingsView()
-            }
-            .gesture(
-                DragGesture(minimumDistance: 25).onEnded { value in
-                    if value.translation.width < -25,
-                       abs(value.translation.width) > abs(value.translation.height) {
-                        showingSettings = true
-                    }
-                }
-            )
-            .onReceive(Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()) { _ in
-                guard state == .recording else { return }
-                let power = recorder.currentPower()
-                meterLevel = Double(max(0, min(1, (power + 50) / 50)))
-            }
-            .onChange(of: scenePhase) { phase in
-                if phase != .active {
-                    stopAudio()
-                    if state == .recording {
-                        _ = recorder.stop()
-                        state = .idle
-                    }
+            .padding(.horizontal, 6)
+            .padding(.bottom, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(edges: .bottom)
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+        }
+        .gesture(
+            DragGesture(minimumDistance: 25).onEnded { value in
+                if value.translation.width < -25,
+                   abs(value.translation.width) > abs(value.translation.height) {
+                    showingSettings = true
                 }
             }
+        )
+        .onReceive(Timer.publish(every: 0.08, on: .main, in: .common).autoconnect()) { _ in
+            guard state == .recording else { return }
+            let power = recorder.currentPower()
+            meterLevel = Double(max(0, min(1, (power + 50) / 50)))
+        }
+        .onAppear {
+            if scenePhase == .active && !wasActive {
+                wasActive = true
+                if !showingSettings {
+                    startFreshRecording()
+                }
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            handleScenePhaseChange(to: phase)
+        }
+        .onChange(of: showingSettings) { isShowing in
+            if !isShowing && scenePhase == .active {
+                startFreshRecording()
+            }
+        }
     }
 
     /// 思考中的状态提示，悬浮在左下角（与右下角取消钮对称）。
     @ViewBuilder private var thinkingIndicator: some View {
         if case .thinking = state {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 ProgressView()
                 Text("正在思考…")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
-            .padding(.leading, 6)
-            .padding(.bottom, 26)
+            .padding(.leading, 2)
+            .padding(.bottom, 6)
         }
     }
 
@@ -193,7 +208,7 @@ struct VoiceView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 64)
+                .padding(.bottom, 54)
             }
         case .failed(let message):
             ScrollView {
@@ -201,7 +216,7 @@ struct VoiceView: View {
                     .font(.system(size: 14))
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 64)
+                    .padding(.bottom, 54)
             }
         }
     }
@@ -213,10 +228,8 @@ struct VoiceView: View {
             cornerButton(icon: "xmark", isLoading: false) {
                 cancelThinking()
             }
-            .padding(.trailing, 8)
-            .padding(.bottom, 6)
         case .reply(_, let text):
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 cornerButton(icon: playIcon, isLoading: isLoadingAudio) {
                     togglePlayback(for: text)
                 }
@@ -225,14 +238,10 @@ struct VoiceView: View {
                     Task { await startRecording() }
                 }
             }
-            .padding(.trailing, 8)
-            .padding(.bottom, 6)
         case .failed:
             cornerButton(icon: "mic.fill", isLoading: false) {
                 Task { await startRecording() }
             }
-            .padding(.trailing, 8)
-            .padding(.bottom, 6)
         default:
             EmptyView()
         }
@@ -256,7 +265,7 @@ struct VoiceView: View {
                         .foregroundStyle(.white)
                 }
             }
-            .frame(width: 46, height: 46)
+            .frame(width: 44, height: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -293,7 +302,43 @@ struct VoiceView: View {
         }
     }
 
+    private func handleScenePhaseChange(to newPhase: ScenePhase) {
+        if newPhase == .active {
+            if !wasActive {
+                wasActive = true
+                if !showingSettings {
+                    startFreshRecording()
+                }
+            }
+        } else {
+            wasActive = false
+            resetToIdle()
+        }
+    }
+
+    private func resetToIdle() {
+        stopAudio(playHaptic: false)
+        chatTask?.cancel()
+        chatTask = nil
+        ttsError = nil
+        if state == .recording {
+            _ = recorder.stop()
+        }
+        state = .idle
+    }
+
+    private func startFreshRecording() {
+        resetToIdle()
+        Task {
+            await startRecording()
+        }
+    }
+
     private func startRecording() async {
+        guard !isStartingRecording else { return }
+        isStartingRecording = true
+        defer { isStartingRecording = false }
+
         guard await recorder.requestPermission() else {
             state = .failed("没有麦克风权限：请在 iPhone 的 Watch App → 隐私 → 麦克风中允许。")
             return
@@ -331,7 +376,7 @@ struct VoiceView: View {
                 )
                 guard !Task.isCancelled else { return }
                 ttsError = nil
-                stopAudio()
+                stopAudio(playHaptic: false)
                 state = .reply(transcript: transcript, text: reply)
                 WKInterfaceDevice.current().play(.success)
                 if AppPrefs.autoPlay {
@@ -404,13 +449,15 @@ struct VoiceView: View {
         }
     }
 
-    private func stopAudio() {
+    private func stopAudio(playHaptic: Bool = true) {
         speechTask?.cancel()
         speechTask = nil
         streamPlayer.stop()
         isPlayingAudio = false
         isLoadingAudio = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        WKInterfaceDevice.current().play(.click)
+        if playHaptic {
+            WKInterfaceDevice.current().play(.click)
+        }
     }
 }
