@@ -965,22 +965,33 @@ async def _qwen_tts_stream(text: str) -> AsyncIterator[bytes]:
         os.environ.get("DASHSCOPE_BASE_URL", "").strip()
         or "https://llm-p6d84x694t9d455p.cn-beijing.maas.aliyuncs.com/api/v1"
     ).rstrip("/")
-    url = f"{base_url}/services/aigc/multimodal-generation/generation"
 
-    raw_model = os.environ.get("PTT_TTS_MODEL", "qwen3-tts-flash").strip()
-    # 语音输入口误/兼容：将 qwen-audio-3.1-tts-flash 等映射为 qwen3-tts-flash
-    model = "qwen3-tts-flash" if "qwen-audio-3.1-tts-flash" in raw_model else raw_model
-    voice = os.environ.get("PTT_TTS_VOICE", "Cherry").strip()
+    model = os.environ.get("PTT_TTS_MODEL", "qwen-audio-3.1-tts-flash").strip()
+    voice = os.environ.get("PTT_TTS_VOICE", "yuxiaoyun_v3.1").strip()
+
+    if model.startswith("qwen-audio") or model.startswith("cosyvoice"):
+        url = f"{base_url}/services/audio/tts/SpeechSynthesizer"
+        payload = {
+            "model": model,
+            "input": {
+                "text": text[:_TTS_MAX_CHARS],
+                "voice": voice,
+                "format": "pcm",
+                "sample_rate": 24000,
+            },
+        }
+    else:
+        url = f"{base_url}/services/aigc/multimodal-generation/generation"
+        payload = {
+            "model": model,
+            "input": {"text": text[:_TTS_MAX_CHARS]},
+            "parameters": {"voice": voice},
+        }
 
     headers = {
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
         "X-DashScope-SSE": "enable",
-    }
-    payload = {
-        "model": model,
-        "input": {"text": text[:_TTS_MAX_CHARS]},
-        "parameters": {"voice": voice},
     }
     import httpx
 

@@ -183,7 +183,10 @@ def test_qwen_stream_parses_sse(monkeypatch):
         def stream(self, method, url, headers=None, json=None):
             import contextlib
 
-            assert json["model"] == "qwen3-tts-flash"
+            assert json["model"] == "qwen-audio-3.1-tts-flash"
+            assert "SpeechSynthesizer" in url
+            assert json["input"]["voice"] == "yuxiaoyun_v3.1"
+            assert json["input"]["format"] == "pcm"
 
             @contextlib.asynccontextmanager
             async def cm():
@@ -195,8 +198,8 @@ def test_qwen_stream_parses_sse(monkeypatch):
 
     monkeypatch.setattr(_httpx, "AsyncClient", lambda timeout=None: FakeClient())
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
-    # 测试口误容错映射
     monkeypatch.setenv("PTT_TTS_MODEL", "qwen-audio-3.1-tts-flash")
+    monkeypatch.setenv("PTT_TTS_VOICE", "yuxiaoyun_v3.1")
 
     async def run() -> list[bytes]:
         chunks = []
