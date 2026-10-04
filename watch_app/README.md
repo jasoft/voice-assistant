@@ -6,14 +6,39 @@
 
 watchOS 的公开生命周期没有单独的“点击图标”事件：使用 background → active 区分重新进入 App 与 inactive → active 的抬腕亮屏。系统因“返回时钟”超时将 App 转入后台后，下一次恢复前台也会自动录音。
 
-## 架构
+## 界面与流式回答
 
-- `WatchApp/`（SwiftUI，独立 watchOS App，最低 watchOS 10）：
-  - 录音 `Recorder.swift`：16kHz/单声道/16bit PCM WAV（与服务端 ASR 格式一致）。
-  - 上传 `APIClient.swift`：`POST {server}/v1/ask-audio`（multipart，Bearer `PTT_API_KEY`）。
-  - 界面 `VoiceView.swift`：大按钮四态（待机/录音/思考/结果）；回复用系统 `AVSpeechSynthesizer` 朗读（zh-CN）。
-  - 设置 `SettingsView.swift`：服务器地址与 API Key（默认值来自 `.env`，见下）。
-- 服务端：`press_to_talk/api/main.py` 新增 `POST /v1/ask-audio`，STT 转写后复用 `/v1/chat` 链路。
+- 打开即录音；固定的大按钮点按结束并发送，显示时长与内部音量反馈。
+- 识别和思考阶段可取消或重说。回答优先显示，原话可展开；正文支持段落、行内 Markdown、大字体与滚动，底部播放/再说按钮不遮正文。
+- 连接设置从顶部齿轮进入，日常播报开关在前，服务器和密钥在展开的连接设置中。
+- 新安装默认自动播报，尊重已有关闭设置。首段文字到达即准备语音；按句分段，首段无标点时最多缓存 400ms，再请求 `/v1/tts`；边收 24kHz/16bit/单声道 PCM 边播。剩余已到达的短句合并合成，避免每句话都等待一次网络往返。
+- 停止只停止播报；再说会取消当前生成、停止音频并开始新录音。流中断保留部分文字并提示，禁止失败后重跑另一个模型造成重复或改口。识别失败保留临时录音供显式重试；开始新录音时清理。
+- 旧服务器返回 JSON 时读取同一次响应兼容展示与播报，不重新发请求；旧服务器无法提供提前输出的体验。
+
+## API 契约
+
+Watch 先上传 WAV 到 `/v1/transcribe`，再发 `POST /v1/chat`：
+
+```json
+{"query":"语音识别文字", "stream":true, "response_style":"watch"}
+```
+
+`stream` 默认 `false`，原客户端仍收到完整 JSON。`true` 返回 `text/event-stream`，含注释心跳及以下事件；JSON 字段中的换行被转义，每个事件的数据为一行 JSON：
+
+```text
+event: delta
+data: {"text":"新增的文字"}
+
+event: done
+data: {"reply":"完整回答", "action":"speak", "memories":[], "images":[], "query":"原问句", "debug_info":{}}
+
+event: error
+data: {"message":"回答中断，请重新提问"}
+```
+
+只有收到 `done` 才算成功。鉴权/参数错误在开始流之前返回普通 HTTP 错误；生成中的错误用 `error` 结束。连接关闭会取消生成任务并关闭上游流。取消无法撤销已提交的备忘写入，客户端不自动重试聊天请求。
+
+普通回答、记忆查询和文本生成透传模型的真实 content 增量，不播报 reasoning。Memos 写入确认、仅提供最终结果的 Harness 工具路径在完成后发一个完整 `delta`，不模拟逐字输出。`response_style=watch` 的输出要求来自外部 `workflow_config.json` 的 `prompts.watch_answer`。
 
 ## 构建与安装
 
@@ -21,6 +46,8 @@ watchOS 的公开生命周期没有单独的“点击图标”事件：使用 ba
 
 ```bash
 # 模拟器构建（验证编译）
+cd watch_app
+./gen-secrets.sh
 xcodegen generate
 xcodebuild -project VoiceAssistantWatch.xcodeproj -scheme WatchApp \
   -destination 'generic/platform=watchOS Simulator' build
@@ -40,3 +67,23 @@ MacBook Air 开发机，勿用作默认值），可用 `WATCH_SERVER_URL` 覆盖
 ```bash
 uv run pytest tests/test_api_ask_audio.py -q
 ```
+
+## 本机模拟器验证
+
+```bash
+# 在仓库根运行真实 API 的确定性测试夹具：外部模型由延迟 SSE 替代，PCM 为测试音。
+uv run python watch_app/Tests/simulator_server.py
+
+# 另一个终端，构建/安装/启动到已启动的 Watch 模拟器。
+VA_TEST_SERVER=http://localhost:10039 VA_TEST_KEY=watch-simulator-test \
+  ./watch_app/run-simulator.sh --test-query '长回答测试'
+
+uv run pytest tests/test_api_chat_stream.py tests/test_fast_chat_harness.py \
+  tests/test_api_ask_audio.py tests/test_api_transcribe.py tests/test_api_tts.py -q
+swiftc watch_app/WatchApp/Sources/SpeechTextBuffer.swift watch_app/Tests/SpeechTextBufferTests.swift -o /tmp/watch-speech-tests
+/tmp/watch-speech-tests
+```
+
+夹具还支持“中断测试”“等待测试”。事件时间写入 `/tmp/va-watch-simulator-events.jsonl`，Watch 日志的 `text_first_delta`、`tts_request`、`audio_first_pcm`、`text_done` 可验证提前合成和提前播放。夹具不写个人备忘/会话历史。
+
+模拟器测试参数仅 Debug 可用：`--test-query` 绕过麦克风，仍运行实际网络/显示/播报流程；`--test-idle` 检查待机页；`VA_TEST_LARGE_TEXT=1` 检查大字体。Release 不含这些覆盖。未传测试参数时按正式启动流程自动录音。实际触觉手感和抬腕行为仍需真机确认。

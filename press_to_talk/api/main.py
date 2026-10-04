@@ -37,6 +37,7 @@ from ..reminders import (
 from ..storage.models import SessionHistoryRecord
 from ..storage.providers.mem0 import Mem0RememberStore
 from .fast_chat import try_fast_memory_chat
+from .reply_stream import ReplyStream, current_stream, has_partial_reply, watch_prompt
 from ..audio.stt import run_stt
 from ..utils.text import current_time_with_weekday_text
 
@@ -420,6 +421,8 @@ class QueryRequest(BaseModel):
         None, 
         description="可选的图片附件。若提供，系统会将其持久化并与当前会话关联。空值将被安全忽略。"
     )
+    stream: bool = Field(False, description="/v1/chat 返回 SSE：delta、done、error；默认完整 JSON。")
+    response_style: str | None = Field(None, pattern="^watch$", description="watch：短段落、结论优先，适合手表显示和朗读。")
     selected_text: Optional[str] = Field(
         None,
         description=(
@@ -723,6 +726,8 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
                 debug_info=fast_result.get("debug_info"),
             )
     except Exception as exc:
+        if has_partial_reply():
+            raise
         log(f"fast-chat: fast path failed, falling back to Harness: {exc}", level="warn")
 
     # --- Slow path: Harness Agent fallback ---
@@ -741,6 +746,8 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
             selection = selection[:20000]
         slow_query = f"{slow_query}\n\n【用户当前选中的文本】\n{selection}"
 
+    if watch_prompt():
+        slow_query += "\n\n" + watch_prompt()
     slow_req = req.model_copy(update={"query": slow_query})
 
     try:
@@ -782,18 +789,67 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
         raise HTTPException(status_code=500, detail="聊天处理失败") from exc
 
 
+def _stream_chat(req: QueryRequest, user_id: str) -> StreamingResponse:
+    async def events():
+        queue: asyncio.Queue = asyncio.Queue(maxsize=32)
+        async def send(delta):
+            await queue.put(("delta", {"text": delta}))
+        async def produce():
+            context = ReplyStream(send, watch=req.response_style == "watch")
+            token = current_stream.set(context)
+            try:
+                result = await asyncio.wait_for(_handle_chat(req, user_id), timeout=_chat_timeout_seconds())
+                if not result.reply.strip():
+                    raise RuntimeError("回答为空，请重新提问")
+                if not context.text:
+                    # Tool execution and memo writes are atomic; only publish after success.
+                    await context.emit(result.reply)
+                elif context.text != result.reply:
+                    raise RuntimeError("流式回答与最终结果不一致")
+                await queue.put(("done", result.model_dump(mode="json")))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                message = exc.detail if isinstance(exc, HTTPException) else ("回答等待超时" if isinstance(exc, TimeoutError) else "回答中断，请重新提问")
+                log(f"chat stream failed: {type(exc).__name__}", level="warn")
+                await queue.put(("error", {"message": message}))
+            finally:
+                current_stream.reset(token)
+        task = asyncio.create_task(produce())
+        try:
+            yield ": connected\n\n"
+            while True:
+                try:
+                    event, payload = await asyncio.wait_for(queue.get(), timeout=10)
+                except TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                if event in {"done", "error"}:
+                    break
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    return StreamingResponse(events(), media_type="text/event-stream", headers={
+        "X-Accel-Buffering": "no", "Cache-Control": "no-cache, no-transform",
+    })
+
+
 @app.post(
     "/v1/chat",
     response_model=QueryResponse,
     summary="[极速] 一次性聊天与记忆问答",
+    responses={200: {"content": {"text/event-stream": {"schema": {"type": "string"}}}}},
     description=(
-        "单次请求自动分流：明确的记忆记录或记忆查询走 Mem0；"
-        "常规问题由专用 Harness Agent 回答，必要时单次 Brave 搜索。"
-        "每次调用使用独立会话，不携带上一轮上下文，最长等待 30 秒。"
+        "单次请求自动分流：明确的记忆记录或查询走 Memos，普通问题走模型或 Harness。"
+        "stream 默认 false 返回完整 JSON；true 返回 SSE delta/done/error。"
+        "模型增量实时透传，工具和写入确认在成功后输出。"
+        "response_style=watch 启用手表输出提示词（流式请求）。"
+        "每次调用使用独立会话，不携带上一轮上下文。"
     ),
 )
 async def chat(req: QueryRequest, user_id: str = Depends(get_user_id)):
-    return await _handle_chat(req, user_id)
+    return _stream_chat(req, user_id) if req.stream else await _handle_chat(req, user_id)
 
 
 @app.post(
@@ -802,7 +858,7 @@ async def chat(req: QueryRequest, user_id: str = Depends(get_user_id)):
     include_in_schema=False,
 )
 async def chat_alias(req: QueryRequest, user_id: str = Depends(get_user_id)):
-    return await _handle_chat(req, user_id)
+    return _stream_chat(req, user_id) if req.stream else await _handle_chat(req, user_id)
 
 
 _ASK_AUDIO_MIN_SECONDS = 0.4
