@@ -90,7 +90,7 @@ final class VoiceSession: ObservableObject {
                 try recorder.start()
                 recordingStarted = Date()
                 phase = .recording
-                WKInterfaceDevice.current().play(.click)
+                WKInterfaceDevice.current().play(.notification)
             } catch { fail("录音未能启动，请重新试试") }
         }
     }
@@ -134,7 +134,7 @@ final class VoiceSession: ObservableObject {
                         guard !text.isEmpty else { continue }
                         if reply.isEmpty {
                             logger.info("text_first_delta")
-                            WKInterfaceDevice.current().play(.click)
+                            WKInterfaceDevice.current().play(.notification)
                             if AppPrefs.autoPlay { autoSpeaking = true; speech.begin() }
                         }
                         reply += text
