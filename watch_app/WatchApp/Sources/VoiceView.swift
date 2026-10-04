@@ -3,6 +3,7 @@ import SwiftUI
 struct VoiceView: View {
     @StateObject private var session = VoiceSession()
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack {
@@ -42,16 +43,22 @@ struct VoiceView: View {
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     .accessibilityLabel("已录音 \(session.elapsed) 秒")
                 Button { session.sendRecording() } label: {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 34))
-                        .foregroundStyle(.white)
-                        .frame(width: 82, height: 82)
-                        .background(.red, in: Circle())
+                    ZStack {
+                        // Keep the touch target fixed while the red circle follows the mic.
+                        Circle().fill(.red)
+                            .frame(width: 72 + 24 * session.level, height: 72 + 24 * session.level)
+                            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: session.level)
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(width: 100, height: 100)
+                    .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(session.phase != .recording)
                 .accessibilityLabel("结束录音并发送")
-                Text("点按麦克风发送").font(.caption).foregroundStyle(.secondary)
+                Text("点按停止并发送").font(.caption).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if session.busy || !session.transcript.isEmpty || !session.reply.isEmpty {
