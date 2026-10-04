@@ -1,0 +1,14 @@
+{
+  "suite": "voice-assistant-chat-acceptance",
+  "repeats": 3,
+  "fixed_current_time": "2026-10-04 16:00:00 星期日",
+  "source_sha256": "9847ed4b50d360c1396e7b06789c9e7ea9665d219dc8fe735b02064e1048551f",
+  "execution": "FastAPI /v1/chat via ASGITransport; real Clef/ChatCompletion/Harness/Memos; isolated history sink; faults injected only for F01-F04",
+  "memos_version": "0.30.0",
+  "history_sink": "in-process test list",
+  "gating_cases": 39,
+  "observation_cases": 1,
+  "invalid_initial_query_samples_excluded": true,
+  "valid_record_samples_retained": 48,
+  "tool_result_redaction": "External search text replaced by hashes and source references; synthetic model replies and memo contents retained."
+}

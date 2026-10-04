@@ -4,7 +4,7 @@
   "endpoint": "POST /v1/chat",
   "fixed_current_time": "2026-10-04 16:00:00 星期日",
   "timezone": "Asia/Shanghai",
-  "status": "designed_not_executed",
+  "status": "executed",
   "fixtures": [
     {
       "id": "M01",
@@ -704,5 +704,6 @@
       },
       "gating": false
     }
-  ]
+  ],
+  "latest_report": "docs/reports/chat-acceptance-2026-10-04/report.md"
 }

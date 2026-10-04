@@ -1,0 +1,12 @@
+{
+  "remaining_test_memos": 0,
+  "history_count": 72,
+  "containers_removed": [
+    "va-acceptance-runner",
+    "va-acceptance-harness",
+    "va-acceptance-memos"
+  ],
+  "network_removed": "va-acceptance-20261004",
+  "temporary_credentials_removed": true,
+  "production_restarted": false
+}

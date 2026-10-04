@@ -1,0 +1,1737 @@
+{
+  "overview": {
+    "cases": 40,
+    "gating_cases": 39,
+    "all_three_passed": 33,
+    "failing_cases": 6,
+    "observations": 1,
+    "samples": 120,
+    "gating_samples": 117,
+    "passed_samples": 101,
+    "failed_samples": 16,
+    "record_median_s": 1.919,
+    "record_p95_s": 3.206,
+    "fast_path_sample_count": 96,
+    "fast_path_median_s": 2.109,
+    "fast_path_p95_s": 3.865,
+    "fast_path_over_8s": 0
+  },
+  "cases": [
+    {
+      "id": "R01",
+      "group": "语义记录",
+      "query": "帮我记录一下，今天做了一个手表 App，就是类似一个手表上的小豆包。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "去掉指令套话，保留手表 App 和小豆包类比。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.199
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "去掉指令套话，保留手表 App 和小豆包类比。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.64
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "去掉指令套话，保留手表 App 和小豆包类比。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.75
+        }
+      ]
+    },
+    {
+      "id": "R02",
+      "group": "语义记录",
+      "query": "帮我记一下，护照在书房白色柜子的第二层。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "位置、柜子颜色与第二层完整保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.233
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "位置、柜子颜色与第二层完整保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.746
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "位置、柜子颜色与第二层完整保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.543
+        }
+      ]
+    },
+    {
+      "id": "R03",
+      "group": "语义记录",
+      "query": "记录一下，录音记录已经保存到电脑里，下次要记住先备份。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "正文中的录音记录、保存、记住先备份均保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.865
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "正文中的录音记录、保存、记住先备份均保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.695
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "正文中的录音记录、保存、记住先备份均保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.171
+        }
+      ]
+    },
+    {
+      "id": "R04",
+      "group": "语义记录",
+      "query": "把这件事记下来：明天下午三点和小林讨论手表 App。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "日期、小林、下午三点与讨论事项正确；只写备忘。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.915
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "日期、小林、下午三点与讨论事项正确；只写备忘。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.763
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "日期、小林、下午三点与讨论事项正确；只写备忘。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.99
+        }
+      ]
+    },
+    {
+      "id": "R05",
+      "group": "语义记录",
+      "query": "帮我记一下，昨天花了两个小时调试，最后发现是网络超时，不是模型坏了。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "两小时、网络超时与否定模型故障完整保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.66
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "两小时、网络超时与否定模型故障完整保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.091
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "两小时、网络超时与否定模型故障完整保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.994
+        }
+      ]
+    },
+    {
+      "id": "R06",
+      "group": "语义记录",
+      "query": "帮我记录一下，明天见小林，不对，是后天下午四点见小王。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "采用纠正后的后天四点、小王，未产生两场会面。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.217
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "采用纠正后的后天四点、小王，未产生两场会面。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.206
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "采用纠正后的后天四点、小王，未产生两场会面。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.691
+        }
+      ]
+    },
+    {
+      "id": "R07",
+      "group": "语义记录",
+      "query": "帮我记一下，这次可能是代理的问题，还没确认，明天再查。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "保留可能、尚未确认与后续排查。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.899
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "保留可能、尚未确认与后续排查。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.841
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "保留可能、尚未确认与后续排查。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.312
+        }
+      ]
+    },
+    {
+      "id": "R08",
+      "group": "语义记录",
+      "query": "记一下，我今天挺开心，因为手表 App 终于跑通了，但录音延迟还有点高。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "开心、开心原因与仍存在的录音延迟都保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.099
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "开心、开心原因与仍存在的录音延迟都保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.569
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "开心、开心原因与仍存在的录音延迟都保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.593
+        }
+      ]
+    },
+    {
+      "id": "R09",
+      "group": "语义记录",
+      "query": "帮我记录一下，今天买了两条线，每条三十九块九，一共七十九块八。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "两条线、单价39.9元、总价79.8元正确。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.553
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "两条线、单价39.9元、总价79.8元正确。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.799
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "两条线、单价39.9元、总价79.8元正确。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.445
+        }
+      ]
+    },
+    {
+      "id": "R10",
+      "group": "语义记录",
+      "query": "帮我记一下，我不喜欢太甜的咖啡，下次不要加糖。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "不喜欢太甜、不要加糖的否定偏好准确。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.259
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "不喜欢太甜、不要加糖的否定偏好准确。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.278
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "不喜欢太甜、不要加糖的否定偏好准确。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.751
+        }
+      ]
+    },
+    {
+      "id": "R11",
+      "group": "语义记录",
+      "query": "把这段话保存到备忘里。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "按指代保存选中正文，保留立即录音目标。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.918
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "按指代保存选中正文，保留立即录音目标。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.981
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "按指代保存选中正文，保留立即录音目标。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.458
+        }
+      ]
+    },
+    {
+      "id": "R12",
+      "group": "语义记录",
+      "query": "帮我记一下，明天给小林打电话。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "记录小林电话事项，未混入无关咖啡菜单。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.676
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "记录小林电话事项，未混入无关咖啡菜单。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.276
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "记录小林电话事项，未混入无关咖啡菜单。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.498
+        }
+      ]
+    },
+    {
+      "id": "R13",
+      "group": "语义记录",
+      "query": "帮我记录一下，今天啊，就是把手表 App，嗯，把手表 App 的录音功能做完了。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "去掉口头重复，仅记录录音功能完成。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.728
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "去掉口头重复，仅记录录音功能完成。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.92
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "去掉口头重复，仅记录录音功能完成。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.635
+        }
+      ]
+    },
+    {
+      "id": "R14",
+      "group": "语义记录",
+      "query": "记录一下，小林说“不要保存原始音频”，但这只是他的建议，我还没决定。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "建议归属小林，保留尚未决定的状态。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.735
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "建议归属小林，保留尚未决定的状态。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.132
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "建议归属小林，保留尚未决定的状态。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.328
+        }
+      ]
+    },
+    {
+      "id": "R15",
+      "group": "语义记录",
+      "query": "帮我记录一下：手表 App 用 SwiftUI；后端跑在 Docker；语音原文需要保留。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "SwiftUI、Docker、语音原文三个事项均保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.721
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "SwiftUI、Docker、语音原文三个事项均保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.283
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "SwiftUI、Docker、语音原文三个事项均保留。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.842
+        }
+      ]
+    },
+    {
+      "id": "R16",
+      "group": "语义记录",
+      "query": "帮我记一下，昨天买线花了八十元，不对是七十九块八；今天用它把手表 App 接通了，很开心，因为终于能录音了，但延迟还没解决，可能和代理有关。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "金额更正、日期、开心原因、延迟未解决与不确定性均保留；第2、3次仍保留纠正过程，属于表达冗余，不是金额错误。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.782
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "金额更正、日期、开心原因、延迟未解决与不确定性均保留；第2、3次仍保留纠正过程，属于表达冗余，不是金额错误。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.657
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "金额更正、日期、开心原因、延迟未解决与不确定性均保留；第2、3次仍保留纠正过程，属于表达冗余，不是金额错误。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 4.066
+        }
+      ]
+    },
+    {
+      "id": "Q01",
+      "group": "个人备忘查询",
+      "query": "帮我查一下备忘，我的护照放在哪里？",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "命中预置护照位置，返回第二层且无写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 4.61
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "命中预置护照位置，返回第二层且无写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.241
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "命中预置护照位置，返回第二层且无写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.186
+        }
+      ]
+    },
+    {
+      "id": "Q02",
+      "group": "个人备忘查询",
+      "query": "查一下之前记过的证件放哪儿了。",
+      "gating": true,
+      "passed": 0,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "搜索词为证件，未召回实际存在的护照记录，三次均回答未找到。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.837
+        },
+        {
+          "repeat": 2,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "搜索词为证件，未召回实际存在的护照记录，三次均回答未找到。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.528
+        },
+        {
+          "repeat": 3,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "搜索词为证件，未召回实际存在的护照记录，三次均回答未找到。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.865
+        }
+      ]
+    },
+    {
+      "id": "Q03",
+      "group": "个人备忘查询",
+      "query": "从我的备忘里找一下手表 App 的进展。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "结合两条预置记录，完成项和延迟待优化均正确。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.734
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "结合两条预置记录，完成项和延迟待优化均正确。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.42
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "结合两条预置记录，完成项和延迟待优化均正确。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.419
+        }
+      ]
+    },
+    {
+      "id": "Q04",
+      "group": "个人备忘查询",
+      "query": "查一下我的备忘，备用钥匙放在哪里？",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "明确未找到钥匙信息，没有编造已知位置。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.124
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "明确未找到钥匙信息，没有编造已知位置。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.902
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "明确未找到钥匙信息，没有编造已知位置。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.73
+        }
+      ]
+    },
+    {
+      "id": "Q05",
+      "group": "个人备忘查询",
+      "query": "帮我查一下备忘，杜甫是谁？",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "明确区分个人科幻设定与真实历史，没有把外星人当作事实。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.396
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "明确区分个人科幻设定与真实历史，没有把外星人当作事实。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.612
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "明确区分个人科幻设定与真实历史，没有把外星人当作事实。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.696
+        }
+      ]
+    },
+    {
+      "id": "Q06",
+      "group": "个人备忘查询",
+      "query": "查一下备忘里护照的位置，不要新增记录。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "准确查询护照位置，无新增修改删除。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.137
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "准确查询护照位置，无新增修改删除。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.902
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "准确查询护照位置，无新增修改删除。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.084
+        }
+      ]
+    },
+    {
+      "id": "C01",
+      "group": "普通对话",
+      "query": "杜甫是谁？",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "未检索 Memos，回答唐代诗人，未受科幻设定污染。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.118
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "未检索 Memos，回答唐代诗人，未受科幻设定污染。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.89
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "未检索 Memos，回答唐代诗人，未受科幻设定污染。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.812
+        }
+      ]
+    },
+    {
+      "id": "C02",
+      "group": "普通对话",
+      "query": "十七乘以二十三是多少？",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "三次均回答391（含中文数字表达）。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.059
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "三次均回答391（含中文数字表达）。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.313
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "三次均回答391（含中文数字表达）。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.146
+        }
+      ]
+    },
+    {
+      "id": "C03",
+      "group": "普通对话",
+      "query": "SwiftUI 的状态管理是什么意思？",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "正确解释状态驱动界面更新，无回贴或写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.066
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "正确解释状态驱动界面更新，无回贴或写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.366
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "正确解释状态驱动界面更新，无回贴或写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 3.289
+        }
+      ]
+    },
+    {
+      "id": "C04",
+      "group": "普通对话",
+      "query": "今天是星期几？按北京时间回答。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "三次均回答星期日；提及日期时为10月4日，与固定时钟一致。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.428
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "三次均回答星期日；提及日期时为10月4日，与固定时钟一致。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.147
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "三次均回答星期日；提及日期时为10月4日，与固定时钟一致。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.568
+        }
+      ]
+    },
+    {
+      "id": "C05",
+      "group": "普通对话",
+      "query": "这段话是什么意思？",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "解释选中文本，保留代理只是可能原因，无回贴或写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.984
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "解释选中文本，保留代理只是可能原因，无回贴或写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.146
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "解释选中文本，保留代理只是可能原因，无回贴或写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.01
+        }
+      ]
+    },
+    {
+      "id": "P01",
+      "group": "文本生成与回贴",
+      "query": "把这句话改得正式一点。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "正式改写并返回paste，保留明天下午发送版本。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.903
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "正式改写并返回paste，保留明天下午发送版本。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.302
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "正式改写并返回paste，保留明天下午发送版本。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.718
+        }
+      ]
+    },
+    {
+      "id": "P02",
+      "group": "文本生成与回贴",
+      "query": "翻译成英文。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "译文完整准确，返回paste，无额外确认或写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.334
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "译文完整准确，返回paste，无额外确认或写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.736
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "译文完整准确，返回paste，无额外确认或写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.555
+        }
+      ]
+    },
+    {
+      "id": "P03",
+      "group": "文本生成与回贴",
+      "query": "帮我写一条消息，告诉小林我明天下午三点到。",
+      "gating": true,
+      "passed": 0,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "写消息被分类为record，三次均新增一条Memo并返回speak，没有生成预期回贴文本。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [
+            "classification",
+            "action",
+            "writes",
+            "no_memos_calls"
+          ],
+          "elapsed_s": 2.823
+        },
+        {
+          "repeat": 2,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "写消息被分类为record，三次均新增一条Memo并返回speak，没有生成预期回贴文本。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [
+            "classification",
+            "action",
+            "writes",
+            "no_memos_calls"
+          ],
+          "elapsed_s": 2.204
+        },
+        {
+          "repeat": 3,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "写消息被分类为record，三次均新增一条Memo并返回speak，没有生成预期回贴文本。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [
+            "classification",
+            "action",
+            "writes",
+            "no_memos_calls"
+          ],
+          "elapsed_s": 2.319
+        }
+      ]
+    },
+    {
+      "id": "P04",
+      "group": "文本生成与回贴",
+      "query": "把这段话总结成两条。",
+      "gating": true,
+      "passed": 0,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "总结被分类为record，三次均新增Memo并返回speak，没有产出指定的两条回贴文本。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [
+            "classification",
+            "action",
+            "writes",
+            "no_memos_calls"
+          ],
+          "elapsed_s": 3.895
+        },
+        {
+          "repeat": 2,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "总结被分类为record，三次均新增Memo并返回speak，没有产出指定的两条回贴文本。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [
+            "classification",
+            "action",
+            "writes",
+            "no_memos_calls"
+          ],
+          "elapsed_s": 4.203
+        },
+        {
+          "repeat": 3,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "总结被分类为record，三次均新增Memo并返回speak，没有产出指定的两条回贴文本。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [
+            "classification",
+            "action",
+            "writes",
+            "no_memos_calls"
+          ],
+          "elapsed_s": 2.297
+        }
+      ]
+    },
+    {
+      "id": "P05",
+      "group": "文本生成与回贴",
+      "query": "解释一下这句话，不要改写。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "按要求解释而非改写，返回speak且未写备忘。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.1
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "按要求解释而非改写，返回speak且未写备忘。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.561
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "按要求解释而非改写，返回speak且未写备忘。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.431
+        }
+      ]
+    },
+    {
+      "id": "A01",
+      "group": "联网任务",
+      "query": "查一下网络，最近有什么热播电视剧？",
+      "gating": true,
+      "passed": 2,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "已联网，但未给出任何热播电视剧，未完成请求。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 7.971
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "经搜索和新闻API返回剧名及来源；达成本条语义要求。额外发现多轮搜索与bash检索，违背preset的一次搜索约束，耗时约26–29秒。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 28.692
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "经搜索和新闻API返回剧名及来源；达成本条语义要求。额外发现多轮搜索与bash检索，违背preset的一次搜索约束，耗时约26–29秒。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 25.817
+        }
+      ]
+    },
+    {
+      "id": "A02",
+      "group": "联网任务",
+      "query": "搜索一下 SwiftUI 最新版本有什么变化。",
+      "gating": true,
+      "passed": 0,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "实际调用搜索，但结果主要无关或旧资料，未获取最新官方变化。能说明局限，但未完成本用例要求。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 9.511
+        },
+        {
+          "repeat": 2,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "实际调用搜索，但结果主要无关或旧资料，未获取最新官方变化。能说明局限，但未完成本用例要求。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 10.482
+        },
+        {
+          "repeat": 3,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "实际调用搜索，但结果主要无关或旧资料，未获取最新官方变化。能说明局限，但未完成本用例要求。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 5.733
+        }
+      ]
+    },
+    {
+      "id": "A03",
+      "group": "联网任务",
+      "query": "帮我记录一下，我明天要搜索一下手表 App 的录音优化资料。",
+      "gating": true,
+      "passed": 0,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "分类模型正确判为record，随后被搜索关键词覆盖成agent；实际用bash写了临时todo.md，未写Memos，却回复已记录。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [
+            "writes"
+          ],
+          "elapsed_s": 3.029
+        },
+        {
+          "repeat": 2,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "分类模型正确判为record，随后被搜索关键词覆盖成agent；实际用bash写了临时todo.md，未写Memos，却回复已记录。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [
+            "writes"
+          ],
+          "elapsed_s": 3.533
+        },
+        {
+          "repeat": 3,
+          "pass": false,
+          "semantic": {
+            "pass": false,
+            "note": "分类模型正确判为record，随后被搜索关键词覆盖成agent；实际用bash写了临时todo.md，未写Memos，却回复已记录。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [
+            "writes"
+          ],
+          "elapsed_s": 3.217
+        }
+      ]
+    },
+    {
+      "id": "F01",
+      "group": "故障与边界",
+      "query": "帮我记录一下，护照在书房。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "注入模型超时，返回record_summary失败，不直写原文。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 0.607
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "注入模型超时，返回record_summary失败，不直写原文。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 0.603
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "注入模型超时，返回record_summary失败，不直写原文。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 0.806
+        }
+      ]
+    },
+    {
+      "id": "F02",
+      "group": "故障与边界",
+      "query": "帮我记录一下，护照在书房。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "注入空文本/空白文本，返回record_summary失败，无写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 0.531
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "注入空文本/空白文本，返回record_summary失败，无写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 0.947
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "注入空文本/空白文本，返回record_summary失败，无写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 0.958
+        }
+      ]
+    },
+    {
+      "id": "F03",
+      "group": "故障与边界",
+      "query": "帮我记录一下，护照在书房白色柜子的第二层。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "注入length截断，返回record_summary失败，无写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 0.618
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "注入length截断，返回record_summary失败，无写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.284
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "注入length截断，返回record_summary失败，无写入。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 0.808
+        }
+      ]
+    },
+    {
+      "id": "F04",
+      "group": "故障与边界",
+      "query": "帮我记录一下，护照在书房。",
+      "gating": true,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "总结成功后注入Memos明确403拒绝，返回record_memo失败，不报成功。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.675
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "总结成功后注入Memos明确403拒绝，返回record_memo失败，不报成功。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.557
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "总结成功后注入Memos明确403拒绝，返回record_memo失败，不报成功。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.375
+        }
+      ]
+    },
+    {
+      "id": "O01",
+      "group": "观察用例",
+      "query": "好，开始录音。现在看起来正常。",
+      "gating": false,
+      "passed": 3,
+      "samples": [
+        {
+          "repeat": 1,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "三次均进入record并先调用模型再写入；按设计只观察，不作为误分类失败。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 1.325
+        },
+        {
+          "repeat": 2,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "三次均进入record并先调用模型再写入；按设计只观察，不作为误分类失败。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.74
+        },
+        {
+          "repeat": 3,
+          "pass": true,
+          "semantic": {
+            "pass": true,
+            "note": "三次均进入record并先调用模型再写入；按设计只观察，不作为误分类失败。",
+            "reviewer": "Codex manual semantic review against designed acceptance conditions"
+          },
+          "structural_failures": [],
+          "elapsed_s": 2.769
+        }
+      ]
+    }
+  ]
+}
