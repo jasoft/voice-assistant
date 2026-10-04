@@ -90,6 +90,9 @@ def main():
     ci_env = os.environ.copy()
     ci_env["PTT_WORKSPACE_ROOT"] = str(test_data_dir)
     ci_env["PTT_USER_ID"] = "ci_admin"
+    # 隔离外部真实 API Token，确保单元测试走本地/Mock 逻辑，防止外网调用和偶发波动
+    ci_env["CLOUDFLARE_AUTH_TOKEN"] = ""
+    ci_env["TYPESAFE_API_KEY"] = ""
 
     # ─────────────────────────────────────────────
     # Step 2: 依赖检查
