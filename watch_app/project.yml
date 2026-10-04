@@ -22,6 +22,8 @@ targets:
         CFBundleDisplayName: 语音助手
         WKApplication: true
         WKWatchOnly: true
+        UIBackgroundModes:
+          - audio
         NSMicrophoneUsageDescription: 录下你说的话，交给语音助手回答。
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

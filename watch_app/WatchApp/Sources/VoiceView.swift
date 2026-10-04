@@ -87,7 +87,6 @@ struct VoiceView: View {
     @State private var meterLevel: Double = 0
     @State private var hasAppeared = false
     @State private var isStartingRecording = false
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -122,19 +121,10 @@ struct VoiceView: View {
             meterLevel = Double(max(0, min(1, (power + 50) / 50)))
         }
         .onAppear {
+            // 仅首次打开视图时自动录音；暗屏、亮屏和关闭设置均保留当前会话。
             guard !hasAppeared else { return }
             hasAppeared = true
-            if !showingSettings {
-                triggerAutoRecordIfNeeded()
-            }
-        }
-        .onChange(of: scenePhase) { phase in
-            handleScenePhaseChange(to: phase)
-        }
-        .onChange(of: showingSettings) { isShowing in
-            if !isShowing && scenePhase == .active {
-                triggerAutoRecordIfNeeded()
-            }
+            Task { await startRecording() }
         }
     }
 
@@ -298,52 +288,6 @@ struct VoiceView: View {
         } else {
             stopAudio()
             Task { await startRecording() }
-        }
-    }
-
-    private func handleScenePhaseChange(to newPhase: ScenePhase) {
-        switch newPhase {
-        case .active:
-            if !showingSettings {
-                triggerAutoRecordIfNeeded()
-            }
-        case .background:
-            // 真正离开应用退入后台：彻底清除所有状态与音频，下次切回前台从头开始
-            resetToIdle()
-        case .inactive:
-            // 暂时失去焦点（如启动动画过渡、手腕微倾等）：
-            // 若不是在录音中，则清空上次回答/错误，防止下次唤醒停留在旧输出；
-            // 若已经在录音中，绝不掐断，避免启动时或说话时被误中断！
-            if state != .recording && !recorder.isRecording {
-                resetToIdle()
-            }
-        @unknown default:
-            break
-        }
-    }
-
-    private func resetToIdle() {
-        stopAudio(playHaptic: false)
-        chatTask?.cancel()
-        chatTask = nil
-        ttsError = nil
-        if state == .recording || recorder.isRecording {
-            _ = recorder.stop()
-        }
-        state = .idle
-    }
-
-    private func triggerAutoRecordIfNeeded() {
-        guard state != .recording, !recorder.isRecording, !isStartingRecording else {
-            return
-        }
-        stopAudio(playHaptic: false)
-        chatTask?.cancel()
-        chatTask = nil
-        ttsError = nil
-        state = .idle
-        Task {
-            await startRecording()
         }
     }
 
