@@ -32,15 +32,19 @@ except Exception:
 devices = (data.get("result") or {}).get("devices") or []
 watches = []
 for d in devices:
-    hardware = (d.get("properties") or {}).get("hardware") or {}
-    state = (d.get("properties") or {}).get("state") or {}
-    if hardware.get("deviceType") != "appleWatch":
+    hardware = d.get("hardwareProperties", {}) or (d.get("properties") or {}).get("hardware", {})
+    state = d.get("deviceProperties", {}) or (d.get("properties") or {}).get("state", {})
+    device_type = d.get("deviceType", "") or hardware.get("deviceType", "")
+    if device_type != "appleWatch":
         continue
-    if d.get("visibilityClass", state.get("visibilityClass")) == "simulators":
+    if hardware.get("reality") == "simulated" or d.get("visibilityClass", state.get("visibilityClass")) == "simulators":
         continue
     watches.append(d)
 if watches:
-    print(watches[0].get("identifier", ""))
+    w = watches[0]
+    hw = w.get("hardwareProperties", {}) or (w.get("properties") or {}).get("hardware", {})
+    target_id = hw.get("udid") or w.get("identifier", "")
+    print(target_id)
 PY
 ) || true
   rm -f "$DEVJSON"
