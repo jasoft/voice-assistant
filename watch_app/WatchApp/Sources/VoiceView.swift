@@ -85,8 +85,9 @@ struct VoiceView: View {
     @State private var isPlayingAudio = false
     @State private var ttsError: String?
     @State private var meterLevel: Double = 0
-    @State private var hasAppeared = false
+    @State private var launchPolicy = RecordingLaunchPolicy()
     @State private var isStartingRecording = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -121,10 +122,23 @@ struct VoiceView: View {
             meterLevel = Double(max(0, min(1, (power + 50) / 50)))
         }
         .onAppear {
-            // 仅首次打开视图时自动录音；暗屏、亮屏和关闭设置均保留当前会话。
-            guard !hasAppeared else { return }
-            hasAppeared = true
-            Task { await startRecording() }
+            if scenePhase == .active {
+                startRecordingOnLaunchIfNeeded()
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .background:
+                // 离开 App 时只标记下次进入，不清空回答或中断播放。
+                launchPolicy.didEnterBackground()
+            case .active:
+                startRecordingOnLaunchIfNeeded()
+            case .inactive:
+                // 暗屏、抬腕、系统临时遮挡仍属于当前会话。
+                break
+            @unknown default:
+                break
+            }
         }
     }
 
@@ -289,6 +303,16 @@ struct VoiceView: View {
             stopAudio()
             Task { await startRecording() }
         }
+    }
+
+    private func startRecordingOnLaunchIfNeeded() {
+        guard launchPolicy.consumeActivation(), !showingSettings else { return }
+        guard state != .recording, !recorder.isRecording, !isStartingRecording else { return }
+        stopAudio(playHaptic: false)
+        chatTask?.cancel()
+        chatTask = nil
+        ttsError = nil
+        Task { await startRecording() }
     }
 
     private func startRecording() async {
