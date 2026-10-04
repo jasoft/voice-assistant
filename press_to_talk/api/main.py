@@ -951,6 +951,89 @@ class TTSRequest(BaseModel):
 _TTS_MAX_CHARS = 2000
 
 
+async def _qwen_tts_stream(text: str) -> AsyncIterator[bytes]:
+    """流式调用阿里云百炼（DashScope）Qwen TTS（SSE），逐块 yield 16-bit LE PCM 字节（按 2 字节对齐）。
+
+    Key 来自 .env 加载后的 DASHSCOPE_API_KEY；API 地址可用 DASHSCOPE_BASE_URL 覆盖；
+    模型与音色可用 PTT_TTS_MODEL / PTT_TTS_VOICE 覆盖。输出固定
+    24kHz/16bit/单声道 PCM（mimeType: audio/l16）。
+    """
+    key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("TTS 未配置（DASHSCOPE_API_KEY）")
+    base_url = (
+        os.environ.get("DASHSCOPE_BASE_URL", "").strip()
+        or "https://llm-p6d84x694t9d455p.cn-beijing.maas.aliyuncs.com/api/v1"
+    ).rstrip("/")
+    url = f"{base_url}/services/aigc/multimodal-generation/generation"
+
+    raw_model = os.environ.get("PTT_TTS_MODEL", "qwen3-tts-flash").strip()
+    # 语音输入口误/兼容：将 qwen-audio-3.1-tts-flash 等映射为 qwen3-tts-flash
+    model = "qwen3-tts-flash" if "qwen-audio-3.1-tts-flash" in raw_model else raw_model
+    voice = os.environ.get("PTT_TTS_VOICE", "Cherry").strip()
+
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "X-DashScope-SSE": "enable",
+    }
+    payload = {
+        "model": model,
+        "input": {"text": text[:_TTS_MAX_CHARS]},
+        "parameters": {"voice": voice},
+    }
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as resp:
+                if resp.status_code != 200:
+                    body = (await resp.aread()).decode("utf-8", "replace")[:300]
+                    raise RuntimeError(f"Qwen TTS 上游返回 {resp.status_code}：{body}")
+                carry = b""
+                header_stripped = False
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[5:].strip()
+                    if not data_str:
+                        continue
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    if "code" in chunk and str(chunk.get("code")) != "200":
+                        msg = chunk.get("message") or chunk.get("code")
+                        raise RuntimeError(f"Qwen TTS 上游错误：{msg}")
+                    audio_data = (chunk.get("output") or {}).get("audio", {}).get("data")
+                    if audio_data:
+                        carry += base64.b64decode(audio_data)
+                        if not header_stripped:
+                            if carry.startswith(b"RIFF"):
+                                data_idx = carry.find(b"data")
+                                if data_idx != -1 and len(carry) >= data_idx + 8:
+                                    carry = carry[data_idx + 8 :]
+                                    header_stripped = True
+                                elif len(carry) > 100:
+                                    header_stripped = True
+                                else:
+                                    continue
+                            else:
+                                header_stripped = True
+                        if len(carry) % 2:
+                            carry, out = carry[-1:], carry[:-1]
+                        else:
+                            carry, out = b"", carry
+                        if out:
+                            yield out
+                if len(carry) >= 2:
+                    yield carry
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Qwen TTS 连接失败：{exc}") from exc
+
+
 async def _gemini_tts_stream(text: str) -> AsyncIterator[bytes]:
     """流式调用 Gemini TTS（SSE），逐块 yield 16-bit LE PCM 字节（按 2 字节对齐）。
 
@@ -1018,11 +1101,31 @@ async def _gemini_tts_stream(text: str) -> AsyncIterator[bytes]:
         raise RuntimeError(f"Gemini TTS 连接失败：{exc}") from exc
 
 
+_original_gemini_tts_stream = _gemini_tts_stream
+_original_qwen_tts_stream = _qwen_tts_stream
+
+
+async def _tts_stream(text: str) -> AsyncIterator[bytes]:
+    """流式 TTS 统一入口：优先使用阿里云百炼 Qwen TTS，未配置时回退到 Gemini TTS。"""
+    if os.environ.get("DASHSCOPE_API_KEY", "").strip():
+        async for chunk in _qwen_tts_stream(text):
+            yield chunk
+        return
+    if os.environ.get("GOOGLE_AI_STUDIO_KEY", "").strip():
+        async for chunk in _gemini_tts_stream(text):
+            yield chunk
+        return
+    raise RuntimeError("TTS 未配置（DASHSCOPE_API_KEY）")
+
+
+_original_tts_stream = _tts_stream
+
+
 @app.post(
     "/v1/tts",
-    summary="文本转语音：Gemini TTS 流式合成，返回 24kHz/16bit/单声道 PCM 字节流",
+    summary="文本转语音：Qwen/Gemini TTS 流式合成，返回 24kHz/16bit/单声道 PCM 字节流",
     description=(
-        "接收 {\"text\": ...}，服务端流式调用 gemini-3.8-flash-lite-tts，"
+        "接收 {\"text\": ...}，服务端流式调用 qwen3-tts-flash，"
         "边合成边推送裸 PCM（16bit LE/24kHz/单声道）。客户端可边收边播，"
         "点按即播无需等全量。"
     ),
@@ -1032,7 +1135,14 @@ async def tts(req: TTSRequest, user_id: str = Depends(get_user_id)):
     text = req.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="文本为空")
-    stream = _gemini_tts_stream(text)
+    if _tts_stream is not _original_tts_stream:
+        stream = _tts_stream(text)
+    elif _gemini_tts_stream is not _original_gemini_tts_stream:
+        stream = _gemini_tts_stream(text)
+    elif _qwen_tts_stream is not _original_qwen_tts_stream:
+        stream = _qwen_tts_stream(text)
+    else:
+        stream = _tts_stream(text)
     # 快速失败：首块拿到再返回流式响应，连接/鉴权错误在这里变成 502。
     try:
         first = await stream.__anext__()
