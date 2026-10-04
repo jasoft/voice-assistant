@@ -1,0 +1,708 @@
+{
+  "name": "voice-assistant-chat-acceptance",
+  "version": 1,
+  "endpoint": "POST /v1/chat",
+  "fixed_current_time": "2026-10-04 16:00:00 星期日",
+  "timezone": "Asia/Shanghai",
+  "status": "designed_not_executed",
+  "fixtures": [
+    {
+      "id": "M01",
+      "content": "护照在书房白色柜子的第二层。"
+    },
+    {
+      "id": "M02",
+      "content": "2026年10月4日，我做了一个手表 App，类似手表上的小豆包。"
+    },
+    {
+      "id": "M03",
+      "content": "手表 App 的录音功能已完成，延迟仍需优化。"
+    },
+    {
+      "id": "M04",
+      "content": "这是我写的科幻设定：杜甫是外星人。"
+    }
+  ],
+  "cases": [
+    {
+      "id": "R01",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记录一下，今天做了一个手表 App，就是类似一个手表上的小豆包。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：2026年10月4日，我做了一个手表 App，类似手表上的小豆包。",
+        "semantic_checks": [
+          "保留手表 App 和小豆包的类比；不残留指令套话“一下”；不擅自改成官方豆包产品。"
+        ]
+      }
+    },
+    {
+      "id": "R02",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记一下，护照在书房白色柜子的第二层。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：护照在书房白色柜子的第二层。",
+        "semantic_checks": [
+          "物品、房间、柜子颜色、第二层都保留。"
+        ]
+      }
+    },
+    {
+      "id": "R03",
+      "group": "语义记录",
+      "request": {
+        "query": "记录一下，录音记录已经保存到电脑里，下次要记住先备份。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：录音记录已保存到电脑里，下次先备份。",
+        "semantic_checks": [
+          "正文中的“录音记录”“保存”和备份要求不得因关键词清洗被删除。"
+        ]
+      }
+    },
+    {
+      "id": "R04",
+      "group": "语义记录",
+      "request": {
+        "query": "把这件事记下来：明天下午三点和小林讨论手表 App。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：2026年10月5日下午3点，和小林讨论手表 App。",
+        "semantic_checks": [
+          "保留人名、时间、事项；仅写备忘，不创建系统提醒或日历。"
+        ]
+      }
+    },
+    {
+      "id": "R05",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记一下，昨天花了两个小时调试，最后发现是网络超时，不是模型坏了。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：2026年10月3日调试了两个小时，问题是网络超时，并非模型故障。",
+        "semantic_checks": [
+          "保留两小时、网络超时及否定结论；不把“模型坏了”记成事实。"
+        ]
+      }
+    },
+    {
+      "id": "R06",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记录一下，明天见小林，不对，是后天下午四点见小王。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：2026年10月6日下午4点见小王。",
+        "semantic_checks": [
+          "以口头纠正后的时间和人名为准；不得产生两场会面。"
+        ]
+      }
+    },
+    {
+      "id": "R07",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记一下，这次可能是代理的问题，还没确认，明天再查。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：这次可能是代理问题，尚未确认，2026年10月5日继续排查。",
+        "semantic_checks": [
+          "保留“可能”“未确认”；不得写成已确认的根因。"
+        ]
+      }
+    },
+    {
+      "id": "R08",
+      "group": "语义记录",
+      "request": {
+        "query": "记一下，我今天挺开心，因为手表 App 终于跑通了，但录音延迟还有点高。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：今天很开心，手表 App 终于跑通了，但录音延迟仍有点高。",
+        "semantic_checks": [
+          "保留开心、开心的原因和仍存在的延迟问题；不能只留下“App 跑通”。"
+        ]
+      }
+    },
+    {
+      "id": "R09",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记录一下，今天买了两条线，每条三十九块九，一共七十九块八。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：今天买了两条线，单价39.9元，总价79.8元。",
+        "semantic_checks": [
+          "数量、单价、总价准确；不得擅自更改数字。"
+        ]
+      }
+    },
+    {
+      "id": "R10",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记一下，我不喜欢太甜的咖啡，下次不要加糖。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：我不喜欢太甜的咖啡，下次不要加糖。",
+        "semantic_checks": [
+          "保留偏好和否定；不能变成“喜欢甜咖啡”或“加糖”。"
+        ]
+      }
+    },
+    {
+      "id": "R11",
+      "group": "语义记录",
+      "request": {
+        "query": "把这段话保存到备忘里。",
+        "selected_text": "手表 App 的录音延迟仍需优化，目标是启动后立即录音。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：手表 App 的录音延迟仍需优化，目标是启动后立即录音。",
+        "semantic_checks": [
+          "理解“这段话”指向选中文本；正文不只记录这句指令。"
+        ]
+      }
+    },
+    {
+      "id": "R12",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记一下，明天给小林打电话。",
+        "selected_text": "咖啡店菜单：拿铁、冰美式。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：2026年10月5日给小林打电话。",
+        "semantic_checks": [
+          "没有指向选中文本时，不混入无关选中内容。"
+        ]
+      }
+    },
+    {
+      "id": "R13",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记录一下，今天啊，就是把手表 App，嗯，把手表 App 的录音功能做完了。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：今天完成了手表 App 的录音功能。",
+        "semantic_checks": [
+          "删除无意义重复和语气词；保留“录音功能完成”，不能夸大为整个 App 完成。"
+        ]
+      }
+    },
+    {
+      "id": "R14",
+      "group": "语义记录",
+      "request": {
+        "query": "记录一下，小林说“不要保存原始音频”，但这只是他的建议，我还没决定。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：小林建议不要保存原始音频，我尚未决定。",
+        "semantic_checks": [
+          "保留建议的归属与尚未决定；不把引用内容当作停止写入的指令。"
+        ]
+      }
+    },
+    {
+      "id": "R15",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记录一下：手表 App 用 SwiftUI；后端跑在 Docker；语音原文需要保留。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：手表 App 使用 SwiftUI，后端运行在 Docker，语音原文需要保留。",
+        "semantic_checks": [
+          "三个事项全部保留；一条请求只创建一条备忘。"
+        ]
+      }
+    },
+    {
+      "id": "R16",
+      "group": "语义记录",
+      "request": {
+        "query": "帮我记一下，昨天买线花了八十元，不对是七十九块八；今天用它把手表 App 接通了，很开心，因为终于能录音了，但延迟还没解决，可能和代理有关。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：昨天买线花了79.8元；今天接通了手表 App，终于能录音，很开心。延迟尚未解决，可能与代理有关。",
+        "semantic_checks": [
+          "保留纠正后的金额、昨天和今天的区别、开心的原因、未解决延迟和不确定的代理原因；不能过度压缩。"
+        ]
+      }
+    },
+    {
+      "id": "Q01",
+      "group": "个人备忘查询",
+      "request": {
+        "query": "帮我查一下备忘，我的护照放在哪里？"
+      },
+      "expected": {
+        "intent": "query",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "你的护照在书房白色柜子的第二层。",
+        "semantic_checks": [
+          "命中 M01；返回完整位置；不创建备忘。"
+        ]
+      },
+      "fixtures": [
+        "M01"
+      ]
+    },
+    {
+      "id": "Q02",
+      "group": "个人备忘查询",
+      "request": {
+        "query": "查一下之前记过的证件放哪儿了。"
+      },
+      "expected": {
+        "intent": "query",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "之前记的护照在书房白色柜子的第二层。",
+        "semantic_checks": [
+          "表达不同仍应检索并找到护照记录；未找到则标记召回失败，不能编造。"
+        ]
+      },
+      "fixtures": [
+        "M01"
+      ]
+    },
+    {
+      "id": "Q03",
+      "group": "个人备忘查询",
+      "request": {
+        "query": "从我的备忘里找一下手表 App 的进展。"
+      },
+      "expected": {
+        "intent": "query",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "你做了一个类似手表上“小豆包”的 App，录音功能已完成，延迟仍需优化。",
+        "semantic_checks": [
+          "结合 M02、M03；完成项和未完成项都保留。"
+        ]
+      },
+      "fixtures": [
+        "M02",
+        "M03"
+      ]
+    },
+    {
+      "id": "Q04",
+      "group": "个人备忘查询",
+      "request": {
+        "query": "查一下我的备忘，备用钥匙放在哪里？"
+      },
+      "expected": {
+        "intent": "query",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "没有找到备用钥匙位置的相关记录，目前无法确认。",
+        "semantic_checks": [
+          "测试库无钥匙信息；不捏造地点；可给查找建议但不能作为已知事实。"
+        ]
+      },
+      "fixtures": [
+        "M01",
+        "M02",
+        "M03"
+      ]
+    },
+    {
+      "id": "Q05",
+      "group": "个人备忘查询",
+      "request": {
+        "query": "帮我查一下备忘，杜甫是谁？"
+      },
+      "expected": {
+        "intent": "query",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "杜甫是唐代诗人。",
+        "semantic_checks": [
+          "M04 为个人虚构设定；可以说明备忘里的设定，但不能把“外星人”当真实历史事实。"
+        ]
+      },
+      "fixtures": [
+        "M04"
+      ]
+    },
+    {
+      "id": "Q06",
+      "group": "个人备忘查询",
+      "request": {
+        "query": "查一下备忘里护照的位置，不要新增记录。"
+      },
+      "expected": {
+        "intent": "query",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "你的护照在书房白色柜子的第二层。",
+        "semantic_checks": [
+          "正常查询并保留层数；无新增、修改或删除。"
+        ]
+      },
+      "fixtures": [
+        "M01"
+      ]
+    },
+    {
+      "id": "C01",
+      "group": "普通对话",
+      "request": {
+        "query": "杜甫是谁？"
+      },
+      "expected": {
+        "intent": "chat",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "杜甫是唐代诗人。",
+        "semantic_checks": [
+          "不检索 Memos；不受 M04 污染。"
+        ]
+      },
+      "fixtures": [
+        "M04"
+      ]
+    },
+    {
+      "id": "C02",
+      "group": "普通对话",
+      "request": {
+        "query": "十七乘以二十三是多少？"
+      },
+      "expected": {
+        "intent": "chat",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "391。",
+        "semantic_checks": [
+          "答案准确；不检索或写入备忘。"
+        ]
+      }
+    },
+    {
+      "id": "C03",
+      "group": "普通对话",
+      "request": {
+        "query": "SwiftUI 的状态管理是什么意思？"
+      },
+      "expected": {
+        "intent": "chat",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "用状态驱动界面更新，状态变化时对应视图重新计算。",
+        "semantic_checks": [
+          "直接解释概念；不是文本生成任务，不回贴、不写备忘。"
+        ]
+      }
+    },
+    {
+      "id": "C04",
+      "group": "普通对话",
+      "request": {
+        "query": "今天是星期几？按北京时间回答。"
+      },
+      "expected": {
+        "intent": "chat",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "今天是2026年10月4日，星期日。",
+        "semantic_checks": [
+          "使用固定测试时间；日期星期正确，不提 UTC。"
+        ]
+      }
+    },
+    {
+      "id": "C05",
+      "group": "普通对话",
+      "request": {
+        "query": "这段话是什么意思？",
+        "selected_text": "延迟尚未解决，可能与代理有关。"
+      },
+      "expected": {
+        "intent": "chat",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "意思是延迟问题仍未解决，代理只是一个可能原因。",
+        "semantic_checks": [
+          "结合选中文本解释；保留不确定性，不回贴、不写入。"
+        ]
+      }
+    },
+    {
+      "id": "P01",
+      "group": "文本生成与回贴",
+      "request": {
+        "query": "把这句话改得正式一点。",
+        "selected_text": "明天下午我把改好的版本发你。"
+      },
+      "expected": {
+        "intent": "chat",
+        "action": "paste",
+        "memo_writes": 0,
+        "response_example": "您好，明天下午我将向您发送修改后的版本。",
+        "semantic_checks": [
+          "仅返回改写正文；保留明天下午与发版本的意思；不加确认语。"
+        ]
+      }
+    },
+    {
+      "id": "P02",
+      "group": "文本生成与回贴",
+      "request": {
+        "query": "翻译成英文。",
+        "selected_text": "录音功能已经完成，但延迟仍需优化。"
+      },
+      "expected": {
+        "intent": "chat",
+        "action": "paste",
+        "memo_writes": 0,
+        "response_example": "The recording feature is ready, but the latency still needs improvement.",
+        "semantic_checks": [
+          "完整准确翻译；仅输出译文。"
+        ]
+      }
+    },
+    {
+      "id": "P03",
+      "group": "文本生成与回贴",
+      "request": {
+        "query": "帮我写一条消息，告诉小林我明天下午三点到。"
+      },
+      "expected": {
+        "intent": "chat",
+        "action": "paste",
+        "memo_writes": 0,
+        "response_example": "小林，我明天下午三点到。",
+        "semantic_checks": [
+          "人名、到达时间准确；输出可直接发送的正文；不写入备忘。"
+        ]
+      }
+    },
+    {
+      "id": "P04",
+      "group": "文本生成与回贴",
+      "request": {
+        "query": "把这段话总结成两条。",
+        "selected_text": "手表 App 的录音功能做完了，目前录音延迟还有点高，需要继续优化。"
+      },
+      "expected": {
+        "intent": "chat",
+        "action": "paste",
+        "memo_writes": 0,
+        "response_example": "- 录音功能已完成。\n- 延迟仍需优化。",
+        "semantic_checks": [
+          "输出恰好两条；完成与未完成事项都保留；不擅自写 Memos。"
+        ]
+      }
+    },
+    {
+      "id": "P05",
+      "group": "文本生成与回贴",
+      "request": {
+        "query": "解释一下这句话，不要改写。",
+        "selected_text": "录音能用了，就是还有点慢。"
+      },
+      "expected": {
+        "intent": "chat",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "这句话表达的是目前录音可用，但延迟仍有改善空间。",
+        "semantic_checks": [
+          "同样有选中文本，但意图是解释，所以播报而非回贴。"
+        ]
+      }
+    },
+    {
+      "id": "A01",
+      "group": "联网任务",
+      "request": {
+        "query": "查一下网络，最近有什么热播电视剧？"
+      },
+      "expected": {
+        "intent": "agent",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "给出联网查到的近期电视剧及信息来源。",
+        "semantic_checks": [
+          "实际调用搜索工具；答案以执行时来源为准，不固定片名；无备忘写入。"
+        ]
+      }
+    },
+    {
+      "id": "A02",
+      "group": "联网任务",
+      "request": {
+        "query": "搜索一下 SwiftUI 最新版本有什么变化。"
+      },
+      "expected": {
+        "intent": "agent",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "根据最新官方资料说明相关变化并给出来源。",
+        "semantic_checks": [
+          "使用联网来源；不能把旧知识伪装成刚查询的结果。"
+        ]
+      }
+    },
+    {
+      "id": "A03",
+      "group": "联网任务",
+      "request": {
+        "query": "帮我记录一下，我明天要搜索一下手表 App 的录音优化资料。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 1,
+        "response_example": "✅ 已记入 Memos：我明天要搜索手表 App 的录音优化资料。",
+        "semantic_checks": [
+          "“搜索一下”是要记录的未来事项；只做语义整理并写备忘，不执行网络搜索。"
+        ]
+      },
+      "risk": "现有显式搜索关键词覆盖路由可能使此例失败；用例保留为业务边界，不在本次设计中修代码。"
+    },
+    {
+      "id": "F01",
+      "group": "故障与边界",
+      "request": {
+        "query": "帮我记录一下，护照在书房。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "记录失败，请稍后再试。",
+        "semantic_checks": [
+          "debug_info.stage=record_summary；没有 Memos 创建请求；不能直接写原文或回退旧分支。"
+        ]
+      },
+      "fault": "ChatCompletion 超时"
+    },
+    {
+      "id": "F02",
+      "group": "故障与边界",
+      "request": {
+        "query": "帮我记录一下，护照在书房。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "记录失败，请稍后再试。",
+        "semantic_checks": [
+          "debug_info.stage=record_summary；空正文不写入。"
+        ]
+      },
+      "fault": "ChatCompletion content 为空或仅空白"
+    },
+    {
+      "id": "F03",
+      "group": "故障与边界",
+      "request": {
+        "query": "帮我记录一下，护照在书房白色柜子的第二层。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "记录失败，请稍后再试。",
+        "semantic_checks": [
+          "debug_info.stage=record_summary；部分正文不写入。"
+        ]
+      },
+      "fault": "ChatCompletion finish_reason=length"
+    },
+    {
+      "id": "F04",
+      "group": "故障与边界",
+      "request": {
+        "query": "帮我记录一下，护照在书房。"
+      },
+      "expected": {
+        "intent": "record",
+        "action": "speak",
+        "memo_writes": 0,
+        "response_example": "记录失败，请稍后再试。",
+        "semantic_checks": [
+          "debug_info.stage=record_memo；收到明确的写入拒绝；不能回复“已记入”。"
+        ]
+      },
+      "fault": "Memos create_memo 返回明确拒绝，如 HTTP 403；不是结果未知的网络超时"
+    },
+    {
+      "id": "O01",
+      "group": "观察用例",
+      "request": {
+        "query": "好，开始录音。现在看起来正常。"
+      },
+      "expected": {
+        "intent": [
+          "chat",
+          "record"
+        ],
+        "action": "speak",
+        "memo_writes": "0 或 1，随路由",
+        "response_example": "chat 时自然回应；record 时确认保存模型整理后的正文。",
+        "semantic_checks": [
+          "不对现有分类做强制修改；如果进入 record，必须调用 ChatCompletion 后才写入且保留原文。"
+        ]
+      },
+      "gating": false
+    }
+  ]
+}
