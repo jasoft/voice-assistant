@@ -388,12 +388,20 @@ def _search_memos_cel(client: MemosClient, keywords: list[str]) -> list[dict[str
     不再做 fallback 翻页/重试/不可用异常。
     """
     cfg = load_workflow_config().get("memos", {})
-    query_timeout = float(os.environ.get("MEMOS_QUERY_TIMEOUT", cfg.get("query_timeout_seconds", 1.5)))
+    query_timeout = float(os.environ.get("MEMOS_QUERY_TIMEOUT", cfg.get("query_timeout_seconds", 3.5)))
 
+    # 排除元词指令，避免用户说“查询备忘录里xxx”时把“备忘录”当作检索关键词
+    stop_words = {"备忘", "备忘录", "memo", "memos", "记忆", "记录"}
     valid_words = [
         w.strip() for w in keywords
-        if w.strip() and not any(c in w for c in ("'", '"', "\\", "\n", "\r"))
+        if w.strip() and w.strip().lower() not in stop_words and not any(c in w for c in ("'", '"', "\\", "\n", "\r"))
     ]
+    # 如果过滤后为空但原始词列表非空（如纯粹询问“备忘录”），则保留原词兜底
+    if not valid_words:
+        valid_words = [
+            w.strip() for w in keywords
+            if w.strip() and not any(c in w for c in ("'", '"', "\\", "\n", "\r"))
+        ]
     if not valid_words:
         return []
 
