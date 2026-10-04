@@ -38,8 +38,8 @@ async def completion(req: Request):
     text = str(payload["messages"])
     pieces = ["先看结论：", "手表界面已经更清晰。\n\n", "- 回答优先显示。\n", "- 转动表冠阅读全文。\n", "- 点按停止可以打断语音。\n\n", "文字还在生成时，语音就能开始播放。"]
     if "长回答测试" in text:
-        pieces += [f"\n第{i}条：正文完整保留，滚动后仍能看到操作按钮。" for i in range(1, 9)]
-    if "等待测试" in text: await asyncio.sleep(12)
+        pieces += [f"\n第{i}条：正文完整保留，向上滚动仍能检查识别原话。" for i in range(1, 9)]
+    if "等待测试" in text: await asyncio.sleep(6)
     async def chunks():
         try:
             for i, piece in enumerate(pieces):
