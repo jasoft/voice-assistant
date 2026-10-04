@@ -18,7 +18,7 @@ patchFile('*/@deepseek-ai/dsh-web-app/lib/startup.js', (code) => {
   return code.replace('options.host === "0.0.0.0"', 'false');
 });
 
-// 2. 兼容点号 RPC 方法 (session.create -> session/create) 与 trusted API 浏览器鉴权穿透
+// 2. 兼容点号 RPC 方法 (session.create -> session/create) 与 trusted API 浏览器鉴权穿透，免 token 访问 Web UI
 patchFile('*/@deepseek-ai/dsh-client-connection/lib/index.js', (code) => {
   code = code.replace(
     'const endpoint = pathname.slice(channel.length + 1);',
@@ -31,6 +31,14 @@ patchFile('*/@deepseek-ai/dsh-client-connection/lib/index.js', (code) => {
   code = code.replace(
     'this.browserAuth.isAuthenticated(request) ? void 0 : 401',
     'void 0'
+  );
+  code = code.replace(
+    'if (!isTrustedApiRequest(request, this.trustedHosts)) return 403;',
+    '// trusted host check disabled for LAN access'
+  );
+  code = code.replace(
+    'isAuthenticated(request) {',
+    'isAuthenticated(request) { return true; '
   );
   return code;
 });
