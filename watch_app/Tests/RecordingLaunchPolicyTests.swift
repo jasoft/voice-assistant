@@ -7,7 +7,7 @@ enum RecordingLaunchPolicyTests {
         assert(!policy.consumeActivation(), "onAppear 和 active 不应重复录音")
         // 暗屏仅 inactive，不发送 didEnterBackground；再次 active 保留回答。
         assert(!policy.consumeActivation(), "暗屏亮屏不应重录")
-        assert(!policy.consumeActivation(), "关闭设置不应重录")
+        assert(!policy.consumeActivation(), "当前页面交互不应重录")
         policy.didEnterBackground()
         assert(policy.consumeActivation(), "离开后重新点图标应录音")
         assert(!policy.consumeActivation(), "每次进入只录音一次")

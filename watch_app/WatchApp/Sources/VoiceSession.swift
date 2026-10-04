@@ -4,7 +4,7 @@ import OSLog
 
 @MainActor
 final class VoiceSession: ObservableObject {
-    enum Phase { case idle, recording, transcribing, thinking, replying, replied, failed }
+    enum Phase { case idle, preparingRecording, recording, transcribing, thinking, replying, replied, failed }
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var transcript = ""
     @Published private(set) var reply = ""
@@ -20,6 +20,7 @@ final class VoiceSession: ObservableObject {
     private var recordingFile: URL?
     private var isStarting = false
     private var autoSpeaking = false
+    private var didUseTestLaunch = false
     private var launchPolicy = RecordingLaunchPolicy()
     private let logger = Logger(subsystem: "com.soj.voiceassistant.watch", category: "session")
 
@@ -27,18 +28,19 @@ final class VoiceSession: ObservableObject {
     var canRetryTranscription: Bool { phase == .failed && recordingFile != nil }
 
     func didEnterBackground() { launchPolicy.didEnterBackground() }
-    func activate(settingsOpen: Bool) {
-        guard !settingsOpen, launchPolicy.consumeActivation() else { return }
+    func activate() {
+        guard launchPolicy.consumeActivation() else { return }
         guard phase != .recording, !isStarting else { return }
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
-        if let index = args.firstIndex(of: "--test-query"), args.indices.contains(index + 1) {
+        if !didUseTestLaunch, let index = args.firstIndex(of: "--test-query"), args.indices.contains(index + 1) {
+            didUseTestLaunch = true
             reset()
             transcript = args[index + 1]
             ask()
             return
         }
-        if args.contains("--test-idle") { return }
+        if !didUseTestLaunch, args.contains("--test-idle") { didUseTestLaunch = true; return }
         #endif
         startRecording()
     }
@@ -54,7 +56,8 @@ final class VoiceSession: ObservableObject {
         task?.cancel(); task = nil
         speech.stop()
         autoSpeaking = false
-        if recorder.isRecording { _ = recorder.stop() }
+        recorder.stop()?.deleteTemporaryRecording()
+        isStarting = false
         recordingFile?.deleteTemporaryRecording(); recordingFile = nil
         transcript = ""; reply = ""; error = nil; elapsed = 0; level = 0
     }
@@ -63,9 +66,10 @@ final class VoiceSession: ObservableObject {
         guard !isStarting, phase != .recording else { return }
         reset()
         isStarting = true
+        phase = .preparingRecording
         let id = generation
         task = Task {
-            defer { isStarting = false }
+            defer { if generation == id { isStarting = false } }
             guard await recorder.requestPermission(), !Task.isCancelled, generation == id else {
                 if generation == id && !Task.isCancelled { fail("请在系统设置中允许麦克风访问") }
                 return
@@ -138,12 +142,10 @@ final class VoiceSession: ObservableObject {
         }
     }
 
+    /// Discard capture and pending work without sending an empty recording to ASR.
     func cancel() {
-        generation = UUID()
-        task?.cancel(); task = nil
-        speech.stop(); autoSpeaking = false
-        phase = reply.isEmpty ? .idle : .replied
-        error = nil
+        reset()
+        phase = .idle
         WKInterfaceDevice.current().play(.click)
     }
 

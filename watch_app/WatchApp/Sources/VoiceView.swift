@@ -2,155 +2,150 @@ import SwiftUI
 
 struct VoiceView: View {
     @StateObject private var session = VoiceSession()
-    @State private var showingSettings = false
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                content
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if session.phase != .recording { controls.padding(.top, 6).background(.black) }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showingSettings = true } label: { Image(systemName: "gearshape") }
-                        .accessibilityLabel("设置")
+            content
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    if session.phase == .recording || session.phase == .preparingRecording {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button { session.cancel() } label: { Image(systemName: "xmark") }
+                                .accessibilityLabel("取消录音")
+                        }
+                    } else if session.busy || !session.reply.isEmpty || !session.transcript.isEmpty {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button { session.startRecording() } label: { Image(systemName: "mic.fill") }
+                                .accessibilityLabel("打断并重新录音")
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            PlaybackButton(session: session, speech: session.speech)
+                        }
+                    }
                 }
-            }
-            .sheet(isPresented: $showingSettings) { SettingsView() }
         }
         .onReceive(Timer.publish(every: 0.12, on: .main, in: .common).autoconnect()) { _ in session.updateMeter() }
-        .onAppear { if scenePhase == .active { session.activate(settingsOpen: showingSettings) } }
+        .onAppear { if scenePhase == .active { session.activate() } }
         .onChange(of: scenePhase) { phase in
             if phase == .background { session.didEnterBackground() }
-            if phase == .active { session.activate(settingsOpen: showingSettings) }
+            if phase == .active { session.activate() }
         }
     }
 
     @ViewBuilder private var content: some View {
-        if session.phase == .recording {
+        if session.phase == .recording || session.phase == .preparingRecording {
             VStack(spacing: 10) {
-                Text("正在听").font(.headline)
+                Text(session.phase == .recording ? "正在听" : "准备录音").font(.headline)
                 Text(String(format: "%02d:%02d", session.elapsed / 60, session.elapsed % 60))
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     .accessibilityLabel("已录音 \(session.elapsed) 秒")
                 Button { session.sendRecording() } label: {
-                    ZStack {
-                        Circle().fill(.red.opacity(0.2)).frame(width: 90, height: 90)
-                        Circle().fill(.red).frame(width: 68, height: 68)
-                        HStack(spacing: 4) {
-                            ForEach(0..<5) { i in
-                                Capsule().fill(.white).frame(width: 4, height: 8 + CGFloat(session.level) * CGFloat([18, 30, 38, 30, 18][i]))
-                            }
-                        }
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: session.level)
-                    }
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 34))
+                        .foregroundStyle(.white)
+                        .frame(width: 82, height: 82)
+                        .background(.red, in: Circle())
                 }
-                .buttonStyle(.plain).accessibilityLabel("结束录音并发送")
-                Text("点按结束并发送").font(.caption).foregroundStyle(.secondary)
+                .buttonStyle(.plain)
+                .disabled(session.phase != .recording)
+                .accessibilityLabel("结束录音并发送")
+                Text("点按麦克风发送").font(.caption).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if !session.reply.isEmpty {
-            ReplyContent(session: session, speech: session.speech)
-        } else if session.phase == .transcribing || session.phase == .thinking {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label {
-                        Text(session.phase == .transcribing ? "正在识别" : "正在回答")
-                    } icon: { ProgressView().controlSize(.small) }
-                    .font(.headline)
-                    if !session.transcript.isEmpty {
-                        Text(session.transcript).font(.body).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
-            }
+        } else if session.busy || !session.transcript.isEmpty || !session.reply.isEmpty {
+            ConversationContent(session: session, speech: session.speech)
         } else {
-            VStack(spacing: 10) {
-                Image(systemName: session.phase == .failed ? "exclamationmark.bubble" : "mic")
-                    .font(.title2).foregroundStyle(session.phase == .failed ? .orange : .secondary)
-                Text(session.error ?? "准备好了").font(.body).multilineTextAlignment(.center)
-                if session.phase != .failed {
-                    Text("点按开始说话").font(.caption).foregroundStyle(.secondary)
+            VStack(spacing: 12) {
+                if let error = session.error {
+                    Text(error).font(.body).foregroundStyle(.orange).multilineTextAlignment(.center)
                 }
-            }.padding(.horizontal, 10).frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    @ViewBuilder private var controls: some View {
-        if session.busy && session.reply.isEmpty {
-            HStack(spacing: 6) {
-                Button("取消", systemImage: "xmark") { session.cancel() }
-                Button("重说", systemImage: "mic") { session.startRecording() }
-            }.font(.caption).buttonStyle(.bordered).frame(minHeight: 44)
-        } else if !session.reply.isEmpty {
-            ReplyControls(session: session, speech: session.speech)
-        } else {
-            VStack(spacing: 4) {
+                Button { session.startRecording() } label: {
+                    Image(systemName: "mic.fill").font(.system(size: 34))
+                        .frame(width: 82, height: 82)
+                        .background(.blue, in: Circle())
+                }.buttonStyle(.plain).accessibilityLabel("开始录音")
+                Text("点按开始说话").font(.caption).foregroundStyle(.secondary)
                 if session.canRetryTranscription {
-                    Button("重试识别", systemImage: "arrow.clockwise") { session.transcribe() }.buttonStyle(.bordered)
+                    Button("重试识别", systemImage: "arrow.clockwise") { session.transcribe() }
                 }
-                Button(session.phase == .failed ? "重新说" : "开始说话", systemImage: "mic.fill") { session.startRecording() }
-                    .buttonStyle(.borderedProminent).frame(minHeight: 44)
-            }
+            }.padding(.horizontal, 8).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
 
-private struct ReplyContent: View {
+private struct PlaybackButton: View {
     @ObservedObject var session: VoiceSession
     @ObservedObject var speech: SpeechPlayback
-    @State private var showTranscript = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 5) {
-                    if session.phase == .replying { ProgressView().controlSize(.mini) }
-                    Text(session.phase == .replying ? "正在回答" : "回答")
-                    Spacer(minLength: 0)
-                }.font(.caption).foregroundStyle(.secondary)
-                if let message = session.error ?? speech.error {
-                    Text(message).font(.caption).foregroundStyle(.orange)
+        if !session.reply.isEmpty {
+            Button { session.toggleSpeech() } label: {
+                Image(systemName: speech.status == .stopped ? "play.fill" : "stop.fill")
+            }
+            .accessibilityLabel(speech.status == .stopped ? "播放回答" : "停止播放")
+        }
+    }
+}
+
+private struct ConversationContent: View {
+    @ObservedObject var session: VoiceSession
+    @ObservedObject var speech: SpeechPlayback
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if !session.transcript.isEmpty {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("你说的话").font(.caption).foregroundStyle(.secondary)
+                                Text(session.transcript).font(.body).lineSpacing(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }.id("transcript")
+                        }
+                        if session.reply.isEmpty && session.busy {
+                            Label {
+                                Text(session.phase == .transcribing ? "正在识别" : "正在思考")
+                            } icon: { ProgressView().controlSize(.small).frame(width: 14, height: 14) }
+                            .font(.caption).foregroundStyle(.secondary)
+                        } else if !session.reply.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Divider()
+                                HStack(spacing: 5) {
+                                    if session.phase == .replying { ProgressView().controlSize(.mini).frame(width: 12, height: 12) }
+                                    Text(session.phase == .replying ? "正在回答" : "回答")
+                                }.font(.caption).foregroundStyle(.secondary)
+                                ForEach(Array(session.reply.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
+                                    if line.isEmpty { Color.clear.frame(height: 2) }
+                                    else {
+                                        Text(.init(line)).font(.body).lineSpacing(3)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                            }
+                            .frame(minHeight: geometry.size.height - 12, alignment: .topLeading)
+                            .id("answer")
+                        }
+                        if let message = session.error ?? speech.error {
+                            Text(message).font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4).padding(.bottom, 12)
                 }
-                // Inline Markdown per line keeps paragraph breaks and lists readable.
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(session.reply.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
-                        if line.isEmpty { Color.clear.frame(height: 2) }
-                        else { Text(.init(line)).font(.body).lineSpacing(3).frame(maxWidth: .infinity, alignment: .leading) }
+                // Move the original utterance above the viewport once, then let the crown
+                // control reading. Do not chase each delta or hide the utterance.
+                .onChange(of: session.reply.isEmpty) { empty in
+                    guard !empty else { return }
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                        proxy.scrollTo("answer", anchor: .top)
                     }
                 }
-                if speech.status != .stopped {
-                    Label(speech.status == .preparing ? "准备语音" : "正在播放", systemImage: "speaker.wave.2")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Divider()
-                Button { showTranscript.toggle() } label: {
-                    HStack {
-                        Text("你说的话")
-                        Spacer()
-                        Image(systemName: showTranscript ? "chevron.up" : "chevron.down")
-                    }.font(.caption).foregroundStyle(.secondary).frame(minHeight: 32)
-                }.buttonStyle(.plain)
-                if showTranscript {
-                    Text(session.transcript).font(.callout).foregroundStyle(.secondary)
-                }
-            }.padding(.horizontal, 8).padding(.bottom, 8)
+            }
         }
-    }
-}
-
-private struct ReplyControls: View {
-    @ObservedObject var session: VoiceSession
-    @ObservedObject var speech: SpeechPlayback
-    var body: some View {
-        HStack(spacing: 6) {
-            Button(speech.status == .stopped ? "播放" : "停止", systemImage: speech.status == .stopped ? "play.fill" : "stop.fill") { session.toggleSpeech() }
-            Button("再说", systemImage: "mic.fill") { session.startRecording() }
-        }.font(.caption).buttonStyle(.bordered).frame(minHeight: 44)
     }
 }
