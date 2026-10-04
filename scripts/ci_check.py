@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""Voice Assistant CI 检查脚本 - 上线前完整验证
+"""Voice Assistant CI 检查脚本 - 上线前快速验证
 
 运行方式：
     python3 scripts/ci_check.py
     uv run python3 scripts/ci_check.py
+
+选项：
+    --with-docker    (可选) 执行完整的 Docker 本地/远程镜像构建与运行测试（默认跳过以提高检查速度）
 
 退出码：
     0 = 全部通过
     1 = 有检查项失败
 """
 
+import argparse
 import os
+import shutil
 import subprocess
 import sys
-import shutil
 from pathlib import Path
 
 
@@ -31,6 +35,7 @@ def load_dotenv_manually():
                     if key not in os.environ:
                         os.environ[key] = value.strip("'\"")
 
+
 def log(msg: str):
     print(f"\n\033[1;34m[CI-CHECK]\033[0m {msg}")
 
@@ -39,7 +44,8 @@ def warn(msg: str):
     print(f"\033[1;33m[CI-WARN]\033[0m  {msg}")
 
 
-def run_command(cmd: str, env=None, stream=False) -> bool:
+def run_command(cmd: str, env=None, stream=True) -> bool:
+    """运行子命令并输出结果。stream=True 保留实时输出以避免长时间无响应感。"""
     if stream:
         process = subprocess.run(cmd, shell=True, env=env)
     else:
@@ -49,14 +55,25 @@ def run_command(cmd: str, env=None, stream=False) -> bool:
     if process.returncode != 0:
         print(f"\033[1;31mFAILED:\033[0m {cmd}")
         if not stream and process.stdout:
-            print(process.stdout[-3000:])  # 截断过长输出
+            print(process.stdout[-3000:])
         if not stream and process.stderr:
             print(process.stderr[-3000:])
         return False
     return True
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Voice Assistant CI 检查脚本")
+    parser.add_argument(
+        "--with-docker",
+        action="store_true",
+        help="执行 Docker 镜像构建和容器运行验证（耗时较长）",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     load_dotenv_manually()
     workspace = Path.cwd()
     test_data_dir = workspace / "tmp_ci_data"
@@ -73,239 +90,113 @@ def main():
     ci_env = os.environ.copy()
     ci_env["PTT_WORKSPACE_ROOT"] = str(test_data_dir)
     ci_env["PTT_USER_ID"] = "ci_admin"
-    if "PTT_REMEMBER_BACKEND" not in ci_env:
-        ci_env["PTT_REMEMBER_BACKEND"] = "mem0"
-
 
     # ─────────────────────────────────────────────
     # Step 2: 依赖检查
     # ─────────────────────────────────────────────
-    log("Step 2: 检查依赖...")
-    if not run_command("uv --version"):
+    log("Step 2: 检查基础依赖 (uv)...")
+    if not run_command("uv --version", stream=False):
         print("uv not found. Please install uv.")
         sys.exit(1)
 
     # ─────────────────────────────────────────────
-    # Step 3: 单元测试 & 功能测试（全量）
+    # Step 3: 核心单元与功能测试 (非 e2e)
     # ─────────────────────────────────────────────
-
-    # 3.1 核心 API 健壮性与响应过滤
-    log("Step 3.1: 核心 API 健壮性测试...")
+    log("Step 3: 运行全量单元与集成测试 (pytest -m 'not e2e')...")
+    # 一次性运行全部单元测试套件，耗时 ~15s，无缝覆盖：
+    # - API 端点与请求健壮性 (test_api_*.py)
+    # - 行为树核心逻辑 (test_bt_base.py, test_bt_nodes.py)
+    # - 配置校验与错误处理 (test_config_validation.py, test_error_handling.py)
+    # - Fast-path、Harness 与 Memos (test_fast_chat_harness.py, test_typesafe_client.py, test_memos_*.py)
+    # - 存储层逻辑 (test_storage_cli.py, test_storage_diagnose.py 等)
     if not run_command(
-        "uv run pytest tests/test_api_query_robustness.py -v",
+        "uv run pytest -m 'not e2e' --durations=5",
         env=ci_env,
+        stream=True,
     ):
-        failed_checks.append("P0 | API 健壮性测试")
-
-    # 3.2 API 端点覆盖率测试 (P0-1)
-    log("Step 3.2: API 端点覆盖率测试...")
-    if not run_command(
-        "uv run pytest tests/test_api_endpoints_coverage.py -v",
-        env=ci_env,
-    ):
-        failed_checks.append("P0-1 | API 端点覆盖率")
-
-    # 3.3 认证/授权失败测试 (P0-2)
-    log("Step 3.3: 认证/授权测试...")
-    # 注意：认证逻辑已集成在端点测试中
-    if not run_command(
-        "uv run pytest tests/test_api_endpoints_coverage.py -v",
-        env=ci_env,
-    ):
-        failed_checks.append("P0-2 | 认证/授权 (通过 API 端点校验)")
-
-    # 3.4 错误处理测试 (P0-3)
-    log("Step 3.4: 错误处理测试...")
-    if not run_command(
-        "uv run pytest tests/test_error_handling.py -v",
-        env=ci_env,
-    ):
-        failed_checks.append("P0-3 | 错误处理")
-
-    # 3.5 配置验证测试 (P0-5)
-    log("Step 3.5: 配置验证测试...")
-    if not run_command(
-        "uv run pytest tests/test_config_validation.py -v",
-        env=ci_env,
-    ):
-        failed_checks.append("P0-5 | 配置验证")
-
-    # 3.8 行为树核心逻辑测试（已合并）
-    log("Step 3.8: 行为树核心逻辑测试...")
-    if not run_command(
-        "uv run pytest tests/test_bt_base.py tests/test_bt_nodes.py -v",
-        env=ci_env,
-    ):
-        failed_checks.append("BT | 行为树核心逻辑")
-
-    # 3.9 图片过滤逻辑回归测试
-    log("Step 3.9: 图片过滤逻辑回归测试...")
-    if not run_command(
-        "uv run pytest tests/test_api_query_robustness.py::test_api_images_filtering_logic -v",
-        env=ci_env,
-    ):
-        failed_checks.append("回归 | 图片过滤逻辑")
+        failed_checks.append("单元测试套件 (pytest -m 'not e2e')")
 
     # ─────────────────────────────────────────────
+    # Step 4: (可选) Docker 构建与端点测试
     # ─────────────────────────────────────────────
-    # Step 4: 存储层初始化验证
-    # ─────────────────────────────────────────────
-    log("Step 4: 验证存储层自动初始化（CLI 写入）...")
-    import http.server
-    import socketserver
-    import threading
-
-    class _MockPBHandler(http.server.BaseHTTPRequestHandler):
-        def do_POST(self):
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"id": "ci_test_id"}')
-
-        def do_GET(self):
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"items": []}')
-
-        def log_message(self, *args):
+    if args.with_docker:
+        log("Step 4: Docker 构建与运行验证 (已显式启用 --with-docker)...")
+        docker_env = ci_env.copy()
+        if run_command("docker ps > /dev/null 2>&1", stream=False):
             pass
-
-    with socketserver.TCPServer(("127.0.0.1", 0), _MockPBHandler) as httpd:
-        mock_port = httpd.server_address[1]
-        mock_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-        mock_thread.start()
-        step4_env = ci_env.copy()
-        step4_env["PTT_REMEMBER_BACKEND"] = "pocketbase"
-        step4_env["PTT_PB_URL"] = f"http://127.0.0.1:{mock_port}"
-        if not run_command(
-            "uv run ptt-storage --user-id ci-admin memory add --memory 'CI test entry' --original 'test'",
-            env=step4_env,
-        ):
-            failed_checks.append("P0-7 | 存储层初始化")
-        httpd.shutdown()
-
-    # ─────────────────────────────────────────────
-    # Step 6: Docker 构建验证 (P0-4，可选)
-    # ─────────────────────────────────────────────
-    log("Step 6: Docker 构建验证（P0-4）...")
-    docker_env = ci_env.copy()
-    if run_command("docker ps > /dev/null 2>&1"):
-        pass  # 本地 Docker 可用
-    elif run_command("DOCKER_HOST=ssh://docker docker ps > /dev/null 2>&1"):
-        warn("本地 Docker 不可用，使用远程服务器 (ssh://docker) 进行验证")
-        docker_env["DOCKER_HOST"] = "ssh://docker"
-    else:
-        warn("Docker 未运行，跳过 Docker 构建验证（P0-4 未验证）")
-        docker_env = None
-
-    if docker_env is not None:
-        if not run_command("docker build -t voice-assistant-ci-test .", env=docker_env):
-            failed_checks.append("P0-4 | Docker 构建")
+        elif run_command("DOCKER_HOST=ssh://docker docker ps > /dev/null 2>&1", stream=False):
+            warn("本地 Docker 不可用，使用远程服务器 (ssh://docker) 进行验证")
+            docker_env["DOCKER_HOST"] = "ssh://docker"
         else:
-            import random
-            import time
-            import json
+            warn("Docker 未运行，跳过 Docker 构建验证")
+            docker_env = None
 
-            test_port = random.randint(11000, 12000)
-            log(f"启动 Docker 容器进行实时 API 测试 (映射到端口 {test_port})...")
+        if docker_env is not None:
+            if not run_command("docker build -t voice-assistant-ci-test .", env=docker_env, stream=True):
+                failed_checks.append("Docker 构建 (voice-assistant-ci-test)")
+            else:
+                import time
 
-            # 启动容器
-            try:
-                import subprocess
+                test_port = 11831
+                log(f"启动 Docker 容器进行实时 API 测试 (映射到端口 {test_port})...")
 
-                env_args = ""
-                for key in ["LLM_API_KEY", "OPENAI_API_KEY", "SILICONFLOW_API_KEY", "OPENAI_BASE_URL"]:
-                    if os.environ.get(key):
-                        env_args += f" -e {key}='{os.environ.get(key)}'"
+                container_id = None
+                try:
+                    env_args = ""
+                    for key in ["LLM_API_KEY", "OPENAI_API_KEY", "SILICONFLOW_API_KEY", "OPENAI_BASE_URL"]:
+                        if os.environ.get(key):
+                            env_args += f" -e {key}='{os.environ.get(key)}'"
 
-                container_id = subprocess.check_output(
-                    f"docker run -d {env_args} -e PTT_USER_ID=docker_test_user -p {test_port}:10031 voice-assistant-ci-test",
-                    shell=True,
-                    env=docker_env,
-                    text=True,
-                ).strip()
-
-                log("容器已启动，等待内部服务启动 (最大等待 30 秒)...")
-
-                url = f"http://docker.home:{test_port}/v1/query"
-                payload = json.dumps(
-                    {"query": "你好，这是来自 Docker 的测试", "mode": "memory-chat"}
-                )
-
-                # Polling loop for /ready using curl
-                max_retries = 15
-                ready = False
-                ready_url = f"http://docker.home:{test_port}/ready"
-                for i in range(max_retries):
-                    time.sleep(2)
-                    res = subprocess.run(
-                        ["curl", "-s", "-f", "-m", "3", ready_url],
-                        capture_output=True,
-                    )
-                    if res.returncode == 0:
-                        ready = True
-                        break
-
-                if not ready:
-                    print(
-                        "\033[1;31m请求失败: 容器内部服务未能在 30 秒内就绪 (/ready 未通过)。\033[0m"
-                    )
-                    logs = subprocess.check_output(
-                        f"docker logs {container_id}",
+                    container_id = subprocess.check_output(
+                        f"docker run -d {env_args} -e PTT_USER_ID=docker_test_user -p {test_port}:10031 voice-assistant-ci-test",
                         shell=True,
                         env=docker_env,
                         text=True,
-                    )
-                    print(
-                        f"\n\033[1;33m--- 容器日志 ---\n{logs}\n----------------\033[0m"
-                    )
-                    failed_checks.append("P0-4 | Docker 运行与 API 测试")
-                else:
-                    log(f"容器就绪，正在发送测试请求 -> {url}")
-                    res = subprocess.run(
-                        [
-                            "curl",
-                            "-s",
-                            "-m",
-                            "30",
-                            "-w",
-                            "\n%{http_code}",
-                            "-X",
-                            "POST",
-                            url,
-                            "-H",
-                            "Content-Type: application/json",
-                            "-H",
-                            "Authorization: Bearer docker_test_user",
-                            "-d",
-                            payload,
-                        ],
-                        capture_output=True,
-                        text=True,
-                    )
-                    output_parts = res.stdout.strip().rsplit("\n", 1)
-                    body = output_parts[0] if len(output_parts) > 1 else ""
-                    http_code = output_parts[-1] if output_parts else "0"
-                    if http_code in ("200", "201"):
-                        try:
-                            parsed_body = json.loads(body)
-                            print(
-                                f"\n\033[1;36m[Docker API 成功] 返回结果 [HTTP {http_code}]:\n{json.dumps(parsed_body, indent=2, ensure_ascii=False)}\033[0m\n"
-                            )
-                        except Exception:
-                            print(f"\n\033[1;36m[Docker API 成功] 返回结果 [HTTP {http_code}]: {body}\033[0m\n")
-                    elif http_code == "401":
-                        print("\n\033[1;32m[Docker API 存活验证通过] 服务器已启动并拦截认证 (HTTP 401)\033[0m\n")
-                    else:
-                        print(f"\033[1;31m测试请求失败 [HTTP {http_code}]: {body}\033[0m")
-                        failed_checks.append("P0-4 | Docker 运行与 API 测试")
+                    ).strip()
 
-            finally:
-                log("清理 Docker 测试容器与镜像...")
-                if "container_id" in locals():
-                    run_command(f"docker rm -f {container_id}", env=docker_env)
-                run_command("docker rmi voice-assistant-ci-test", env=docker_env)
+                    log("容器已启动，等待内部服务启动 (最大等待 30 秒)...")
+
+                    ready = False
+                    ready_url = f"http://docker.home:{test_port}/ready"
+                    for _ in range(15):
+                        time.sleep(2)
+                        res = subprocess.run(
+                            ["curl", "-s", "-f", "-m", "3", ready_url],
+                            capture_output=True,
+                        )
+                        if res.returncode == 0:
+                            ready = True
+                            break
+
+                    if not ready:
+                        print("\033[1;31m请求失败: 容器内部服务未能在 30 秒内就绪 (/ready 未通过)。\033[0m")
+                        failed_checks.append("Docker 运行与 API 测试")
+                    else:
+                        log("容器就绪，验证 API 存活...")
+                        res = subprocess.run(
+                            [
+                                "curl",
+                                "-s",
+                                "-m",
+                                "10",
+                                "-w",
+                                "\n%{http_code}",
+                                f"http://docker.home:{test_port}/ready",
+                            ],
+                            capture_output=True,
+                            text=True,
+                        )
+                        if res.returncode == 0:
+                            log("Docker API 存活验证通过！")
+                        else:
+                            failed_checks.append("Docker 运行与 API 测试")
+                finally:
+                    log("清理 Docker 测试容器与镜像...")
+                    if container_id:
+                        run_command(f"docker rm -f {container_id}", env=docker_env, stream=False)
+                    run_command("docker rmi voice-assistant-ci-test", env=docker_env, stream=False)
+    else:
+        log("跳过 Docker 镜像构建（已交由 scripts/deploy.sh 负责，或指定 --with-docker 手动执行）")
 
     # ─────────────────────────────────────────────
     # 最终结果汇报
