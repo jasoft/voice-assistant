@@ -40,6 +40,18 @@ final class VoiceSession: ObservableObject {
             ask()
             return
         }
+        if !didUseTestLaunch, let index = args.firstIndex(of: "--test-audio"), args.indices.contains(index + 1) {
+            didUseTestLaunch = true
+            reset()
+            let source = URL(fileURLWithPath: args[index + 1])
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent("watch-replay-\(UUID()).wav")
+            do {
+                try FileManager.default.copyItem(at: source, to: copy)
+                recordingFile = copy
+                transcribe()
+            } catch { fail("测试录音无法读取") }
+            return
+        }
         if !didUseTestLaunch, args.contains("--test-idle") { didUseTestLaunch = true; return }
         #endif
         startRecording()
@@ -104,7 +116,8 @@ final class VoiceSession: ObservableObject {
                 ask()
             } catch {
                 guard !Task.isCancelled, generation == id else { return }
-                fail("识别失败，可重试或重新说")
+                logger.error("transcribe_failed: \(error.localizedDescription, privacy: .public)")
+                fail("识别失败：\(error.localizedDescription)")
             }
         }
     }

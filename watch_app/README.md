@@ -83,6 +83,6 @@ swiftc watch_app/WatchApp/Sources/SpeechTextBuffer.swift watch_app/Tests/SpeechT
 /tmp/watch-speech-tests
 ```
 
-夹具还支持“中断测试”“等待测试”。事件时间写入 `/tmp/va-watch-simulator-events.jsonl`，Watch 日志的 `text_first_delta`、`tts_request`、`audio_first_pcm`、`text_done` 可验证提前合成和提前播放。夹具不写个人备忘/会话历史。
+夹具还支持“中断测试”“等待测试”，启动时加载 `.env` 中的真实 STT 配置，因此可识别麦克风录音；聊天和语音播放仍是测试替身。测试结束后应终止测试进程并不带 `VA_TEST_*` 覆盖重新启动 Watch，让用户使用正式服务。事件时间写入 `/tmp/va-watch-simulator-events.jsonl`，Watch 日志的 `text_first_delta`、`tts_request`、`audio_first_pcm`、`text_done` 可验证提前合成和提前播放。夹具不写个人备忘/会话历史。
 
-模拟器测试参数仅 Debug 可用：`--test-query` 绕过麦克风，仍运行实际网络/显示/播报流程；`--test-idle` 检查待机页；`VA_TEST_LARGE_TEXT=1` 检查大字体。Release 不含这些覆盖。未传测试参数时按正式启动流程自动录音。实际触觉手感和抬腕行为仍需真机确认。
+模拟器测试参数仅 Debug 可用：`--test-query` 绕过麦克风，仍运行实际网络/显示/播报流程；`--test-audio <WAV绝对路径>` 重放真实录音，仍运行上传/识别/问答，复制原文件后处理；`--test-idle` 检查待机页；`VA_TEST_LARGE_TEXT=1` 检查大字体。Release 不含这些覆盖。未传测试参数时按正式启动流程自动录音。实际触觉手感和抬腕行为仍需真机确认。
