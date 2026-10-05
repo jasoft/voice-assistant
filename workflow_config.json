@@ -242,7 +242,7 @@
     "access_token": "memos_pat_voice_assistant_lan_2026",
     "visibility": "PRIVATE",
     "tag": "voice",
-    "query_timeout_seconds": 1.5
+    "query_timeout_seconds": 5.0
   },
   "mem0": {
     "user_id": "soj",

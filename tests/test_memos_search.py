@@ -23,7 +23,7 @@ def test_cel_query_uses_short_timeout():
     client.list_memos = spy_list  # type: ignore[method-assign]
     _search_memos_cel(client, ["护照"])
     assert calls, "expected at least one list_memos call"
-    assert all(t is not None and t <= 1.5 for t in calls)
+    assert all(t is not None and t <= 5.0 for t in calls)
 
 
 def test_cel_query_builds_filter_from_all_keywords():
