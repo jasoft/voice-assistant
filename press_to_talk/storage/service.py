@@ -177,7 +177,7 @@ def load_storage_config(
         ).strip(),
         memos_base_url=env_str(
             "MEMOS_BASE_URL",
-            env_str("MEMOS_API_URL", str(memos_cfg.get("base_url", "http://ds.home:5230"))),
+            env_str("MEMOS_API_URL", str(memos_cfg.get("base_url", "http://docker.home:5230"))),
         ).strip(),
         memos_token=env_str(
             "MEMOS_TOKEN",
@@ -515,7 +515,7 @@ class StorageService:
                 report["history"] = {"status": "error", "error": str(exc)}
 
         if self.config.backend == "memos":
-            memos_url = (self.config.memos_base_url or "http://ds.home:5230").rstrip("/")
+            memos_url = (self.config.memos_base_url or "http://docker.home:5230").rstrip("/")
             report["memos"] = {"url": memos_url, "status": "unknown"}
             try:
                 headers = {}

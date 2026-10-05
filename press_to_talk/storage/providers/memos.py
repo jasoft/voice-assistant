@@ -17,7 +17,7 @@ class MemosClient:
     def __init__(
         self,
         *,
-        base_url: str = "http://ds.home:5230",
+        base_url: str = "http://docker.home:5230",
         token: str = "memos_pat_voice_assistant_lan_2026",
         timeout: float = 15.0,
     ) -> None:
@@ -186,7 +186,7 @@ class MemosRememberStore(BaseRememberStore):
             getattr(config, "memos_base_url", "")
             or os.environ.get("MEMOS_BASE_URL")
             or os.environ.get("MEMOS_API_URL")
-            or "http://ds.home:5230"
+            or "http://docker.home:5230"
         )
         token = (
             getattr(config, "memos_token", "")

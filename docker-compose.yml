@@ -44,7 +44,7 @@ services:
       DSH_PERMISSION_MODE: danger-full-access
       MEM0_REQUEST_TIMEOUT_SECONDS: "3"
       MEMOS_REQUEST_TIMEOUT_SECONDS: "15"
-      MEMOS_BASE_URL: http://ds.home:5230
+      MEMOS_BASE_URL: http://docker.home:5230
       MEMOS_TOKEN: memos_pat_voice_assistant_lan_2026
       REMINDER_API_URL: http://voice-assistant:10031
       PTT_API_KEY: ${PTT_API_KEY}

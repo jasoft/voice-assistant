@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 
 
-DEFAULT_BASE_URL = "http://ds.home:5230"
+DEFAULT_BASE_URL = "http://docker.home:5230"
 DEFAULT_API_KEY = "memos_pat_voice_assistant_lan_2026"
 DEFAULT_TIMEOUT_SECONDS = 15.0
 

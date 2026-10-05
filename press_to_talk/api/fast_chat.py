@@ -322,7 +322,7 @@ def _build_memos_client() -> MemosClient:
         os.environ.get("MEMOS_BASE_URL")
         or os.environ.get("MEMOS_API_URL")
         or cfg.get("base_url")
-        or "http://ds.home:5230"
+        or "http://docker.home:5230"
     )
     token = (
         os.environ.get("MEMOS_TOKEN")

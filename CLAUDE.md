@@ -32,7 +32,7 @@ The assistant follows a linear pipeline:
 - `data/`: Local storage for logs and cache.
 
 ### Memory System
-The project's memory read/write chain is backed by **Memos**（自托管 REST，`scripts/memo_api.py` 与 fast-path 直连 `ds.home:5230`）。`storage.provider` 下还保留两个 legacy 后端：
+The project's memory read/write chain is backed by **Memos**（自托管 REST，`scripts/memo_api.py` 与 fast-path 直连 `docker.home:5230`）。`storage.provider` 下还保留两个 legacy 后端：
 1. **`pocketbase`**: Legacy local/remote backend for memory and history.
 2. **`mem0`**: Legacy external memory service（`/v1/memories` 遗留接口仍读取，可逐步剥离）。
 

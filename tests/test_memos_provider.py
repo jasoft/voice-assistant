@@ -22,11 +22,11 @@ def test_strip_tags_and_voice_prefix():
 
 
 def test_memos_client_headers():
-    client = MemosClient(base_url="http://ds.home:5230", token="test_token_123")
+    client = MemosClient(base_url="http://docker.home:5230", token="test_token_123")
     headers = client.headers
     assert headers["Authorization"] == "Bearer test_token_123"
     assert headers["Content-Type"] == "application/json"
-    assert client.base_url == "http://ds.home:5230"
+    assert client.base_url == "http://docker.home:5230"
 
 
 def test_memos_remember_store_add():
@@ -116,16 +116,16 @@ def test_memos_summary_extractor():
 
 def test_storage_service_memos_integration(monkeypatch):
     monkeypatch.setenv("PTT_REMEMBER_BACKEND", "memos")
-    monkeypatch.setenv("MEMOS_BASE_URL", "http://ds.home:5230")
+    monkeypatch.setenv("MEMOS_BASE_URL", "http://docker.home:5230")
     monkeypatch.setenv("MEMOS_TOKEN", "test_token")
 
     cfg = load_storage_config()
     assert cfg.backend == "memos"
-    assert cfg.memos_base_url == "http://ds.home:5230"
+    assert cfg.memos_base_url == "http://docker.home:5230"
     assert cfg.memos_token == "test_token"
 
     svc = StorageService(cfg)
     store = svc.remember_store()
     assert isinstance(store, MemosRememberStore)
-    assert store.client.base_url == "http://ds.home:5230"
+    assert store.client.base_url == "http://docker.home:5230"
     assert store.client.token == "test_token"

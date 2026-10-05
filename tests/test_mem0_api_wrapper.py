@@ -53,7 +53,7 @@ def test_add_uses_original_text_and_scoped_user(
     _main(["add", "--text", "记住钥匙在白柜子"])
 
     url, payload, headers, method = captured_request[0]
-    assert url == "http://ds.home:5230/api/v1/memos"
+    assert url == "http://docker.home:5230/api/v1/memos"
     assert method == "POST"
     assert payload is not None
     assert payload["content"] == "记住钥匙在白柜子\n\n#voice"
@@ -70,7 +70,7 @@ def test_search_filters_by_fixed_user(
     _main(["search", "--query", "钥匙在哪里", "--limit", "5"])
 
     url, payload, _, method = captured_request[0]
-    assert url.startswith("http://ds.home:5230/api/v1/memos?")
+    assert url.startswith("http://docker.home:5230/api/v1/memos?")
     assert method == "GET"
     assert "filter=" in url
 
@@ -81,7 +81,7 @@ def test_list_pages_within_scope(
     _main(["list", "--page", "2", "--page-size", "50"])
 
     url, payload, _headers, method = captured_request[0]
-    assert url.startswith("http://ds.home:5230/api/v1/memos?")
+    assert url.startswith("http://docker.home:5230/api/v1/memos?")
     assert method == "GET"
     assert "pageSize=50" in url
     assert payload is None
@@ -94,7 +94,7 @@ def test_delete_uses_memory_id_and_delete_method(
     _main(["delete", "--id", "memos/memory-123"])
 
     url, payload, _headers, method = captured_request[0]
-    assert url == "http://ds.home:5230/api/v1/memos/memory-123"
+    assert url == "http://docker.home:5230/api/v1/memos/memory-123"
     assert payload is None
     assert method == "DELETE"
     output = json.loads(capsys.readouterr().out)
