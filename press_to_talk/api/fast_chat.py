@@ -181,7 +181,7 @@ async def _extract_keywords_with_direct_llm(query: str, selection: str = "") -> 
         api_key = os.environ.get("OPENAI_API_KEY") or "sk-1234"
         model = os.environ.get("PTT_MODEL") or "fast"
 
-        client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=3.0)
+        client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=3.5)
         messages = [
             {
                 "role": "system",
@@ -190,13 +190,25 @@ async def _extract_keywords_with_direct_llm(query: str, selection: str = "") -> 
             {"role": "user", "content": prompt},
         ]
         try:
-            resp = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.1,
-                max_tokens=150,
-            )
-            raw = (resp.choices[0].message.content or "").strip()
+            extra_kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "temperature": 0.1,
+                "max_tokens": 300,
+            }
+            try:
+                resp = await client.chat.completions.create(
+                    **extra_kwargs,
+                    extra_body={"thinking": {"type": "disabled"}},
+                )
+            except Exception:
+                resp = await client.chat.completions.create(**extra_kwargs)
+
+            choice_msg = resp.choices[0].message
+            raw = (choice_msg.content or "").strip()
+            if not raw and hasattr(choice_msg, "reasoning_content"):
+                raw = str(getattr(choice_msg, "reasoning_content") or "").strip()
+
             keywords = _parse_keywords_json(raw)
             if keywords:
                 log(f"fast-chat: direct llm({model}) 拆词 -> {keywords}", level="info")
