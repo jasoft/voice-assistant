@@ -89,6 +89,78 @@ def _prompt(template_key: str) -> str:
     return str((cfg.get("prompts", {}).get(template_key) or {}).get("system_prompt", ""))
 
 
+async def _extract_keywords_with_direct_llm(query: str, selection: str = "") -> list[str] | None:
+    """直接调用 fast 模型进行问句拆词，跳过 DSH Agent 轮询。失败返回 None。"""
+    try:
+        from openai import AsyncOpenAI
+
+        query_text = query
+        if selection.strip() and len(query.strip()) <= 15:
+            # 问句极短或含代词时，附带截取的部分选中文本帮助精准提取实体
+            query_text = f"{query} （参考选中文本：{selection[:200]}）"
+
+        prompt = _prompt("harness_keyword_extract")
+        current_time = current_time_with_weekday_text()
+        if not prompt:
+            prompt = (
+                "从下面这句用户问句中提炼 2 到 5 个最核心、最可能命中个人备忘的检索词"
+                "（人名、物品、地点、事件等具体实体）。只返回 JSON："
+                "{\"keywords\":[\"词1\",\"词2\"]}\n\n用户问句：%s" % query_text
+            )
+        else:
+            prompt = (
+                prompt.replace("%%CURRENT_TIME%%", current_time)
+                .replace("${PTT_CURRENT_TIME}", current_time)
+                .replace("%%QUERY%%", query_text)
+            )
+
+        base_url = (os.environ.get("OPENAI_BASE_URL") or "http://cliproxy.docker.home/v1").rstrip("/")
+        api_key = os.environ.get("OPENAI_API_KEY") or "sk-1234"
+        model = os.environ.get("PTT_MODEL") or "fast"
+
+        client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=5.0)
+        messages = [
+            {
+                "role": "system",
+                "content": "你是检索词提炼器。严格按要求只返回合法的 JSON 格式 {\"keywords\": [\"...\"]}，不要输出任何解释、Markdown 代码围栏或其他文字。",
+            },
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            resp = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=150,
+            )
+            raw = (resp.choices[0].message.content or "").strip()
+            keywords = _parse_keywords_json(raw)
+            if keywords:
+                log(f"fast-chat: direct llm({model}) 拆词 -> {keywords}", level="info")
+                return keywords
+        finally:
+            await client.close()
+        return None
+    except Exception as exc:
+        log(f"fast-chat: direct llm 拆词失败 ({exc})，降级到 harness", level="info")
+        return None
+
+
+async def _extract_keywords(query: str, selection: str = "") -> list[str]:
+    """提取关键词：优先走 direct llm (ChatCompletion)，失败则降级到 harness。"""
+    try:
+        kws = await _extract_keywords_with_direct_llm(query, selection=selection)
+        if kws:
+            return kws
+    except Exception as exc:
+        log(f"fast-chat: direct llm 拆词异常: {exc}", level="warn")
+
+    try:
+        return await _extract_keywords_with_harness(query, selection=selection)
+    except TypeError:
+        return await _extract_keywords_with_harness(query)
+
+
 async def _extract_keywords_with_harness(query: str, selection: str = "") -> list[str]:
     """Harness(chat-fast) 拆词：从问句（及可选选中文本上下文）提炼检索关键词。失败返回空列表。"""
     query_text = query
@@ -663,10 +735,7 @@ async def try_fast_memory_chat(
     try:
         stage = "extract_keywords"
         t_kw = time.monotonic()
-        try:
-            keywords = await _extract_keywords_with_harness(query, selection=selection)
-        except TypeError:
-            keywords = await _extract_keywords_with_harness(query)
+        keywords = await _extract_keywords(query, selection=selection)
         elapsed_kw = time.monotonic() - t_kw
         log(f"fast-chat [STAGE: KEYWORDS] in {elapsed_kw:.2f}s: {keywords}", level="info")
 
