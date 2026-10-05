@@ -444,8 +444,8 @@ async def test_query_branch_uses_direct_llm_keywords_when_available():
 
 
 @pytest.mark.anyio
-async def test_query_branch_falls_back_to_harness_when_direct_llm_fails():
-    """当 direct llm 拆词返回 None/空时，平滑回退到 harness 拆词。"""
+async def test_query_branch_falls_back_to_local_rule_when_direct_llm_fails():
+    """当 direct llm 拆词返回 None/空时，直接走本地快速规则兜底，坚决不调 Harness。"""
     fake = _FakeMemos([{"name": "memos/1", "content": "护照在书房柜子"}])
     ts_decision = {
         "intent": "query",
@@ -458,25 +458,17 @@ async def test_query_branch_falls_back_to_harness_when_direct_llm_fails():
         },
     }
 
-    harness_extract_called = False
-
-    async def fake_harness_extract(query: str, selection: str = "") -> list[str]:
-        nonlocal harness_extract_called
-        harness_extract_called = True
-        return ["护照"]
-
     with (
         patch.object(fast_chat, "ask_intent_and_delivery", return_value=ts_decision),
         patch.object(fast_chat, "_build_memos_client", return_value=fake),
         patch.object(fast_chat, "_extract_keywords_with_direct_llm", return_value=None),
-        patch.object(fast_chat, "_extract_keywords_with_harness", side_effect=fake_harness_extract),
         patch.object(fast_chat, "_answer_with_direct_llm", return_value="护照在书房柜子里。"),
     ):
-        result = await fast_chat.try_fast_memory_chat("我的护照在哪里？")
+        result = await fast_chat.try_fast_memory_chat("查询备忘录里我的护照在哪")
 
     assert result is not None
-    assert harness_extract_called is True
-    assert result["debug_info"]["keywords"] == ["护照"]
+    # 本地规则提取出了护照
+    assert "护照" in result["debug_info"]["keywords"]
     assert result["reply"] == "护照在书房柜子里。"
 
 
