@@ -388,7 +388,7 @@ def _search_memos_cel(client: MemosClient, keywords: list[str]) -> list[dict[str
     不再做 fallback 翻页/重试/不可用异常。
     """
     cfg = load_workflow_config().get("memos", {})
-    query_timeout = float(os.environ.get("MEMOS_QUERY_TIMEOUT", cfg.get("query_timeout_seconds", 3.5)))
+    query_timeout = float(os.environ.get("MEMOS_QUERY_TIMEOUT", cfg.get("query_timeout_seconds", 5.0)))
 
     # 排除元词指令，避免用户说“查询备忘录里xxx”时把“备忘录”当作检索关键词
     stop_words = {"备忘", "备忘录", "memo", "memos", "记忆", "记录"}
