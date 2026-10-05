@@ -36,7 +36,11 @@ from ..storage.providers.memos import (
 )
 from ..utils.env import load_workflow_config
 from ..utils.logging import log
-from ..utils.text import current_time_with_weekday_text
+from ..utils.text import (
+    current_time_with_weekday_text,
+    format_local_datetime,
+    parse_query_time_range,
+)
 from ..utils.typesafe import ask_intent_and_delivery
 
 _MAX_SELECTION_CHARS = 20000
@@ -282,7 +286,17 @@ async def _answer_with_harness(query: str, memos: list[dict[str, Any]], selectio
     """Harness(chat-fast) 回答：有匹配备忘则基于备忘回答，有选中文本则作为上下文，无则正常闲聊。"""
     prompt = _prompt("harness_answer")
     current_time = current_time_with_weekday_text()
-    memo_lines = [str(m.get("memory", "")).strip() for m in memos if str(m.get("memory", "")).strip()]
+    memo_lines = []
+    for m in (memos or []):
+        mem_text = str(m.get("memory", "")).strip()
+        if not mem_text:
+            continue
+        created_at = m.get("created_at")
+        if created_at:
+            time_str = format_local_datetime(str(created_at))
+            memo_lines.append(f"- [记录时间: {time_str}] {mem_text}")
+        else:
+            memo_lines.append(f"- {mem_text}")
     memos_block = "\n".join(memo_lines) or "（无相关备忘）"
     selection_block = selection.strip() or "（无选中文本）"
     if not prompt:
@@ -375,7 +389,17 @@ async def _answer_with_direct_llm(
 
         prompt = _prompt("harness_answer")
         current_time = current_time_with_weekday_text()
-        memo_lines = [str(m.get("memory", "")).strip() for m in (memos or []) if str(m.get("memory", "")).strip()]
+        memo_lines = []
+        for m in (memos or []):
+            mem_text = str(m.get("memory", "")).strip()
+            if not mem_text:
+                continue
+            created_at = m.get("created_at")
+            if created_at:
+                time_str = format_local_datetime(str(created_at))
+                memo_lines.append(f"- [记录时间: {time_str}] {mem_text}")
+            else:
+                memo_lines.append(f"- {mem_text}")
         memos_block = "\n".join(memo_lines) or "（无相关备忘）"
         selection_block = selection.strip() or "（无选中文本）"
         if not prompt:
@@ -535,35 +559,77 @@ def _record_memo(client: MemosClient, content: str, original_text: str) -> str:
     return f"✅ 已记入 Memos：{content}"
 
 
-def _search_memos_cel(client: MemosClient, keywords: list[str]) -> list[dict[str, Any]]:
-    """单次 CEL 查询：content.contains('词1') || content.contains('词2')。
+def _search_memos_cel(
+    client: MemosClient,
+    keywords: list[str],
+    time_range: tuple[str, str, list[str]] | tuple[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """单次 CEL 查询：支持时间范围过滤及关键词内容匹配。
 
-    异常/空结果一律视为"无上下文"（返回 []）——新方案里 CEL 失败 = 没有相关备忘 = 继续闲聊，
-    不再做 fallback 翻页/重试/不可用异常。
+    例如：
+    - 纯关键词：content.contains('护照')
+    - 纯时间范围：created_ts >= timestamp('2026-10-03T16:00:00Z') && created_ts < timestamp('2026-10-04T16:00:00Z')
+    - 组合查询：(created_ts >= ...) && (content.contains('手表'))
     """
     cfg = load_workflow_config().get("memos", {})
     query_timeout = float(os.environ.get("MEMOS_QUERY_TIMEOUT", cfg.get("query_timeout_seconds", 5.0)))
 
-    # 排除元词指令，避免用户说“查询备忘录里xxx”时把“备忘录”当作检索关键词
-    stop_words = {"备忘", "备忘录", "memo", "memos", "记忆", "记录"}
+    # 排除元词指令和时间指示词，避免被当作关键词发给 content.contains
+    stop_words = {
+        "备忘", "备忘录", "memo", "memos", "记忆", "记录",
+        "今天", "今日", "昨天", "昨日", "前天", "大前天", "明天",
+        "本周", "这周", "上周", "上一周", "本月", "这个月", "上月", "上个月",
+        "今年", "去年", "最近", "近期", "刚才", "现在", "什么时候", "哪天", "几号", "几月",
+    }
+    if time_range and len(time_range) >= 3 and isinstance(time_range[2], list):
+        for tw in time_range[2]:
+            stop_words.add(tw.lower())
+
+    def _is_time_or_stop_word(w: str) -> bool:
+        low = w.lower()
+        if low in stop_words:
+            return True
+        if any(tw in w for tw in ("今天", "昨天", "前天", "大前天", "本周", "上周", "本月", "上月", "最近", "今年", "去年")):
+            return True
+        if re.search(r"^\d{1,2}月(\d{1,2}[日号])?$", w):
+            return True
+        return False
+
     valid_words = [
         w.strip() for w in keywords
-        if w.strip() and w.strip().lower() not in stop_words and not any(c in w for c in ("'", '"', "\\", "\n", "\r"))
+        if w.strip() and not _is_time_or_stop_word(w.strip()) and not any(c in w for c in ("'", '"', "\\", "\n", "\r"))
     ]
-    # 如果过滤后为空但原始词列表非空（如纯粹询问“备忘录”），则保留原词兜底
-    if not valid_words:
+    # 如果过滤后为空但无时间范围，且原始词列表非空（如纯粹询问“备忘录”），则保留原词兜底
+    if not valid_words and not time_range:
         valid_words = [
             w.strip() for w in keywords
             if w.strip() and not any(c in w for c in ("'", '"', "\\", "\n", "\r"))
         ]
-    if not valid_words:
+
+    # 时间过滤表达式
+    time_filter = ""
+    if time_range:
+        start_iso, end_iso = time_range[0], time_range[1]
+        time_filter = f"created_ts >= timestamp('{start_iso}') && created_ts < timestamp('{end_iso}')"
+
+    if not valid_words and not time_filter:
         return []
 
-    filter_expr = " || ".join(f"content.contains('{w}')" for w in valid_words)
+    if valid_words and time_filter:
+        kw_expr = " || ".join(f"content.contains('{w}')" for w in valid_words)
+        filter_expr = f"({time_filter}) && ({kw_expr})"
+        page_size = 10
+    elif time_filter:
+        filter_expr = time_filter
+        page_size = 20
+    else:
+        filter_expr = " || ".join(f"content.contains('{w}')" for w in valid_words)
+        page_size = 10
+
     log(f"fast-chat: CEL query expr: {filter_expr}", level="info")
     try:
         res = client.list_memos(
-            page_size=10,
+            page_size=page_size,
             filter_expr=filter_expr,
             timeout=query_timeout,
         )
@@ -814,16 +880,17 @@ async def try_fast_memory_chat(
     keywords: list[str] = []
     memos_items: list[dict[str, Any]] = []
     elapsed_kw = elapsed_search = elapsed_ans = 0.0
+    time_range_info = parse_query_time_range(query)
     try:
         stage = "extract_keywords"
         t_kw = time.monotonic()
         keywords = await _extract_keywords(query, selection=selection)
         elapsed_kw = time.monotonic() - t_kw
-        log(f"fast-chat [STAGE: KEYWORDS] in {elapsed_kw:.2f}s: {keywords}", level="info")
+        log(f"fast-chat [STAGE: KEYWORDS] in {elapsed_kw:.2f}s: {keywords} (time_range={time_range_info})", level="info")
 
         stage = "memos_cel_query"
         t_search = time.monotonic()
-        memos_items = await asyncio.to_thread(_search_memos_cel, memos_client, keywords)
+        memos_items = await asyncio.to_thread(_search_memos_cel, memos_client, keywords, time_range_info)
         elapsed_search = time.monotonic() - t_search
         log(
             f"fast-chat [STAGE: CEL_SEARCH] in {elapsed_search:.2f}s, found {len(memos_items)} memos",
@@ -881,6 +948,7 @@ async def try_fast_memory_chat(
             "intent": "query",
             "reasoning": reasoning,
             "keywords": keywords,
+            "time_range": list(time_range_info[:2]) if time_range_info else None,
             "memo_count": len(memos_items),
             "elapsed_s": round(elapsed_total, 2),
             "typesafe_s": round(elapsed_ts, 2),
