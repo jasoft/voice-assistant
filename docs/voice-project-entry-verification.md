@@ -58,17 +58,21 @@
 1. TUI 打开即完整显示语音转交的两轮历史（45 个测试文件 / test_api 9 个）——原工具界面可见；
 2. 在 TUI 键入手动追加："只读统计 tests 目录里以 test_project 开头的测试文件"，工具回答 `2`，会话标题自动更新为"统计 test_project 测试文件数量"；
 3. 语音侧续接同一任务，执行器 resume 同一会话继续——执行器能看到手动追加的轮次（同一原生会话上下文，无分叉）。
+4. 生产实景完整闭环（v0.1.48）：TUI 手动追加"统计 test_project 测试文件"（Codex 答 `2`，标题自动更新）→ 语音续接"说出手动追加那一问的答案" → 任务 `550333e4` 完成，回复"45 个测试文件；以 test_api 开头的约有 9 个。**手动追加那一问的答案是 2**"——执行器与原工具界面共享同一会话上下文，验收通过。
    （ChatGPT 桌面端内嵌 Codex 界面的 AX 读取被系统阻断，无法自动化操作；TUI 与桌面端共用同一 app-server 后端与磁盘线程库，为同一原工具的受支持界面。）
 
 执行中"原工具追加/停止"的边界（实测）：执行器的回合进行期间，原生写者锁使其他界面（含 TUI/桌面端）无法写入同一线程——这是 Codex 原生限制；回合结束（完成/中断）锁即释放，可正常手动续聊。语音侧停止在执行中始终可用（turn/interrupt 实测）。
 
 生产实景复核：TUI 保持打开（持锁）时语音续接该会话，执行器 resume 被原生写者锁拒绝、任务如实报错——据此完善为：resume 冲突先等待重试（3 次 × 10s，期间回报进度），仍占用则转 `waiting` 并注明"请在原工具里手动继续，或关闭该界面后再次语音续接"；用户再次语音追加会自动重新入队。不与原工具抢锁。
 
+waiting 流程已在生产实景验证：TUI 持锁期间语音续接 → 重试 3 次后任务转 `waiting`（note 原文见上）；关闭 TUI 后再次语音续接即重新入队并完成（见上方闭环第 4 条）。实测一次锁释放晚于 30s 重试窗口（TUI 进程退出需要数秒），此时任务保持 waiting，再次语音续接即可恢复——行为符合"不抢锁、如实告知"的设计。
+
 ### 客户端 request_id 接入（网络重试幂等闭环）
 
 - 服务端 `/v1/chat` 可选 `request_id` + followup/stop 请求级幂等键（`action_keys`，同一请求重试不重复追加/不重复触发停止）。
 - 解析模型可从最近任务上下文直接点名 `task_id`（修复"继续刚才那个"只能匹配项目内最新任务的指代缺口），代码校验所有者后使用。
 - Mac GUI（`AppModel.performRemoteQuery` 每次口述生成 UUID → `VAClient.chat(requestID:)`），Release 构建通过。
+- 生产幂等实测（v0.1.48）：同一 request_id 重试"继续那个任务"→ 第二次回复"这条补充要求之前已经转给任务550333e4了，不会重复添加"，followups 未重复；指代选择实测：明确提到"查看 tests 目录测试文件数量那个任务"时正确选中 `550333e4` 而非项目内最新任务。
 - Apple Watch（`VoiceSession.reset()` 每轮口述重新生成、识别重试沿用 → `APIClient.streamChat(requestID:)`），源码语法校验通过；真机安装按既有 install.sh 流程，未实测。
 
 | 修复后终验："只输出 VERSION 文件内容"（prod-final-1） | 任务 `9ece46d1` → 原生会话 `01a11251-67ca…` → completed："0.1.46"；执行器事件回传零错误（此前的 8 条回传失败均来自修复前旧实例日志） |
@@ -78,8 +82,8 @@ Apple Watch 真机与 Mac GUI 未实测（大王休息，不唤醒设备）；�
 ## 部署与推送状态
 
 - 功能提交 `a72f9c2335` 已 fast-forward 合并 main 并推送 origin（`8147d29f..a72f9c23`）。
-- `./scripts/deploy.sh` 在干净 deploy worktree 执行成功：版本 bump 至 v0.1.46，远程 docker.home 容器重建并启动（voice-assistant-1 / memo-web / deepseek-harness 均 Up）。
-- Mac 执行器：launchd agent `com.voice-assistant.project-executor` 已安装（`~/Library/LaunchAgents`）并常驻运行，id=mac-macbookair.home，已配置 `PROJECT_EXECUTOR_SERVER_URL` 于本机 `.env`（含既有 `PTT_API_KEY`，无新增凭据）。执行器代码运行在常驻 worktree `/Users/weiwang/Projects/voice-assistant-executor`（跟随 origin/main；主检出保持只读）；更新方式：`git -C ~/Projects/voice-assistant-executor pull && launchctl kickstart -k gui/$(id -u)/com.voice-assistant.project-executor`。
+- `./scripts/deploy.sh` 在干净 deploy worktree 执行成功：v0.1.46（功能首发）、v0.1.47（task_id 指代 + 客户端 request_id）、v0.1.48（写者锁 waiting 处理），远程 docker.home 容器均重建并正常运行。功能提交：`a72f9c2335`、`cd3519c1d6`、`5e6d1fd38b`，均已合并 main 并推送 origin。
+- Mac 执行器：launchd agent `com.voice-assistant.project-executor` 已安装（`~/Library/LaunchAgents`）并常驻运行，id=mac-macbookair.home，已配置 `PROJECT_EXECUTOR_SERVER_URL` 于本机 `.env`（含既有 `PTT_API_KEY`，无新增凭据）。执行器代码运行在常驻 worktree `/Users/weiwang/Projects/voice-assistant-executor`（跟随 origin/main；主检出保持只读）；更新方式：`git -C ~/Projects/voice-assistant-executor checkout -- uv.lock && git -C ~/Projects/voice-assistant-executor pull && launchctl kickstart -k gui/$(id -u)/com.voice-assistant.project-executor`（uv run 会改写 uv.lock，不先还原会阻断 pull——本次部署实际踩到并已写明）。
 - 生产试运行暴露并修复一处执行器缺陷：`ServerClient.event()` 未透传 `applied_followups`/`requirement_applied`，消费进度事件回传失败（不影响任务完成，但削弱崩溃恢复不重放的保证）；已修复并加回归测试。
 - 生产核验：`/healthy` 返回 v0.1.46；上述生产链路证据均来自真实生产入口。
 
