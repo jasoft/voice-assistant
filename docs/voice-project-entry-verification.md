@@ -58,7 +58,8 @@ Apple Watch 真机与 Mac GUI 未实测（大王休息，不唤醒设备）；�
 
 - 功能提交 `a72f9c2335` 已 fast-forward 合并 main 并推送 origin（`8147d29f..a72f9c23`）。
 - `./scripts/deploy.sh` 在干净 deploy worktree 执行成功：版本 bump 至 v0.1.46，远程 docker.home 容器重建并启动（voice-assistant-1 / memo-web / deepseek-harness 均 Up）。
-- Mac 执行器：launchd agent `com.voice-assistant.project-executor` 已安装（`~/Library/LaunchAgents`）并常驻运行，id=mac-macbookair.home，已配置 `PROJECT_EXECUTOR_SERVER_URL` 于本机 `.env`（含既有 `PTT_API_KEY`，无新增凭据）。
+- Mac 执行器：launchd agent `com.voice-assistant.project-executor` 已安装（`~/Library/LaunchAgents`）并常驻运行，id=mac-macbookair.home，已配置 `PROJECT_EXECUTOR_SERVER_URL` 于本机 `.env`（含既有 `PTT_API_KEY`，无新增凭据）。执行器代码运行在常驻 worktree `/Users/weiwang/Projects/voice-assistant-executor`（跟随 origin/main；主检出保持只读）；更新方式：`git -C ~/Projects/voice-assistant-executor pull && launchctl kickstart -k gui/$(id -u)/com.voice-assistant.project-executor`。
+- 生产试运行暴露并修复一处执行器缺陷：`ServerClient.event()` 未透传 `applied_followups`/`requirement_applied`，消费进度事件回传失败（不影响任务完成，但削弱崩溃恢复不重放的保证）；已修复并加回归测试。
 - 生产核验：`/healthy` 返回 v0.1.46；上述生产链路证据均来自真实生产入口。
 
 ## 边界与未完成项（如实记录）

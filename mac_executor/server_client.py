@@ -49,6 +49,8 @@ class ServerClient:
         result: str | None = None,
         error: str | None = None,
         note: str | None = None,
+        applied_followups: int | None = None,
+        requirement_applied: bool | None = None,
     ) -> dict[str, Any] | None:
         payload = {k: v for k, v in {
             "status": status,
@@ -56,5 +58,7 @@ class ServerClient:
             "result": result,
             "error": error,
             "note": note,
+            "applied_followups": applied_followups,
+            "requirement_applied": requirement_applied,
         }.items() if v is not None}
         return self._post(f"/v1/project-tasks/{task_id}/events", payload)

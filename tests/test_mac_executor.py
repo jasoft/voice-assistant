@@ -167,3 +167,28 @@ def test_build_turn_text_resume_after_completion_only_new_followup():
         "原需求", ["新追加"], applied_followups=0, requirement_applied=True
     )
     assert text == "新追加" and applied == 1
+
+
+def test_server_event_forwards_followup_progress(monkeypatch):
+    # 回归：applied_followups / requirement_applied 必须透传到事件端点
+    from mac_executor.server_client import ServerClient
+
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"ok": True})
+
+    monkeypatch.setattr("mac_executor.server_client.httpx.post", fake_post)
+    client = ServerClient(base_url="http://server", token="t")
+    client.event(
+        "task-1",
+        applied_followups=2,
+        requirement_applied=True,
+    )
+    assert captured["url"].endswith("/v1/project-tasks/task-1/events")
+    assert captured["json"]["applied_followups"] == 2
+    assert captured["json"]["requirement_applied"] is True
+    client.event("task-1", status="completed", requirement_applied=False)
+    assert captured["json"]["requirement_applied"] is False
