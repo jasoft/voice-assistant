@@ -372,11 +372,36 @@ def update_task_event(
     return dict(task)
 
 
-def add_followup(task_id: str, *, user_id: str, text: str, path: Path | None = None) -> dict[str, Any] | None:
+def _seen_action_key(task: dict[str, Any], key: str | None) -> bool:
+    """Request-identity dedup for per-task actions (followup/stop): the same
+    chat request retried by the network must not append twice or toggle twice.
+    Keys are capped so the list cannot grow unbounded."""
+    if not key:
+        return False
+    return key in (task.get("action_keys") or [])
+
+
+def _remember_action_key(task: dict[str, Any], key: str | None) -> None:
+    if not key:
+        return
+    keys = task.setdefault("action_keys", [])
+    keys.append(key)
+    task["action_keys"] = keys[-20:]
+
+
+def add_followup(
+    task_id: str,
+    *,
+    user_id: str,
+    text: str,
+    path: Path | None = None,
+    idempotency_key: str | None = None,
+) -> dict[str, Any] | None:
     """Append an instruction to an existing task. A terminal task is re-queued
     so the executor continues the SAME native session; a running/waiting task
     keeps its status and the executor applies the follow-up after the current
-    turn. Owner mismatch → None (caller maps to 404, don't leak existence)."""
+    turn. Owner mismatch → None (caller maps to 404, don't leak existence).
+    A retried request (same idempotency key) returns the task unchanged."""
     store_path = path or configured_store_path()
     text = str(text).strip()
     if not text:
@@ -386,18 +411,27 @@ def add_followup(task_id: str, *, user_id: str, text: str, path: Path | None = N
         task = next((t for t in data["tasks"] if t.get("id") == task_id), None)
         if task is None or task.get("user_id") != str(user_id):
             return None
+        if _seen_action_key(task, idempotency_key):
+            return dict(task)
         if task.get("status") in TERMINAL_STATUSES:
             task["status"] = "queued"
             task["finished_at"] = None
             task["result"] = None
             task["error"] = None
         task.setdefault("followups", []).append(text)
+        _remember_action_key(task, idempotency_key)
         _touch(task)
         save_tasks(store_path, data)
     return dict(task)
 
 
-def request_stop(task_id: str, *, user_id: str, path: Path | None = None) -> dict[str, Any] | None:
+def request_stop(
+    task_id: str,
+    *,
+    user_id: str,
+    path: Path | None = None,
+    idempotency_key: str | None = None,
+) -> dict[str, Any] | None:
     """Ask to stop a task. Queued tasks are cancelled immediately; running
     tasks get ``stop_requested`` so the executor interrupts the native turn."""
     store_path = path or configured_store_path()
@@ -406,6 +440,8 @@ def request_stop(task_id: str, *, user_id: str, path: Path | None = None) -> dic
         task = next((t for t in data["tasks"] if t.get("id") == task_id), None)
         if task is None or task.get("user_id") != str(user_id):
             return None
+        if _seen_action_key(task, idempotency_key):
+            return dict(task)
         if task.get("status") == "queued":
             task["status"] = "cancelled"
             task["note"] = "任务在开始前被取消"
@@ -415,6 +451,7 @@ def request_stop(task_id: str, *, user_id: str, path: Path | None = None) -> dic
             task["note"] = "已请求停止，等待执行器中断"
         else:
             task["note"] = "任务已结束，无需停止"
+        _remember_action_key(task, idempotency_key)
         _touch(task)
         save_tasks(store_path, data)
     return dict(task)

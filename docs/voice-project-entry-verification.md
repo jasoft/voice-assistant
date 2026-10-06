@@ -51,6 +51,24 @@
 | 未登记项目"淘宝项目"（prod-unknown-1） | 澄清："登记的项目里没有…你是想对哪个已登记项目操作？"，未转交 |
 | 显式 Antigravity（prod-agy-1） | 明确拒绝："Antigravity 执行入口还没有通过原工具列表验收，暂时不能接任务"，未转交、未换工具 |
 | 回归：普通聊天 / 查备忘 / 记录 | intent=chat（直连 LLM）、intent=query（CEL 命中 1 条）、intent=record（写入 Memos）均走原路径 |
+### 原工具真实界面手动追加 → 执行器续接（监督要求的原生界面验收）
+
+在 Codex 原生 TUI（`codex resume <thread_id>`，与桌面端同一线程库的原工具界面，tmux 键入操作）中对生产探针会话 `01a1124b-9442-7c73-9c5d-1318ae9b4713` 操作：
+
+1. TUI 打开即完整显示语音转交的两轮历史（45 个测试文件 / test_api 9 个）——原工具界面可见；
+2. 在 TUI 键入手动追加："只读统计 tests 目录里以 test_project 开头的测试文件"，工具回答 `2`，会话标题自动更新为"统计 test_project 测试文件数量"；
+3. 语音侧续接同一任务，执行器 resume 同一会话继续——执行器能看到手动追加的轮次（同一原生会话上下文，无分叉）。
+   （ChatGPT 桌面端内嵌 Codex 界面的 AX 读取被系统阻断，无法自动化操作；TUI 与桌面端共用同一 app-server 后端与磁盘线程库，为同一原工具的受支持界面。）
+
+执行中"原工具追加/停止"的边界（实测）：执行器的回合进行期间，原生写者锁使其他界面（含 TUI/桌面端）无法写入同一线程——这是 Codex 原生限制；回合结束（完成/中断）锁即释放，可正常手动续聊。语音侧停止在执行中始终可用（turn/interrupt 实测）。
+
+### 客户端 request_id 接入（网络重试幂等闭环）
+
+- 服务端 `/v1/chat` 可选 `request_id` + followup/stop 请求级幂等键（`action_keys`，同一请求重试不重复追加/不重复触发停止）。
+- 解析模型可从最近任务上下文直接点名 `task_id`（修复"继续刚才那个"只能匹配项目内最新任务的指代缺口），代码校验所有者后使用。
+- Mac GUI（`AppModel.performRemoteQuery` 每次口述生成 UUID → `VAClient.chat(requestID:)`），Release 构建通过。
+- Apple Watch（`VoiceSession.reset()` 每轮口述重新生成、识别重试沿用 → `APIClient.streamChat(requestID:)`），源码语法校验通过；真机安装按既有 install.sh 流程，未实测。
+
 | 修复后终验："只输出 VERSION 文件内容"（prod-final-1） | 任务 `9ece46d1` → 原生会话 `01a11251-67ca…` → completed："0.1.46"；执行器事件回传零错误（此前的 8 条回传失败均来自修复前旧实例日志） |
 
 Apple Watch 真机与 Mac GUI 未实测（大王休息，不唤醒设备）；它们走同一 `/v1/chat` 入口，服务端链路已在生产验证。

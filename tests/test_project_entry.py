@@ -238,3 +238,60 @@ def test_chat_request_id_threaded_to_create_task(store_env, monkeypatch):
     assert first["debug_info"]["task_id"] == second["debug_info"]["task_id"]
     assert len(load_tasks(store_env)["tasks"]) == 1
     assert load_tasks(store_env)["tasks"][0]["idempotency_key"] == "chat:soj:req-abc"
+
+
+def test_task_id_selection_uses_referred_task(store_env):
+    """解析模型点名 task_id 时必须选那个任务，而不是项目内最新一条。"""
+    _handle({"action": "new", "project_id": "voice-assistant", "requirement": "查测试文件数量"})
+    _handle({"action": "new", "project_id": "voice-assistant", "requirement": "只输出 VERSION 内容"})
+    tasks = load_tasks(store_env)["tasks"]
+    probe, latest = tasks[0], tasks[1]
+    from press_to_talk.project_tasks import update_task_event, configured_store_path
+
+    for t in tasks:
+        update_task_event(t["id"], status="completed", result=f"done-{t['id'][:4]}", path=configured_store_path())
+    result = _handle({"action": "continue", "task_id": probe["id"], "requirement": "手动追问的答案是什么"})
+    assert result is not None
+    assert result["debug_info"]["task_id"] == probe["id"]
+    assert load_tasks(store_env)["tasks"][0]["followups"] == ["手动追问的答案是什么"]
+    assert load_tasks(store_env)["tasks"][1]["followups"] == []
+
+
+def test_task_id_of_other_user_never_selected(store_env):
+    from press_to_talk.project_tasks import create_task
+
+    foreign = create_task(user_id="alice", project_id="voice-assistant", tool="codex",
+                          requirement="别人的任务", path=store_env)
+    result = _handle({"action": "continue", "task_id": foreign["id"], "requirement": "注入"})
+    # 不是本人的任务：回退到自己最新（无）→ 明确提示
+    assert "没有找到" in result["reply"]
+
+
+def test_followup_request_retry_does_not_duplicate(store_env):
+    _handle({"action": "new", "project_id": "voice-assistant", "requirement": "原需求"})
+    task = load_tasks(store_env)["tasks"][0]
+    first = _handle({"action": "continue", "task_id": task["id"], "requirement": "补充要求"},
+                    request_id="req-followup-1")
+    second = _handle({"action": "continue", "task_id": task["id"], "requirement": "补充要求"},
+                     request_id="req-followup-1")
+    assert "不会重复添加" in second["reply"]
+    assert load_tasks(store_env)["tasks"][0]["followups"] == ["补充要求"]
+    assert first["reply"] != second["reply"]
+    # 新请求（新 request_id）正常追加
+    _handle({"action": "continue", "task_id": task["id"], "requirement": "再补一条"},
+            request_id="req-followup-2")
+    assert load_tasks(store_env)["tasks"][0]["followups"] == ["补充要求", "再补一条"]
+
+
+def test_stop_request_retry_is_idempotent(store_env):
+    _handle({"action": "new", "project_id": "voice-assistant", "requirement": "长任务"})
+    from press_to_talk.project_tasks import claim_next_task, update_task_event, configured_store_path, load_tasks
+
+    task = load_tasks(store_env)["tasks"][0]
+    claim_next_task(executor_id="mac-test", path=configured_store_path())
+    update_task_event(task["id"], status="running", path=configured_store_path())
+    _handle({"action": "stop", "task_id": task["id"]}, request_id="req-stop-1")
+    _handle({"action": "stop", "task_id": task["id"]}, request_id="req-stop-1")
+    stored = load_tasks(store_env)["tasks"][0]
+    assert stored["stop_requested"] is True
+    assert stored.get("action_keys") == ["chat:soj:req-stop-1"]

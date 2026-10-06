@@ -36,7 +36,9 @@ public final class VAClient: Sendable {
     
     /// Send a stateless one-shot request through the dedicated fast chat Agent.
     /// `selectedText` 是窗口激活前捕获的选中文本；提供后后端可走 改写/生成→粘贴 链路。
-    public func chat(text: String, selectedText: String? = nil) async throws -> VAQueryResponse {
+    /// `requestID` 是本次口述的稳定请求身份：同一次口述的重试必须复用同一个 ID，
+    /// 服务端用它对项目任务转交做幂等（网络重试不会重复执行）。
+    public func chat(text: String, selectedText: String? = nil, requestID: String? = nil) async throws -> VAQueryResponse {
         let url = Self.makeChatURL(base: config.serverURL)
 
         var request = URLRequest(url: url)
@@ -48,6 +50,9 @@ public final class VAClient: Sendable {
         var body: [String: Any] = ["query": text]
         if let selectedText, !selectedText.isEmpty {
             body["selected_text"] = selectedText
+        }
+        if let requestID, !requestID.isEmpty {
+            body["request_id"] = requestID
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

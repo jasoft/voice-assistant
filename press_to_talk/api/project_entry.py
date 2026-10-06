@@ -193,6 +193,8 @@ def handle_project_task_result(
     project_id = str(parsed_result.get("project_id") or "").strip() or None
     tool = str(parsed_result.get("tool") or "").strip().lower() or None
     requirement = _requirement_or_none(parsed_result.get("requirement"))
+    # 请求身份：客户端稳定 request_id → 幂等键，new/continue/stop 共用
+    idempotency_key = f"chat:{user_id}:{request_id}" if request_id else None
 
     def _reply(text: str, extra_debug: dict[str, Any] | None = None) -> dict[str, Any]:
         debug_info: dict[str, Any] = {
@@ -254,7 +256,6 @@ def handle_project_task_result(
         # 幂等：以客户端稳定 request_id 为请求身份。同一 request_id 的网络重试
         # （无论间隔多久）都不会重复建任务/重复执行；用户重新发起新请求时客户端
         # 生成新 request_id，即使原话相同也会正常新建。
-        idempotency_key = f"chat:{user_id}:{request_id}" if request_id else None
         task = create_task(
             user_id=user_id,
             project_id=str(project["id"]),
@@ -275,8 +276,24 @@ def handle_project_task_result(
             )
         return _reply(text, {"task_id": task["id"], "project_id": task["project_id"], "tool": used_tool})
 
+    def _resolve_task() -> dict[str, Any] | None:
+        """Resolve the task the user refers to: the parse model picks the
+        task_id from the recent-task context when the utterance names a
+        specific task; otherwise fall back to the user's/project's latest."""
+        referred = str(parsed_result.get("task_id") or "").strip()
+        if referred:
+            from ..project_tasks import get_task
+
+            task = get_task(referred)
+            if task is not None and task.get("user_id") == user_id:
+                if project_id is None or task.get("project_id") == project_id:
+                    return task
+        return latest_task_for_user(user_id, project_id=project_id)
+
+    idempotency_key = f"chat:{user_id}:{request_id}" if request_id else None
+
     if action == "status":
-        task = latest_task_for_user(user_id, project_id=project_id)
+        task = _resolve_task()
         if task is None:
             return _reply("最近没有登记过项目任务。")
         status = str(task.get("status"))
@@ -297,13 +314,19 @@ def handle_project_task_result(
     if action == "continue":
         if not requirement:
             return None
-        task = latest_task_for_user(user_id, project_id=project_id)
+        task = _resolve_task()
         if task is None:
             return _reply("没有找到可以继续的项目任务，先告诉我要处理哪个项目吧。")
-        updated = add_followup(str(task["id"]), user_id=user_id, text=requirement)
+        updated = add_followup(str(task["id"]), user_id=user_id, text=requirement, idempotency_key=idempotency_key)
         if updated is None:
             return _reply("追加要求失败，请稍后再试。")
         status = str(updated.get("status"))
+        if idempotency_key and idempotency_key in (updated.get("action_keys") or []) and len(updated.get("followups") or []) == len(task.get("followups") or []):
+            # 同一请求重试：任务状态原样返回，不重复追加
+            return _reply(
+                f"这条补充要求之前已经转给任务{_short_id(task['id'])}了，不会重复添加。",
+                {"task_id": updated["id"], "status": status, "duplicate_request": True},
+            )
         if status == "queued" and task.get("status") in {"completed", "failed", "cancelled"}:
             text = f"已把补充要求加入任务{_short_id(task['id'])}，会沿用原会话继续处理。"
         else:
@@ -311,10 +334,10 @@ def handle_project_task_result(
         return _reply(text, {"task_id": updated["id"], "project_id": updated["project_id"], "status": status})
 
     if action == "stop":
-        task = latest_task_for_user(user_id, project_id=project_id)
+        task = _resolve_task()
         if task is None:
             return _reply("没有找到进行中的项目任务。")
-        updated = request_stop(str(task["id"]), user_id=user_id)
+        updated = request_stop(str(task["id"]), user_id=user_id, idempotency_key=idempotency_key)
         if updated is None:
             return _reply("停止操作失败，请稍后再试。")
         status = str(updated.get("status"))

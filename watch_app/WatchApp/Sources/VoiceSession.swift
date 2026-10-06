@@ -17,6 +17,8 @@ final class VoiceSession: ObservableObject {
     private var task: Task<Void, Never>?
     private var milestoneHapticTask: Task<Void, Never>?
     private var generation = UUID()
+    /// 本次口述的稳定请求身份：网络重试复用，新一轮口述在 reset() 里重新生成。
+    private var requestID = UUID().uuidString
     private var recordingStarted = Date()
     private var recordingFile: URL?
     private var isStarting = false
@@ -66,6 +68,7 @@ final class VoiceSession: ObservableObject {
 
     private func reset() {
         generation = UUID()
+        requestID = UUID().uuidString
         task?.cancel(); task = nil
         milestoneHapticTask?.cancel(); milestoneHapticTask = nil
         speech.stop()
@@ -130,7 +133,7 @@ final class VoiceSession: ObservableObject {
         let id = generation
         task = Task {
             do {
-                for try await event in api.streamChat(query: transcript, serverBase: AppPrefs.serverURL, apiKey: AppPrefs.apiKey) {
+                for try await event in api.streamChat(query: transcript, serverBase: AppPrefs.serverURL, apiKey: AppPrefs.apiKey, requestID: requestID) {
                     guard !Task.isCancelled, generation == id else { return }
                     switch event {
                     case .delta(let text):

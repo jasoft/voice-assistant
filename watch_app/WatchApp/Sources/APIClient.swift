@@ -32,7 +32,8 @@ enum APIError: LocalizedError {
 
 final class APIClient {
     /// Actual SSE deltas. An EOF without done is an interrupted reply, never success.
-    func streamChat(query: String, serverBase: String, apiKey: String) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+    /// `requestID`：本次口述的稳定请求身份，重试同一口述必须复用（服务端项目任务幂等）。
+    func streamChat(query: String, serverBase: String, apiKey: String, requestID: String?) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -44,7 +45,9 @@ final class APIClient {
                     request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                    request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "stream": true, "response_style": "watch"])
+                    var payload: [String: Any] = ["query": query, "stream": true, "response_style": "watch"]
+                    if let requestID, !requestID.isEmpty { payload["request_id"] = requestID }
+                    request.httpBody = try JSONSerialization.data(withJSONObject: payload)
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else { throw APIError.transport("响应异常") }
                     guard (200..<300).contains(http.statusCode) else {
@@ -101,7 +104,7 @@ final class APIClient {
     }
 
     /// 用识别文本走 /v1/chat 问答，返回回复。
-    func chat(query: String, serverBase: String, apiKey: String) async throws -> String {
+    func chat(query: String, serverBase: String, apiKey: String, requestID: String? = nil) async throws -> String {
         let base = serverBase.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
         guard let endpoint = URL(string: "\(base)/v1/chat") else {
             throw APIError.invalidURL
@@ -111,7 +114,9 @@ final class APIClient {
         request.timeoutInterval = 60
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
+        var payload: [String: Any] = ["query": query]
+        if let requestID, !requestID.isEmpty { payload["request_id"] = requestID }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

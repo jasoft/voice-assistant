@@ -139,9 +139,11 @@ public final class AppModel: ObservableObject {
                 _ = await task.result
             }
             let selectedText = selectionText
+            // 每次口述一个稳定请求身份：网络层重试同一口述时必须复用，服务端据此幂等
+            let requestID = UUID().uuidString
             do {
                 guard let client = vaClient else { return }
-                let response = try await client.chat(text: text, selectedText: selectedText)
+                let response = try await client.chat(text: text, selectedText: selectedText, requestID: requestID)
                 guard !isShuttingDown else { return }
                 applySessionEvent(["type": "reply", "text": response.reply])
                 if response.action == "paste" {

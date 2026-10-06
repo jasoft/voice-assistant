@@ -658,6 +658,11 @@ class ProjectTaskCreateRequest(BaseModel):
 
 class ProjectTaskFollowupRequest(BaseModel):
     text: str = Field(min_length=1, max_length=16000)
+    idempotency_key: Optional[str] = Field(default=None, max_length=200)
+
+
+class ProjectTaskStopRequest(BaseModel):
+    idempotency_key: Optional[str] = Field(default=None, max_length=200)
 
 
 class ProjectTaskClaimRequest(BaseModel):
@@ -748,15 +753,15 @@ async def get_project_task(task_id: str, user_id: str = Depends(get_user_id)):
 
 @app.post("/v1/project-tasks/{task_id}/followup", response_model=ProjectTaskItem, summary="向项目任务追加要求（沿用原会话）")
 async def followup_project_task(task_id: str, req: ProjectTaskFollowupRequest, user_id: str = Depends(get_user_id)):
-    updated = pt_tasks.add_followup(task_id, user_id=user_id, text=req.text)
+    updated = pt_tasks.add_followup(task_id, user_id=user_id, text=req.text, idempotency_key=req.idempotency_key)
     if updated is None:
         raise HTTPException(status_code=404, detail="任务不存在")
     return ProjectTaskItem.from_record(updated)
 
 
 @app.post("/v1/project-tasks/{task_id}/stop", response_model=ProjectTaskItem, summary="请求停止项目任务")
-async def stop_project_task(task_id: str, user_id: str = Depends(get_user_id)):
-    updated = pt_tasks.request_stop(task_id, user_id=user_id)
+async def stop_project_task(task_id: str, req: ProjectTaskStopRequest | None = None, user_id: str = Depends(get_user_id)):
+    updated = pt_tasks.request_stop(task_id, user_id=user_id, idempotency_key=(req.idempotency_key if req else None))
     if updated is None:
         raise HTTPException(status_code=404, detail="任务不存在")
     return ProjectTaskItem.from_record(updated)
