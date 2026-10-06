@@ -51,6 +51,7 @@
 | 未登记项目"淘宝项目"（prod-unknown-1） | 澄清："登记的项目里没有…你是想对哪个已登记项目操作？"，未转交 |
 | 显式 Antigravity（prod-agy-1） | 明确拒绝："Antigravity 执行入口还没有通过原工具列表验收，暂时不能接任务"，未转交、未换工具 |
 | 回归：普通聊天 / 查备忘 / 记录 | intent=chat（直连 LLM）、intent=query（CEL 命中 1 条）、intent=record（写入 Memos）均走原路径 |
+| 修复后终验："只输出 VERSION 文件内容"（prod-final-1） | 任务 `9ece46d1` → 原生会话 `01a11251-67ca…` → completed："0.1.46"；执行器事件回传零错误（此前的 8 条回传失败均来自修复前旧实例日志） |
 
 Apple Watch 真机与 Mac GUI 未实测（大王休息，不唤醒设备）；它们走同一 `/v1/chat` 入口，服务端链路已在生产验证。
 
