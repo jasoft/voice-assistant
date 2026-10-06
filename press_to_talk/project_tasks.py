@@ -413,11 +413,14 @@ def add_followup(
             return None
         if _seen_action_key(task, idempotency_key):
             return dict(task)
-        if task.get("status") in TERMINAL_STATUSES:
+        if task.get("status") in TERMINAL_STATUSES or task.get("status") == "waiting":
+            # 终态任务重新入队沿用原会话；waiting（如原生会话被原工具占用）说明
+            # 用户已再次行动，同样重新入队让执行器重试
             task["status"] = "queued"
             task["finished_at"] = None
             task["result"] = None
             task["error"] = None
+            task["note"] = None
         task.setdefault("followups", []).append(text)
         _remember_action_key(task, idempotency_key)
         _touch(task)

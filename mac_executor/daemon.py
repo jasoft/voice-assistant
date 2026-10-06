@@ -135,11 +135,36 @@ class TaskRunner:
         try:
             client.start()
             if native_session_id:
-                client.resume_thread(str(native_session_id))
                 thread_id = str(native_session_id)
+                # 原生写者锁：会话正被原工具界面占用时 resume 会被拒。等待重试；
+                # 仍占用则转 waiting（需要用户处理：在原工具手动继续，或关闭该
+                # 界面后再语音续接），绝不抢锁。
+                resume_conflict = False
+                for attempt in range(3):
+                    try:
+                        client.resume_thread(thread_id)
+                        resume_conflict = False
+                        break
+                    except CodexClientError as exc:
+                        if "active writer" not in str(exc) or attempt == 2:
+                            resume_conflict = True
+                            break
+                        self._safe_event(
+                            task_id,
+                            note=f"原生会话正被原工具界面占用，第{attempt + 1}次等待重试…",
+                        )
+                        time.sleep(10)
+                if resume_conflict:
+                    client.close()
+                    self._safe_event(
+                        task_id,
+                        status="waiting",
+                        note="原生会话正被原工具界面占用：请在原工具里手动继续，或关闭该界面后再次语音续接",
+                    )
+                    return
             else:
                 thread_id = client.start_thread(cwd)
-            self._safe_event(task_id, native_session_id=thread_id)
+            self._safe_event(task_id, native_session_id=thread_id, note=None)
         except CodexClientError as exc:
             client.close()
             self._safe_event(task_id, status="failed", error=f"Codex 会话建立失败: {exc}")

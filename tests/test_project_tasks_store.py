@@ -157,3 +157,16 @@ def test_fresh_running_task_not_marked_stale(store_path: Path, monkeypatch):
     monkeypatch.setenv("PROJECT_TASK_STALE_RUNNING_SECONDS", "300")
     assert pt.fail_stale_running_tasks(path=store_path) == []
     assert pt.get_task(task["id"], path=store_path)["status"] == "running"
+
+
+def test_followup_requeues_waiting_task(store_path: Path):
+    """waiting（如原生会话被原工具占用）的任务被再次语音追加时应重新入队。"""
+    task = _make_task(store_path)
+    pt.update_task_event(
+        task["id"], status="waiting",
+        note="原生会话正被原工具界面占用", path=store_path,
+    )
+    updated = pt.add_followup(task["id"], user_id="soj", text="再试一次", path=store_path)
+    assert updated["status"] == "queued"
+    assert updated["note"] is None
+    assert updated["followups"] == ["再试一次"]
