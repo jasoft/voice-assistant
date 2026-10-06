@@ -666,6 +666,7 @@ async def try_fast_memory_chat(
     *,
     stream_callback: Any | None = None,
     selected_text: str | None = None,
+    request_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Attempt a fast-path memory operation.
 
@@ -773,6 +774,25 @@ async def try_fast_memory_chat(
     # -- AGENT：复杂任务或需要工具执行，直接交由慢路径 Harness Agent 处理 --
     if intent == "agent":
         log("fast-chat: clef 判定为复杂任务/需要外部工具，直接交由 DSH Agent 状态机处理", level="info")
+        return None
+
+    # -- TASK：项目任务入口（转交/继续/查进度/停止，交给家中 Mac 上的 Codex / Antigravity）--
+    if intent == "task":
+        from .project_entry import handle_project_task_intent
+
+        t_task = time.monotonic()
+        result = await handle_project_task_intent(
+            query,
+            request_id=request_id,
+            typesafe_debug=typesafe_debug,
+            typesafe_s=elapsed_ts,
+        )
+        elapsed_task = time.monotonic() - t_task
+        if result is not None:
+            result.setdefault("debug_info", {})["elapsed_task_s"] = round(elapsed_task, 2)
+            log(f"fast-chat: project task intent handled in {elapsed_task:.2f}s", level="info")
+            return result
+        log("fast-chat: project task 入口未产出结果，回退 Harness Agent", level="info")
         return None
 
     # -- OTHER + PASTE：按"指令 + 可选选中文本"产出内容，调用方回贴 --

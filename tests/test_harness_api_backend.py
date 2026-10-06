@@ -452,7 +452,7 @@ def test_chat_slow_path_preserves_typesafe_debug(monkeypatch) -> None:
     monkeypatch.setattr(api_main, "_history_service_for", lambda _user_id: history_service)
 
     # 模拟 fast_chat 发生并记录了 last_typesafe_debug 后返回 None（触发慢路径）
-    async def fake_fast_chat(query, selected_text=None):
+    async def fake_fast_chat(query, selected_text=None, request_id=None):
         api_main.last_typesafe_debug.set({
             "model": "clef-flash",
             "elapsed_s": 0.45,

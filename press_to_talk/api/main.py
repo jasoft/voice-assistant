@@ -34,6 +34,7 @@ from ..reminders import (
     load_reminder_records,
     save_reminder_records,
 )
+from .. import project_tasks as pt_tasks
 from ..storage.models import SessionHistoryRecord
 from ..storage.providers.mem0 import Mem0RememberStore
 from .fast_chat import last_typesafe_debug, try_fast_memory_chat
@@ -422,6 +423,14 @@ class QueryRequest(BaseModel):
         description="可选的图片附件。若提供，系统会将其持久化并与当前会话关联。空值将被安全忽略。"
     )
     stream: bool = Field(False, description="/v1/chat 返回 SSE：delta、done、error；默认完整 JSON。")
+    request_id: Optional[str] = Field(
+        None,
+        max_length=200,
+        description=(
+            "客户端为本条口述生成的稳定请求 ID（UUID）。网络重试必须复用同一个 ID；"
+            "用户重新发起新请求时生成新 ID。项目任务转交以它做幂等，确保重试不会重复执行。"
+        ),
+    )
     response_style: str | None = Field(None, pattern="^watch$", description="watch：短段落、结论优先，适合手表显示和朗读。")
     selected_text: Optional[str] = Field(
         None,
@@ -635,6 +644,161 @@ async def cancel_reminder(reminder_id: str, user_id: str = Depends(get_user_id))
 
     return ReminderItem(**record)
 
+
+# ---------------------------------------------------------------------------
+# Project tasks: voice-delegated coding tasks for native tools (Codex / Antigravity)
+# ---------------------------------------------------------------------------
+
+class ProjectTaskCreateRequest(BaseModel):
+    project_id: str
+    tool: Optional[str] = None
+    requirement: str = Field(min_length=1, max_length=16000)
+    idempotency_key: Optional[str] = Field(default=None, max_length=200)
+
+
+class ProjectTaskFollowupRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=16000)
+
+
+class ProjectTaskClaimRequest(BaseModel):
+    executor_id: str = Field(min_length=1, max_length=200)
+    tools: Optional[List[str]] = None
+
+
+class ProjectTaskEventRequest(BaseModel):
+    status: Optional[str] = None
+    native_session_id: Optional[str] = None
+    result: Optional[str] = Field(default=None, max_length=60000)
+    error: Optional[str] = Field(default=None, max_length=60000)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    applied_followups: Optional[int] = Field(default=None, ge=0)
+    requirement_applied: Optional[bool] = None
+
+
+class ProjectTaskItem(BaseModel):
+    id: str
+    project_id: str
+    tool: str
+    requirement: str
+    status: str
+    native_session_id: Optional[str] = None
+    result: Optional[str] = None
+    error: Optional[str] = None
+    note: Optional[str] = None
+    followups: List[str] = []
+    stop_requested: bool = False
+    created_at: str
+    updated_at: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+    @classmethod
+    def from_record(cls, record: dict[str, Any]) -> "ProjectTaskItem":
+        return cls(
+            id=str(record.get("id")),
+            project_id=str(record.get("project_id")),
+            tool=str(record.get("tool")),
+            requirement=str(record.get("requirement") or ""),
+            status=str(record.get("status")),
+            native_session_id=record.get("native_session_id"),
+            result=record.get("result"),
+            error=record.get("error"),
+            note=record.get("note"),
+            followups=[str(f) for f in (record.get("followups") or [])],
+            stop_requested=bool(record.get("stop_requested")),
+            created_at=str(record.get("created_at")),
+            updated_at=str(record.get("updated_at")),
+            started_at=record.get("started_at"),
+            finished_at=record.get("finished_at"),
+        )
+
+
+@app.post("/v1/project-tasks", response_model=ProjectTaskItem, status_code=201, summary="登记一个项目任务（转交给 Mac 上的原工具执行）")
+async def create_project_task(req: ProjectTaskCreateRequest, user_id: str = Depends(get_user_id)):
+    project = pt_tasks.resolve_project(req.project_id)
+    if project is None:
+        raise HTTPException(status_code=400, detail="未登记的项目")
+    tool = (req.tool or "").strip().lower() or str(project.get("default_tool") or "codex")
+    if tool not in [str(t) for t in (project.get("tools") or ["codex"])]:
+        raise HTTPException(status_code=400, detail="该项目不支持此工具")
+    task = pt_tasks.create_task(
+        user_id=user_id,
+        project_id=str(project["id"]),
+        tool=tool,
+        requirement=req.requirement,
+        source="api",
+        idempotency_key=(req.idempotency_key or None),
+    )
+    return ProjectTaskItem.from_record(task)
+
+
+@app.get("/v1/project-tasks", response_model=List[ProjectTaskItem], summary="列出当前用户的项目任务")
+async def list_project_tasks(limit: int = 10, user_id: str = Depends(get_user_id)):
+    pt_tasks.fail_stale_running_tasks()
+    return [ProjectTaskItem.from_record(t) for t in pt_tasks.list_tasks_for_user(user_id, limit=limit)]
+
+
+@app.get("/v1/project-tasks/{task_id}", response_model=ProjectTaskItem, summary="查询单个项目任务")
+async def get_project_task(task_id: str, user_id: str = Depends(get_user_id)):
+    task = pt_tasks.get_task(task_id)
+    if task is None or task.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return ProjectTaskItem.from_record(task)
+
+
+@app.post("/v1/project-tasks/{task_id}/followup", response_model=ProjectTaskItem, summary="向项目任务追加要求（沿用原会话）")
+async def followup_project_task(task_id: str, req: ProjectTaskFollowupRequest, user_id: str = Depends(get_user_id)):
+    updated = pt_tasks.add_followup(task_id, user_id=user_id, text=req.text)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return ProjectTaskItem.from_record(updated)
+
+
+@app.post("/v1/project-tasks/{task_id}/stop", response_model=ProjectTaskItem, summary="请求停止项目任务")
+async def stop_project_task(task_id: str, user_id: str = Depends(get_user_id)):
+    updated = pt_tasks.request_stop(task_id, user_id=user_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return ProjectTaskItem.from_record(updated)
+
+
+@app.post("/v1/project-tasks/heartbeat", summary="Mac 执行器心跳（长任务执行期间保持在线状态）")
+async def project_task_heartbeat(req: ProjectTaskClaimRequest, user_id: str = Depends(get_user_id)):
+    del user_id
+    pt_tasks.record_executor_heartbeat(executor_id=req.executor_id, tools=req.tools or [])
+    return {"ok": True}
+
+
+@app.post("/v1/project-tasks/claim", response_model=Optional[ProjectTaskItem], summary="Mac 执行器领取下一个排队任务")
+async def claim_project_task(req: ProjectTaskClaimRequest, user_id: str = Depends(get_user_id)):
+    # 执行器只能领取当前认证用户（配置用户）的任务，绝不跨用户发放
+    pt_tasks.record_executor_heartbeat(executor_id=req.executor_id, tools=req.tools or [])
+    pt_tasks.fail_stale_running_tasks()
+    task = pt_tasks.claim_next_task(executor_id=req.executor_id, allowed_user_ids={user_id})
+    return ProjectTaskItem.from_record(task) if task else None
+
+
+@app.post("/v1/project-tasks/{task_id}/events", response_model=ProjectTaskItem, summary="Mac 执行器回传任务状态/结果事件")
+async def project_task_event(task_id: str, req: ProjectTaskEventRequest, user_id: str = Depends(get_user_id)):
+    del user_id
+    try:
+        updated = pt_tasks.update_task_event(
+            task_id,
+            status=req.status,
+            native_session_id=req.native_session_id,
+            result=req.result,
+            error=req.error,
+            note=req.note,
+            applied_followups=req.applied_followups,
+            requirement_applied=req.requirement_applied,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return ProjectTaskItem.from_record(updated)
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -688,7 +852,7 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
 
     # --- Fast path: direct memory operations ---
     try:
-        fast_result = await try_fast_memory_chat(req.query, selected_text=req.selected_text)
+        fast_result = await try_fast_memory_chat(req.query, selected_text=req.selected_text, request_id=req.request_id)
         if fast_result is not None:
             log(
                 f"fast-chat: served in {fast_result.get('debug_info', {}).get('elapsed_s', '?')}s",

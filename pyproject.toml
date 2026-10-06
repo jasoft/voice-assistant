@@ -35,7 +35,7 @@ ptt-token = "press_to_talk.storage.token_manager:main"
 package = true
 
 [tool.setuptools.packages.find]
-include = ["press_to_talk*"]
+include = ["press_to_talk*", "mac_executor*"]
 namespaces = false
 
 [dependency-groups]
