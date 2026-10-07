@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = ROOT / "VERSION"
 PYPROJECT_FILE = ROOT / "pyproject.toml"
+RELEASE_TIME_FILE = ROOT / "RELEASE_TIME"
 
 
 def get_current_version() -> str:
@@ -54,6 +55,12 @@ def bump() -> str:
             count=1,
         )
         PYPROJECT_FILE.write_text(updated_content, encoding="utf-8")
+
+    # 3. Update RELEASE_TIME file in GMT+8 (Asia/Shanghai)
+    from datetime import datetime, timezone, timedelta
+    cst = timezone(timedelta(hours=8))
+    now = datetime.now(cst)
+    RELEASE_TIME_FILE.write_text(f"{now.strftime('%Y-%m-%d %H:%M:%S GMT+8')}\n", encoding="utf-8")
 
     return new_version
 

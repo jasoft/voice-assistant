@@ -339,24 +339,24 @@ app.add_middleware(LoggingMiddleware)
 
 # -------------------------------
 
-from ..version import get_version
+from ..version import get_deploy_time, get_version
 
 @app.get("/healthy", tags=["System"])
 async def healthy():
     """Liveness probe: returns 200 OK if the server is running."""
-    return {"status": "ok", "version": get_version()}
+    return {"status": "ok", "version": get_version(), "deploy_time": get_deploy_time()}
 
 @app.get("/ready", tags=["System"])
 async def ready():
     """Readiness probe: returns 200 OK if the configurations are loaded."""
     if base_config is None:
         raise HTTPException(status_code=503, detail="Configuration not loaded")
-    return {"status": "ready", "version": get_version()}
+    return {"status": "ready", "version": get_version(), "deploy_time": get_deploy_time()}
 
 @app.get("/v1/version", tags=["System"])
 async def get_version_endpoint():
     """Returns the current application version."""
-    return {"version": get_version()}
+    return {"version": get_version(), "deploy_time": get_deploy_time()}
 
 
 @app.get("/debug", tags=["System"], response_class=HTMLResponse)
@@ -365,8 +365,12 @@ async def api_debug_page():
     """Interactive Web Playground for API debugging, inspecting DeepSeek reasoning and streaming TTS."""
     debug_html_path = Path(__file__).parent / "static" / "debug.html"
     if debug_html_path.is_file():
+        content = debug_html_path.read_text(encoding="utf-8")
+        version_val = get_version()
+        deploy_time_val = get_deploy_time() or "暂不可用"
+        content = content.replace("__APP_VERSION__", version_val).replace("__DEPLOY_TIME__", deploy_time_val)
         return HTMLResponse(
-            content=debug_html_path.read_text(encoding="utf-8"),
+            content=content,
             headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
         )
     return HTMLResponse(
