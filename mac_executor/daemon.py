@@ -352,19 +352,39 @@ class TaskRunner:
             if not confirmed:
                 log(f"任务 {task_id[:8]} 消费进度无法确认，本轮不执行，避免重复回放")
                 return
+            # init/step_update 事件尽早回传会话 ID（用户可随时 agy --conversation 续接）
+            def _on_cid(cid: str) -> None:
+                nonlocal conversation_id
+                conversation_id = cid
+                self._safe_event(task_id, native_session_id=cid)
+
+            progress_state = {"last": 0.0}
+
+            def _on_progress(delta: str) -> None:
+                now = time.monotonic()
+                if now - progress_state["last"] < 15.0:
+                    return
+                progress_state["last"] = now
+                self._safe_event(task_id, note=f"agy 进行中：{delta[:80]}")
+
             result = run_agy_turn(
                 turn_text,
                 project=project_name,
                 conversation_id=str(conversation_id) if conversation_id else None,
                 stop_check=lambda: self._stop_requested(task_id),
+                on_conversation_id=_on_cid,
+                on_progress=_on_progress,
             )
             if result.conversation_id:
                 conversation_id = result.conversation_id
                 self._safe_event(task_id, native_session_id=conversation_id)
             if result.status == "STOPPED":
+                # 实测（2026-10-07 探针）：终止本地 agy 进程后，续接同一会话模型
+                # 自述生成已彻底终止；标注为会话已取消并提示可用 agy 续接查看。
                 self._confirmed_event(
                     task_id, terminal=True, status="cancelled",
-                    note="已按用户要求停止 agy 会话",
+                    note=(f"已停止本地 agy 进程，远端生成随之中断（探针实测）；"
+                          f"可用 agy --conversation {conversation_id} 查看该会话"),
                 )
                 return
             if result.status != "SUCCESS":

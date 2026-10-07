@@ -738,7 +738,7 @@ wheels = [
 
 [[package]]
 name = "press-to-talk"
-version = "0.1.48"
+version = "0.1.49"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

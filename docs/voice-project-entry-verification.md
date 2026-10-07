@@ -32,12 +32,15 @@
 
 **明确声明**：以上为 TUI 与双进程证据，属于前置检查；**ChatGPT 桌面端内嵌 Codex 界面在"正在执行时手动追加/停止"的验收未通过**——桌面 UI 的自动化控制被本工具安全限制禁止，未用替代技术绕过，由 Codex 监督独立验证真实桌面界面。已知原生限制：执行器回合进行期间，写者锁使任何其他界面（含桌面端）无法写入同一线程；回合结束锁即释放。语音侧停止在执行中始终可用（`turn/interrupt` 实测）。
 
-## Antigravity 路线（大王确认 CLI 免登录直接可用）
+## Antigravity 路线（大王确认 CLI 免登录直接可用，stream-json 流式执行）
 
-- **执行入口**：现有已登录 agy CLI（1.3.0，免登录直接执行），`tool_availability.antigravity=true` 已启用；**不要求网页 OAuth、不要求账号切换、不以 --remote-control 为前提**（此前等待网页授权的指导已由大王撤回）。
-- **已实测能力**：原生 conversation ID 创建（`agy --project X --print --output-format json` → `conversation_id`）；同会话续接（`--conversation <id>`，模型正确复述上一轮回复）；headless 权限拒绝如实呈现（`denied_actions` → failed 并注明需 settings.json permissions.allow 或交互方式，不自行扩大 allow 规则）；停止（stop_check 轮询 1s，终止子进程 → cancelled）；增量追加（followup 只发新增，消费进度确认后才执行）；请求幂等（与 Codex 共用 request_id 机制）。
-- **未达条件（如实标注）**：CLI 会话不出现在 Antigravity 桌面/IDE Agent Manager 会话列表（52 条列表实测不含当日 3 个 CLI 会话 ID，CLI 无 list 命令）。**不能声称已在桌面可见；执行时也不静默换 Codex**。大王可继续用 agy 官方交互接口（`agy --conversation <id>` 交互续聊）查看与续聊。
-- 探针证据：`agy --project voice-assistant --remote-control --print` 会话 `8e3e4b79-…` 返回 rc-probe-ok（remote-control 探针存在，但按大王指示不作为必要前提）；remote-control daemon 为 active 且已认证（ja.important@gmail.com，实例 macmini-lan-home-noble-orbit）。
+- **执行入口**：现有已登录 agy CLI（1.3.0，免登录直接执行），`tool_availability.antigravity=true`；**不要求网页 OAuth、不要求账号切换、不以 --remote-control 为前提**（此前等待网页授权的指导已由大王撤回）。
+- **官方流式路线**：`agy --project X [--conversation ID] --print TEXT --output-format stream-json`（现场 --help 确认 stream-json 是 print mode 的输出格式）。实测事件时序：`init`（启动即携带 conversation_id）→ `step_update`（step_index/state/text_delta，真实进度）→ `result`（status/response/denied_actions）。
+- **会话 ID 尽早记录**：init 事件一到就回传服务端（`native_session_id`），此后用户随时可用 `agy --conversation <id>` 续接。
+- **管道排空**：stdout/stderr 双管道并发 drain 线程；真实子进程回归测试输出 ~2.4MB 日志不堵死、不假超时。
+- **停止实测证据**：探针（2026-10-07）——启动"从 1 数到 500"任务，init 记录会话 `86a2d5af-…`，6 秒后 terminate 本地进程；续接同一会话询问，模型自述"没有在继续执行……数到 159 被中断"。据此停止映射为 `cancelled`，note 注明"远端生成随之中断（探针实测，模型自述）"，并附续接命令。
+- **已实测能力**：原生会话创建/续接、权限拒绝如实呈现（denied_actions → failed，不自行扩大 allow 规则）、增量追加（followup 只发新增，消费进度确认后才执行）、请求幂等（与 Codex 共用 request_id）。
+- **未达条件（如实标注）**：CLI 会话不出现在 Antigravity 桌面/IDE Agent Manager 会话列表（52 条列表实测不含当日 CLI 会话，CLI 无 list 命令）。**不能声称已在桌面可见；执行时不静默换 Codex**；转交回执对 agy 任务提示"可用 agy --conversation 续接查看"而非声称列表可见。
 
 ## 执行器事件回传语义（本轮修复）
 

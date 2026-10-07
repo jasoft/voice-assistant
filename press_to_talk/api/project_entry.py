@@ -265,9 +265,14 @@ def handle_project_task_result(
         )
         online = _is_executor_online()
         if online:
+            view_hint = (
+                "开始执行后可以在 Codex 的会话列表里查看。"
+                if used_tool == "codex"
+                else "开始执行后可以用 agy --conversation 续接查看该会话（Antigravity 桌面列表不显示 CLI 会话）。"
+            )
             text = (
                 f"好的，已把任务转交给{_TOOL_DISPLAY.get(used_tool, used_tool)}处理「{project['id']}」项目，"
-                f"任务编号{_short_id(task['id'])}，正在排队，开始执行后可以在原工具的会话列表里查看。"
+                f"任务编号{_short_id(task['id'])}，正在排队，{view_hint}"
             )
         else:
             text = (
