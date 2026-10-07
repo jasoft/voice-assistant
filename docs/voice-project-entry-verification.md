@@ -87,4 +87,4 @@ Apple Watch 真机与 Mac GUI 未实测（走同一 `/v1/chat` 入口，服务�
 5. 执行器心跳窗口 180s、任务级失联判定 900s（keepalive 60s）、终态重试 30min、写者锁重试 3×10s 均为可调默认值，未经长时间 soak 测试。
 6. **agy 远端停止未证实**：terminate 本地子进程后远端生成/工具是否随之停止仅有模型自述证据，不满足验收标准；停止语义为 waiting + 诚实 note（见上）。
 7. **Watch 真机 / Mac GUI 未实测**：服务端入口与 request_id 代码已就绪（GUI Release 构建通过、Watch 源码语法校验通过），设备端体验未验证。
-8. 测试基线：`301 passed, 12 skipped`（ deselected 1 项 `test_api_ask_audio_fast_path`：main 上即失败的环境相关 STT 用例，与本项目改动无关）。最新版本 v0.1.52。
+8. 测试基线（交付时最终全量运行）：`306 passed, 12 skipped, 1 deselected`——deselected 的 `test_api_ask_audio_fast_path` 是 main 上即失败的环境相关 STT 用例（本机无可用 STT 环境），与本项目改动无关；12 skipped 为 e2e/平台相关用例。最新版本 v0.1.52（含任务级 keepalive 失联清理与事件确认失败退出路径）。
