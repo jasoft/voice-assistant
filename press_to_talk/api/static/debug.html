@@ -640,6 +640,22 @@
       localStorage.setItem("ptt_api_key", e.target.value.trim());
     });
 
+    // 支持 Cmd+Enter / Ctrl+Enter 快捷提交，保持 Enter 正常换行与现有发送逻辑
+    function handleCmdEnter(e) {
+      if (e.isComposing) return;
+      if ((e.metaKey || e.ctrlKey) && (e.key === "Enter" || e.keyCode === 13)) {
+        e.preventDefault();
+        const sendBtn = document.getElementById("sendBtn");
+        if (sendBtn && !sendBtn.disabled) {
+          executeRequest();
+        }
+      }
+    }
+    const queryInput = document.getElementById("queryInput");
+    if (queryInput) queryInput.addEventListener("keydown", handleCmdEnter);
+    const selectedTextInput = document.getElementById("selectedTextInput");
+    if (selectedTextInput) selectedTextInput.addEventListener("keydown", handleCmdEnter);
+
     function onPipelineChange() {
       const p = document.getElementById("pipelineSelect").value;
       const desc = document.getElementById("pipelineDesc");
