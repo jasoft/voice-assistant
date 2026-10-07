@@ -465,7 +465,11 @@
   <div class="container">
     <header>
       <div>
-        <h1>🎙️ Voice Assistant API 调试工作台 <span class="badge">Live Playground</span> <span class="badge" style="background: rgba(88, 166, 255, 0.15); color: var(--primary); border: 1px solid var(--primary);">2026.10 优化版</span></h1>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <h1>🎙️ Voice Assistant API 调试工作台</h1>
+          <span class="badge" id="appVersionBadge">v__APP_VERSION__</span>
+          <span class="badge" id="appDeployTimeBadge" style="background: rgba(63, 185, 80, 0.15); color: var(--success); border: 1px solid rgba(63, 185, 80, 0.3);">发布时间: __DEPLOY_TIME__</span>
+        </div>
       </div>
       <div class="api-config">
         <label style="margin:0; font-size:12px;">Token:</label>
@@ -655,6 +659,25 @@
     if (queryInput) queryInput.addEventListener("keydown", handleCmdEnter);
     const selectedTextInput = document.getElementById("selectedTextInput");
     if (selectedTextInput) selectedTextInput.addEventListener("keydown", handleCmdEnter);
+
+    // 从 /v1/version 异步同步最新版本与发布时间
+    async function loadVersionInfo() {
+      try {
+        const resp = await fetch("/v1/version");
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.version) {
+            const vBadge = document.getElementById("appVersionBadge");
+            if (vBadge) vBadge.innerText = `v${data.version}`;
+          }
+          const tBadge = document.getElementById("appDeployTimeBadge");
+          if (tBadge) {
+            tBadge.innerText = data.deploy_time ? `发布时间: ${data.deploy_time}` : "发布时间: 暂不可用";
+          }
+        }
+      } catch (_) {}
+    }
+    loadVersionInfo();
 
     function onPipelineChange() {
       const p = document.getElementById("pipelineSelect").value;

@@ -23,7 +23,7 @@ fi
 # Automatically bump version (e.g. 0.1.0 -> 0.1.1) and push
 NEW_VERSION=$(python3 scripts/bump_version.py)
 echo "🏷️  Bumped version to: v${NEW_VERSION}"
-git add VERSION pyproject.toml
+git add VERSION pyproject.toml RELEASE_TIME
 git commit --no-verify -m "chore(release): bump version to v${NEW_VERSION}"
 git push origin HEAD:main
 echo "✅ Pushed release commit to GitHub."
