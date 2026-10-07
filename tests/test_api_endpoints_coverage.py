@@ -187,3 +187,17 @@ class TestVersionEndpoint:
         assert response.json()["status"] == "ok"
         assert "version" in response.json()
 
+
+class TestDebugEndpoint:
+    """测试 /debug 调试工作台页面"""
+
+    def test_debug_page_loads_and_supports_cmd_enter(self, client):
+        """验证 /debug 页面正常加载且输入框配置了 Cmd+Enter / Ctrl+Enter 提交"""
+        response = client.get("/debug")
+        assert response.status_code == 200
+        content = response.text
+        assert "handleCmdEnter" in content
+        assert "queryInput" in content
+        assert "metaKey" in content
+
+
