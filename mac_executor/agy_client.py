@@ -14,10 +14,10 @@ official print mode with streamed JSON output
 Both stdout and stderr are drained concurrently while the process runs (a
 chatty child larger than the pipe buffer would otherwise deadlock and fake a
 timeout). ``stop_check`` is polled every second; a stop request terminates the
-local process. Probed 2026-10-07: after killing the local process mid-
-generation, resuming the same conversation shows the remote generation had
-stopped with it ("没有在继续执行") — the caller reports cancellation with that
-evidence caveat (model self-report, not an official API statement).
+local process ONLY. Whether the remote generation/tool task stops with it is
+NOT proven (a model self-report is not acceptable evidence; official cancel
+contract or native session status would be required) — the caller must surface
+this limitation instead of claiming a native cancellation.
 
 KNOWN LIMIT: CLI conversations do NOT appear in the local Antigravity IDE
 Agent Manager conversation list (no supported API for that); this is reported

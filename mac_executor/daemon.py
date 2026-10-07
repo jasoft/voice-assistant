@@ -379,12 +379,14 @@ class TaskRunner:
                 conversation_id = result.conversation_id
                 self._safe_event(task_id, native_session_id=conversation_id)
             if result.status == "STOPPED":
-                # 实测（2026-10-07 探针）：终止本地 agy 进程后，续接同一会话模型
-                # 自述生成已彻底终止；标注为会话已取消并提示可用 agy 续接查看。
+                # 诚实语义：只证明了本地 agy 子进程被终止；远端生成/工具是否停止
+                # 未证实（模型自述不作为证据，需原生协议状态或官方取消契约）。
+                # 用户可在原工具确认实际状态；再次语音续接会重新入队。
                 self._confirmed_event(
-                    task_id, terminal=True, status="cancelled",
-                    note=(f"已停止本地 agy 进程，远端生成随之中断（探针实测）；"
-                          f"可用 agy --conversation {conversation_id} 查看该会话"),
+                    task_id, terminal=True, status="waiting",
+                    note=(f"本地 agy 子进程已停止；远端生成/工具是否停止未证实。"
+                          f"请用 agy --conversation {conversation_id} 查看会话实际状态，"
+                          f"确认后再次语音续接可重新入队"),
                 )
                 return
             if result.status != "SUCCESS":

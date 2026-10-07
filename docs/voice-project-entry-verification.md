@@ -38,7 +38,7 @@
 - **官方流式路线**：`agy --project X [--conversation ID] --print TEXT --output-format stream-json`（现场 --help 确认 stream-json 是 print mode 的输出格式）。实测事件时序：`init`（启动即携带 conversation_id）→ `step_update`（step_index/state/text_delta，真实进度）→ `result`（status/response/denied_actions）。
 - **会话 ID 尽早记录**：init 事件一到就回传服务端（`native_session_id`），此后用户随时可用 `agy --conversation <id>` 续接。
 - **管道排空**：stdout/stderr 双管道并发 drain 线程；真实子进程回归测试输出 ~2.4MB 日志不堵死、不假超时。
-- **停止实测证据**：探针（2026-10-07）——启动"从 1 数到 500"任务，init 记录会话 `86a2d5af-…`，6 秒后 terminate 本地进程；续接同一会话询问，模型自述"没有在继续执行……数到 159 被中断"。据此停止映射为 `cancelled`，note 注明"远端生成随之中断（探针实测，模型自述）"，并附续接命令。
+- **停止语义（诚实区分）**：停止请求会 terminate 本地 agy 子进程（stop_check 1s 轮询），任务转 `waiting`，note 明确区分"本地 agy 子进程已停止"与"远端生成/工具是否停止未证实"——模型自述不作为证据（探针中模型自述已中断，但需原生协议状态或官方取消契约方可证实）。用户可在原工具查看会话实际状态，再次语音续接自动重新入队。
 - **已实测能力**：原生会话创建/续接、权限拒绝如实呈现（denied_actions → failed，不自行扩大 allow 规则）、增量追加（followup 只发新增，消费进度确认后才执行）、请求幂等（与 Codex 共用 request_id）。
 - **未达条件（如实标注）**：CLI 会话不出现在 Antigravity 桌面/IDE Agent Manager 会话列表（52 条列表实测不含当日 CLI 会话，CLI 无 list 命令）。**不能声称已在桌面可见；执行时不静默换 Codex**；转交回执对 agy 任务提示"可用 agy --conversation 续接查看"而非声称列表可见。
 
