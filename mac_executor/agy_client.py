@@ -10,18 +10,21 @@ Verified capabilities on this machine (agy 1.3.0, 2026-10-07):
 - headless mode cannot prompt for tool permissions: commands are auto-denied
   and reported in ``denied_actions`` — we surface that honestly as a failure
   with an explanatory note instead of bypassing protections;
+- Stop support: ``stop_check`` is polled every second while the CLI runs; a
+  stop request terminates the subprocess and maps to a cancelled turn.
 - KNOWN LIMIT (recorded in docs/voice-project-entry-verification.md): CLI
   conversations do NOT appear in the local Antigravity IDE Agent Manager
-  conversation list (no supported API for that); the supported remote entry is
-  the ``--remote-control`` console (antigravity.google.com).
+  conversation list (no supported API for that). This is reported honestly;
+  the CLI itself is the execution surface (用户确认 agy CLI 免登录直接可用).
 """
 
 from __future__ import annotations
 
 import json
 import subprocess
+import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 
 class AgyClientError(RuntimeError):
@@ -44,21 +47,49 @@ def run_agy_turn(
     conversation_id: str | None = None,
     timeout_seconds: float = 900.0,
     agy_command: str = "agy",
+    stop_check: Callable[[], bool] | None = None,
 ) -> AgyResult:
     argv = [agy_command, "--project", project, "--print", text, "--output-format", "json"]
     if conversation_id:
         argv[2:2] = ["--conversation", conversation_id]
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             argv,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_seconds,
         )
-    except subprocess.TimeoutExpired:
-        return AgyResult(status="TIMEOUT", conversation_id=conversation_id, response="", denied_actions=[], raw_error="agy 执行超时")
-    stdout = proc.stdout or ""
-    stderr = (proc.stderr or "").strip()
+    except OSError as exc:
+        return AgyResult(status="ERROR", conversation_id=conversation_id, response="", denied_actions=[], raw_error=f"agy 启动失败: {exc}")
+    stopped = False
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        while True:
+            try:
+                proc.wait(timeout=1.0)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            if stop_check is not None and stop_check():
+                stopped = True
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                break
+            if time.monotonic() > deadline:
+                proc.kill()
+                proc.wait(timeout=5)
+                return AgyResult(status="TIMEOUT", conversation_id=conversation_id, response="", denied_actions=[], raw_error="agy 执行超时")
+    finally:
+        stdout_text = proc.stdout.read() if proc.stdout else ""
+        stderr_text = proc.stderr.read() if proc.stderr else ""
+    if stopped:
+        return AgyResult(status="STOPPED", conversation_id=conversation_id, response="", denied_actions=[], raw_error="已按用户要求停止 agy 会话")
+    stdout = stdout_text
+    stderr = stderr_text.strip()
     payload: dict[str, Any] | None = None
     for line in reversed(stdout.splitlines()):
         line = line.strip()

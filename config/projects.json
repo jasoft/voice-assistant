@@ -1,23 +1,42 @@
 {
   "tool_availability": {
     "codex": true,
-    "antigravity": false
+    "antigravity": true
   },
   "projects": [
     {
       "id": "voice-assistant",
-      "names": ["语音助手", "voice assistant", "voice-assistant", "voiceassistant", "语音助手项目"],
+      "names": [
+        "语音助手",
+        "voice assistant",
+        "voice-assistant",
+        "voiceassistant",
+        "语音助手项目"
+      ],
       "path": "/Users/weiwang/Projects/voice-assistant",
       "default_tool": "codex",
-      "tools": ["codex", "antigravity"],
+      "tools": [
+        "codex",
+        "antigravity"
+      ],
       "agy_project": "voice-assistant"
     },
     {
       "id": "comfyui",
-      "names": ["千问", "千问项目", "qwen image studio", "qwen image", "comfyui", "comfy"],
+      "names": [
+        "千问",
+        "千问项目",
+        "qwen image studio",
+        "qwen image",
+        "comfyui",
+        "comfy"
+      ],
       "path": "/Users/weiwang/Projects/comfyui",
       "default_tool": "codex",
-      "tools": ["codex", "antigravity"],
+      "tools": [
+        "codex",
+        "antigravity"
+      ],
       "agy_project": "comfyui"
     }
   ]

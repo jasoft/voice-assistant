@@ -101,6 +101,37 @@ def test_thread_start_requires_id(monkeypatch):
         client.start_thread("/tmp/x")
 
 
+def _fake_agy_proc(monkeypatch, stdout_text, stderr_text="", hang_first=False):
+    captured = {}
+    state = {"waits": 0}
+
+    class FakeProc:
+        pid = 1
+        returncode = 0
+        stdout = SimpleNamespace(read=lambda: stdout_text)
+        stderr = SimpleNamespace(read=lambda: stderr_text)
+        terminated = False
+
+        def wait(self, timeout=None):
+            if hang_first and state["waits"] == 0:
+                state["waits"] += 1
+                raise subprocess.TimeoutExpired(cmd="agy", timeout=timeout or 1)
+            return 0
+
+        def terminate(self):
+            self.terminated = True
+
+        def kill(self):
+            self.terminated = True
+
+    def fake_popen(argv, **kw):
+        captured["argv"] = argv
+        return FakeProc()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    return captured
+
+
 def test_agy_json_parsing(monkeypatch):
     payload = json.dumps({
         "conversation_id": "conv-123",
@@ -108,13 +139,7 @@ def test_agy_json_parsing(monkeypatch):
         "response": "ok",
         "denied_actions": [{"action": "command", "display_name": "RunCommand"}],
     })
-    captured = {}
-
-    def fake_run(argv, capture_output, text, timeout):
-        captured["argv"] = argv
-        return SimpleNamespace(stdout=payload + "\n", stderr="", returncode=0)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    captured = _fake_agy_proc(monkeypatch, payload + "\n")
     result = agy_client.run_agy_turn("只读检查", project="voice-assistant")
     assert result.status == "SUCCESS"
     assert result.conversation_id == "conv-123"
@@ -128,7 +153,7 @@ def test_agy_json_parsing(monkeypatch):
 
 
 def test_agy_no_json_output(monkeypatch):
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="plain text", stderr="boom", returncode=1))
+    _fake_agy_proc(monkeypatch, "plain text", stderr_text="boom")
     result = agy_client.run_agy_turn("x", project="p")
     assert result.status == "ERROR" and "boom" in (result.raw_error or "")
 
@@ -142,7 +167,9 @@ def test_registry_loader():
 def test_tool_availability_loader():
     availability = load_tool_availability()
     assert availability.get("codex") is True
-    assert availability.get("antigravity") is False  # 未通过原工具列表验收
+    # 大王确认 agy CLI 免登录直接可用后启用为生产执行入口；
+    # CLI 会话不进桌面列表的未达条件如实记录在验证报告
+    assert availability.get("antigravity") is True
 
 
 def test_build_turn_text_sends_requirement_once_then_only_new_followups():
@@ -192,3 +219,199 @@ def test_server_event_forwards_followup_progress(monkeypatch):
     assert captured["json"]["requirement_applied"] is True
     client.event("task-1", status="completed", requirement_applied=False)
     assert captured["json"]["requirement_applied"] is False
+
+
+# ---------------------------------------------------------------------------
+# 事件确认语义与 resume 错误分类（监督要求的负例测试）
+# ---------------------------------------------------------------------------
+
+import time as _time
+
+import mac_executor.daemon as daemon_mod
+from mac_executor.daemon import TaskRunner
+
+
+class FakeServer:
+    """可编程失败的服务端替身：记录全部事件，event() 按 fail_times 计划失败。"""
+
+    def __init__(self, fail_times=0, task=None):
+        self.calls = []
+        self.fail_remaining = fail_times
+        self.task = task or {}
+
+    def event(self, task_id, **kwargs):
+        self.calls.append(kwargs)
+        if self.fail_remaining > 0:
+            self.fail_remaining -= 1
+            raise RuntimeError("server unreachable (fake)")
+        return {}
+
+    def get_task(self, task_id):
+        return dict(self.task)
+
+    def claim(self, **kw):
+        return None
+
+    def heartbeat(self, **kw):
+        return None
+
+
+class FakeCodex:
+    """记录调用的 codex 客户端替身；run_turn 可编程。"""
+
+    instances = []
+
+    def __init__(self, resume_error=None):
+        self.resume_error = resume_error
+        self.run_turn_calls = []
+        self.resumed = []
+        self.closed = False
+        FakeCodex.instances.append(self)
+
+    def start(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+    def resume_thread(self, thread_id):
+        self.resumed.append(thread_id)
+        if self.resume_error:
+            raise CodexClientError(self.resume_error)
+
+    def start_thread(self, cwd):
+        return "new-thread-1"
+
+    def run_turn(self, thread_id, text, **kw):
+        self.run_turn_calls.append(text)
+        return TurnResult(status="completed", final_text="fake done", turn_id="t1")
+
+
+def _make_runner(monkeypatch, server, codex):
+    from mac_executor.config import ExecutorConfig
+    from pathlib import Path
+
+    monkeypatch.setattr(daemon_mod, "CodexAppServerClient", lambda: codex)
+    cfg = ExecutorConfig(
+        server_url="http://server", api_token="t", executor_id="mac-test",
+        registry_path=Path("/nonexistent"),
+    )
+    return TaskRunner(cfg, server, tool_availability={"codex": True})
+
+
+def _task(**over):
+    task = {"id": "task-abc", "project_id": "voice-assistant", "tool": "codex",
+            "requirement": "原需求", "status": "running", "native_session_id": "th-1",
+            "followups": [], "applied_followups": 0, "requirement_applied": False}
+    task.update(over)
+    return task
+
+
+def test_progress_event_unconfirmed_never_starts_turn(monkeypatch):
+    """负例：消费进度回传始终失败时，绝不能启动本轮执行（防重放已消费内容）。"""
+    monkeypatch.setattr(daemon_mod.time, "sleep", lambda s: None)  # 加速退避
+    server = FakeServer(fail_times=99)  # 所有事件都失败
+    codex = FakeCodex()
+    runner = _make_runner(monkeypatch, server, codex)
+    runner._run_codex_task(_task(), cwd="/tmp")
+    assert codex.run_turn_calls == [], "进度未确认却执行了本轮"
+    # 没有任何终态事件被发出（任务保持 running，由服务端失联清理如实呈现）
+    assert not any(c.get("status") for c in server.calls)
+
+
+def test_terminal_event_retries_until_confirmed(monkeypatch):
+    """终态事件前两次失败后第三次成功：必须重试直至确认。"""
+    monkeypatch.setattr(daemon_mod.time, "sleep", lambda s: None)
+    server = FakeServer(fail_times=2)
+    codex = FakeCodex()
+    runner = _make_runner(monkeypatch, server, codex)
+    runner._run_codex_task(_task(), cwd="/tmp")
+    statuses = [c.get("status") for c in server.calls if c.get("status")]
+    assert statuses[-1] == "completed"
+    assert len(server.calls) >= 3
+
+
+def test_progress_confirmed_then_turn_runs(monkeypatch):
+    """正常路径：进度事件确认后执行本轮，终态 completed。"""
+    monkeypatch.setattr(daemon_mod.time, "sleep", lambda s: None)
+    server = FakeServer()
+    codex = FakeCodex()
+    runner = _make_runner(monkeypatch, server, codex)
+    runner._run_codex_task(_task(), cwd="/tmp")
+    assert codex.run_turn_calls == ["原需求"]
+    statuses = [c.get("status") for c in server.calls if c.get("status")]
+    assert statuses == ["completed"]
+    progress = [c for c in server.calls if "requirement_applied" in c and "status" not in c]
+    assert progress and progress[0]["requirement_applied"] is True
+
+
+def test_resume_other_error_fails_with_real_reason(monkeypatch):
+    """非 active writer 的 resume 错误必须按真实原因 failed，不得误报原工具占用。"""
+    monkeypatch.setattr(daemon_mod.time, "sleep", lambda s: None)
+    server = FakeServer()
+    codex = FakeCodex(resume_error='thread/resume: {"message": "thread not found"}')
+    runner = _make_runner(monkeypatch, server, codex)
+    runner._run_codex_task(_task(), cwd="/tmp")
+    failed = [c for c in server.calls if c.get("status") == "failed"]
+    assert failed, "非占用错误未标记失败"
+    assert "thread not found" in failed[0]["error"]
+    assert not any(c.get("status") == "waiting" for c in server.calls)
+
+
+def test_resume_active_writer_exhausted_marks_waiting(monkeypatch):
+    """active writer 重试耗尽 → waiting（真实占用语义）。"""
+    monkeypatch.setattr(daemon_mod.time, "sleep", lambda s: None)
+    server = FakeServer()
+    codex = FakeCodex(resume_error='thread/resume: thread X already has an active writer')
+    runner = _make_runner(monkeypatch, server, codex)
+    runner._run_codex_task(_task(), cwd="/tmp")
+    waiting = [c for c in server.calls if c.get("status") == "waiting"]
+    assert waiting and "原工具界面占用" in waiting[0]["note"]
+    assert not any(c.get("status") == "failed" for c in server.calls)
+
+
+def test_agy_no_remote_control_prerequisite(monkeypatch):
+    """大王确认 agy CLI 免登录直接可用：不得引入 --remote-control 作为必要前提。"""
+    captured = {}
+
+    proc = SimpleNamespace(
+        stdout=SimpleNamespace(read=lambda: json.dumps({
+            "conversation_id": "c-1", "status": "SUCCESS", "response": "ok",
+            "denied_actions": []}) + "\n"),
+        stderr=SimpleNamespace(read=lambda: ""),
+    )
+    def fake_popen(argv, **kw):
+        captured["argv"] = argv
+        return SimpleNamespace(wait=lambda timeout=None: 0, pid=1,
+                               stdout=proc.stdout, stderr=proc.stderr, returncode=0)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    agy_client.run_agy_turn("x", project="voice-assistant")
+    assert "--remote-control" not in captured["argv"]
+
+
+def test_agy_stop_check_terminates(monkeypatch):
+    """停止请求应终止 agy 子进程并映射为 STOPPED（上游转 cancelled）。"""
+    killed = []
+    state = {"waits": 0}
+    class FakeProc:
+        pid = 1
+        stdout = SimpleNamespace(read=lambda: "")
+        stderr = SimpleNamespace(read=lambda: "")
+        returncode = -15
+        def wait(self, timeout=None):
+            if state["waits"] == 0:
+                state["waits"] += 1
+                raise subprocess.TimeoutExpired(cmd="agy", timeout=timeout or 1)
+            killed.append(timeout)
+            return 0
+        def terminate(self):
+            pass
+        def kill(self):
+            pass
+    def fake_popen(argv, **kw):
+        proc = FakeProc()
+        return proc
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    result = agy_client.run_agy_turn("x", project="p", stop_check=lambda: True)
+    assert result.status == "STOPPED"
+    assert killed  # 子进程被 terminate/kill
