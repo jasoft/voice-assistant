@@ -30,7 +30,11 @@ final class VoiceSession: ObservableObject {
     var busy: Bool { phase == .transcribing || phase == .thinking || phase == .replying }
     var canRetryTranscription: Bool { phase == .failed && recordingFile != nil }
 
-    func didEnterBackground() { launchPolicy.didEnterBackground() }
+    func didEnterBackground() {
+        launchPolicy.didEnterBackground()
+        speech.stop()
+        autoSpeaking = false
+    }
     func activate() {
         guard launchPolicy.consumeActivation() else { return }
         guard phase != .recording, !isStarting else { return }

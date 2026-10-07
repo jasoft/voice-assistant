@@ -50,6 +50,7 @@ final class Recorder {
     func stop() -> URL? {
         recorder?.stop()
         recorder = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         let url = fileURL
         fileURL = nil
         return url

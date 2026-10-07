@@ -13,8 +13,16 @@ final class PCMStreamPlayer {
     private(set) var pendingBuffers = 0
 
     func start() throws {
-        if !attached { engine.attach(node); attached = true }
+        if engine.isRunning {
+            engine.stop()
+        }
+        if !attached {
+            engine.attach(node)
+            attached = true
+        }
+        engine.disconnectNodeOutput(node)
         engine.connect(node, to: engine.mainMixerNode, format: format)
+        engine.prepare()
         try engine.start()
         node.play()
     }
@@ -40,8 +48,14 @@ final class PCMStreamPlayer {
 
     func stop() {
         generation = UUID()
-        node.stop(); node.reset(); engine.stop()
         pendingBuffers = 0
+        node.pause()
+        node.stop()
+        node.reset()
+        if engine.isRunning {
+            engine.stop()
+            engine.reset()
+        }
     }
 }
 
@@ -68,8 +82,9 @@ final class SpeechPlayback: ObservableObject {
         let id = generation
         task = Task {
             do {
-                try AVAudioSession.sharedInstance().setCategory(.playback)
-                try AVAudioSession.sharedInstance().setActive(true)
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default, policy: .default, options: [])
+                try session.setActive(true)
                 try player.start()
                 while !Task.isCancelled {
                     if queue.isEmpty {
@@ -102,6 +117,7 @@ final class SpeechPlayback: ObservableObject {
                 guard generation == id else { return }
                 player.stop()
                 status = .stopped
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                 logger.info("speech_finished")
             } catch {
                 guard !Task.isCancelled, generation == id else { return }
@@ -109,6 +125,7 @@ final class SpeechPlayback: ObservableObject {
                 player.stop()
                 status = .stopped
                 flushTask?.cancel()
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                 logger.error("speech_failed: \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -141,9 +158,11 @@ final class SpeechPlayback: ObservableObject {
         generation = UUID()
         task?.cancel(); task = nil
         flushTask?.cancel(); flushTask = nil
-        if hadAudio { player.stop() }
         queue = []; buffer = SpeechTextBuffer(); inputFinished = false
         status = .stopped
-        if hadAudio { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+        if hadAudio {
+            player.stop()
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 }
