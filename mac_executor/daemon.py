@@ -67,6 +67,8 @@ class TaskRunner:
         self.server = server
         self.registry = load_registry(config.registry_path)
         self.tool_availability = tool_availability or {}
+        # 置位后主循环停止领取并退出（心跳线程同步停止），供服务端失联清理
+        self.halt_reason: str | None = None
 
     def _tool_available(self, tool: str) -> bool:
         return bool(self.tool_availability.get(tool, True))
@@ -131,7 +133,10 @@ class TaskRunner:
                         log(f"任务 {task_id[:8]} 终态事件在第{attempt}次重试后确认")
                     return True
                 time.sleep(interval)
-            log(f"任务 {task_id[:8]} 终态事件在 {max_wait:.0f}s 内未能确认，交由服务端失联清理如实呈现")
+            # 终态事件始终未确认：停止领取与心跳并退出（launchd 会重启恢复），
+            # 让服务端按任务级失联窗口如实清理，绝不留下永久 running 的假象。
+            log(f"任务 {task_id[:8]} 终态事件在 {max_wait:.0f}s 内未能确认，执行器停止领取与心跳并退出供安全恢复")
+            self.halt_reason = f"task {task_id[:8]} terminal event unconfirmed"
             return False
         delays = (2.0, 4.0, 8.0, 15.0, 15.0, 15.0)
         for delay in delays:
@@ -164,12 +169,27 @@ class TaskRunner:
             self._confirmed_event(task_id, terminal=True, status="failed", error=f"项目 {project_id} 未启用工具 {tool}")
             return
 
-        if tool == "codex":
-            self._run_codex_task(task, cwd=cwd)
-        elif tool == "antigravity":
-            self._run_agy_task(task, project_name=str(project.get("agy_project") or project_id))
-        else:
-            self._confirmed_event(task_id, terminal=True, status="failed", error=f"未知工具 {tool}")
+        # 任务级 keepalive：每 60s touch 一次任务刷新 updated_at，让服务端
+        # stale sweep 知道"这个任务"仍在被处理（心跳只证明进程活着）。
+        keepalive_stop = threading.Event()
+
+        def _keepalive_loop() -> None:
+            while not keepalive_stop.wait(60.0):
+                try:
+                    self.server.touch_task(task_id)
+                except Exception as exc:
+                    log(f"任务 {task_id[:8]} keepalive 失败: {exc}")
+
+        threading.Thread(target=_keepalive_loop, daemon=True).start()
+        try:
+            if tool == "codex":
+                self._run_codex_task(task, cwd=cwd)
+            elif tool == "antigravity":
+                self._run_agy_task(task, project_name=str(project.get("agy_project") or project_id))
+            else:
+                self._confirmed_event(task_id, terminal=True, status="failed", error=f"未知工具 {tool}")
+        finally:
+            keepalive_stop.set()
 
     # -- Codex ---------------------------------------------------------------
 
@@ -206,14 +226,16 @@ class TaskRunner:
                             continue
                         client.close()
                         if "active writer" in last_error:
-                            self._safe_event(
+                            self._confirmed_event(
                                 task_id,
+                                terminal=True,
                                 status="waiting",
                                 note="原生会话正被原工具界面占用：请在原工具里手动继续，或关闭该界面后再次语音续接",
                             )
                         else:
-                            self._safe_event(
+                            self._confirmed_event(
                                 task_id,
+                                terminal=True,
                                 status="failed",
                                 error=f"Codex 会话恢复失败: {last_error}",
                             )
@@ -269,7 +291,8 @@ class TaskRunner:
                 requirement_applied=requirement_applied,
             )
             if not confirmed:
-                log(f"任务 {task_id[:8]} 消费进度无法确认，本轮不执行，避免重复回放")
+                log(f"任务 {task_id[:8]} 消费进度无法确认，本轮不执行，避免重复回放；执行器停止领取与心跳并退出供安全恢复")
+                self.halt_reason = f"task {task_id[:8]} progress event unconfirmed"
                 return
             try:
                 result = client.run_turn(
@@ -350,7 +373,8 @@ class TaskRunner:
                 requirement_applied=requirement_applied,
             )
             if not confirmed:
-                log(f"任务 {task_id[:8]} 消费进度无法确认，本轮不执行，避免重复回放")
+                log(f"任务 {task_id[:8]} 消费进度无法确认，本轮不执行，避免重复回放；执行器停止领取与心跳并退出供安全恢复")
+                self.halt_reason = f"task {task_id[:8]} progress event unconfirmed"
                 return
             # init/step_update 事件尽早回传会话 ID（用户可随时 agy --conversation 续接）
             def _on_cid(cid: str) -> None:
@@ -425,11 +449,15 @@ class TaskRunner:
         return None
 
 
-def _heartbeat_loop(config: ExecutorConfig, server: ServerClient, stop: threading.Event) -> None:
-    """Keep the executor visibly online while tasks run (server marks tasks of
-    a silent executor as failed instead of pretending they still run)."""
+def _heartbeat_loop(config: ExecutorConfig, server: ServerClient, stop: threading.Event, runner: "TaskRunner") -> None:
+    """Keep the executor registered while it runs tasks. Note: the heartbeat
+    alone never keeps a stuck task alive server-side — running tasks need
+    per-task keepalive events (see TaskRunner.run_task)."""
     interval = min(max(config.poll_seconds, 10.0), 60.0)
     while not stop.wait(interval):
+        if runner.halt_reason:
+            log(f"心跳停止：{runner.halt_reason}")
+            return
         try:
             server.heartbeat(executor_id=config.executor_id, tools=["codex", "antigravity"])
         except Exception as exc:
@@ -446,7 +474,7 @@ def main() -> int:
     disabled = [t for t, ok in availability.items() if not ok]
     log(f"执行器启动 id={config.executor_id} server={config.server_url} projects={sorted(runner.registry)} 禁用工具={disabled}")
     stop_event = threading.Event()
-    threading.Thread(target=_heartbeat_loop, args=(config, server, stop_event), daemon=True).start()
+    threading.Thread(target=_heartbeat_loop, args=(config, server, stop_event, runner), daemon=True).start()
     try:
         while True:
             try:
@@ -455,13 +483,16 @@ def main() -> int:
                 log(f"领取任务失败（服务端不可达或认证失败）: {exc}")
                 time.sleep(max(config.poll_seconds * 4, 20))
                 continue
+            if runner.halt_reason:
+                log(f"执行器停止：{runner.halt_reason}（等待外部重启恢复）")
+                break
             if task:
                 log(f"领取任务 {str(task.get('id'))[:8]} project={task.get('project_id')} tool={task.get('tool')}")
                 try:
                     runner.run_task(task)
                 except Exception:
                     log(f"任务 {str(task.get('id'))[:8]} 处理异常:\n{traceback.format_exc()}")
-                    runner._safe_event(str(task.get("id")), status="failed", error="执行器内部异常")
+                    runner._confirmed_event(str(task.get("id")), terminal=True, status="failed", error="执行器内部异常")
                 continue
             time.sleep(config.poll_seconds)
     except KeyboardInterrupt:

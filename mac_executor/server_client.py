@@ -40,6 +40,12 @@ class ServerClient:
         data = resp.json()
         return data if isinstance(data, dict) else None
 
+    def touch_task(self, task_id: str) -> dict[str, Any] | None:
+        """Task-level keepalive: refresh the task's updated_at so the server's
+        stale sweep knows THIS task is still being worked (heartbeat alone
+        proves the process lives, not the task)."""
+        return self._post(f"/v1/project-tasks/{task_id}/events", {})
+
     def event(
         self,
         task_id: str,

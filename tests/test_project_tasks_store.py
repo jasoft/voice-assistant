@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import timezone
 
 import pytest
 
@@ -147,10 +148,11 @@ def test_stale_running_task_marked_failed_not_fake_running(store_path: Path, mon
     assert [t["id"] for t in marked] == [task["id"]]
     stored = pt.get_task(task["id"], path=store_path)
     assert stored["status"] == "failed"
-    assert "执行器失联" in stored["error"]
+    assert "执行器超过失联窗口" in stored["error"]
 
 
 def test_fresh_running_task_not_marked_stale(store_path: Path, monkeypatch):
+    """任务级 updated_at 新鲜即不被误杀（心跳不再作为豁免条件）。"""
     task = _make_task(store_path)
     pt.record_executor_heartbeat(executor_id="mac-alive", path=store_path)
     pt.claim_next_task(executor_id="mac-alive", path=store_path)
@@ -170,3 +172,41 @@ def test_followup_requeues_waiting_task(store_path: Path):
     assert updated["status"] == "queued"
     assert updated["note"] is None
     assert updated["followups"] == ["再试一次"]
+
+
+def test_stale_running_fails_even_with_fresh_heartbeat(store_path: Path, monkeypatch):
+    """负例（监督指出的缺口）：事件回传持续失败但执行器心跳仍在线时，
+    任务级失联清理必须照常触发——心跳不能替任务续命。"""
+    from datetime import datetime, timedelta
+
+    task = _make_task(store_path)
+    pt.record_executor_heartbeat(executor_id="mac-alive", path=store_path)
+    pt.claim_next_task(executor_id="mac-alive", path=store_path)
+    monkeypatch.setenv("PROJECT_TASK_STALE_RUNNING_SECONDS", "300")
+    data = pt.load_tasks(store_path)
+    old = (datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat(timespec="seconds")
+    data["tasks"][0]["updated_at"] = old
+    # 心跳保持新鲜（模拟"事件失败但进程还活着在发心跳"）
+    data["executors"]["mac-alive"]["last_seen"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    pt.save_tasks(store_path, data)
+    marked = pt.fail_stale_running_tasks(path=store_path)
+    assert [t["id"] for t in marked] == [task["id"]]
+    assert pt.get_task(task["id"], path=store_path)["status"] == "failed"
+
+
+def test_task_keepalive_touches_updated_at(store_path: Path):
+    """执行器任务级 touch 刷新 updated_at → 不被失联清理误杀。"""
+    from datetime import datetime, timedelta
+
+    task = _make_task(store_path)
+    pt.record_executor_heartbeat(executor_id="mac-alive", path=store_path)
+    pt.claim_next_task(executor_id="mac-alive", path=store_path)
+    monkeypatch_env = None
+    data = pt.load_tasks(store_path)
+    old = (datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat(timespec="seconds")
+    data["tasks"][0]["updated_at"] = old
+    pt.save_tasks(store_path, data)
+    # 执行器 keepalive（touch 事件，无字段）→ _touch 刷新 updated_at
+    pt.update_task_event(task["id"], path=store_path)
+    assert pt.fail_stale_running_tasks(path=store_path) == []
+    assert pt.get_task(task["id"], path=store_path)["status"] == "running"

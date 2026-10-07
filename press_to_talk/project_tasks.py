@@ -245,44 +245,37 @@ def _stale_running_seconds() -> float:
 
 
 def fail_stale_running_tasks(path: Path | None = None) -> list[dict[str, Any]]:
-    """Mark ``running``/``waiting`` tasks whose executor has gone silent as
-    failed with an honest explanation — after an executor crash or server
-    restart the task must never keep pretending to run. The native session may
-    still exist in the tool; the note says the human should check it there."""
+    """Mark ``running`` tasks with no task-level activity for over
+    ``PROJECT_TASK_STALE_RUNNING_SECONDS`` as failed — a healthy executor
+    touches each running task every minute (task keepalive), so silence means
+    the executor died or lost event delivery; either way the task must never
+    keep pretending to run. Executor heartbeat alone does NOT keep a task
+    alive: it proves the process lives, not that this task is being worked on.
+    ``waiting`` is a needs-user-action state and is not swept. The native
+    session may still exist in the tool; the note says so."""
     from datetime import datetime
 
     store_path = path or configured_store_path()
     marked: list[dict[str, Any]] = []
     with _STORE_LOCK:
         data = load_tasks(store_path)
-        executors = data.get("executors") or {}
         try:
             now_dt = datetime.fromisoformat(_utc_now())
         except ValueError:
             now_dt = datetime.now()
         changed = False
         for task in data["tasks"]:
-            if task.get("status") not in {"running", "waiting"}:
-                continue
+            if task.get("status") != "running":
+                continue  # waiting 是需要用户处理的状态，不参与失联清理
             last_activity = str(task.get("updated_at") or "")
-            executor_online = False
-            info = executors.get(str(task.get("executor_id")))
-            if isinstance(info, dict):
-                try:
-                    last_seen_dt = datetime.fromisoformat(str(info.get("last_seen")))
-                    online_for = (now_dt - last_seen_dt).total_seconds()
-                    executor_online = 0 <= online_for <= _stale_running_seconds()
-                except ValueError:
-                    executor_online = False
             try:
                 updated_dt = datetime.fromisoformat(last_activity)
-                now_dt = datetime.fromisoformat(_utc_now())
                 stale = (now_dt - updated_dt).total_seconds() > _stale_running_seconds()
             except ValueError:
                 stale = True
-            if stale and not executor_online:
+            if stale:
                 task["status"] = "failed"
-                task["error"] = "执行器失联，任务在工具中的实际状态未知，请在原工具会话列表确认"
+                task["error"] = "执行器超过失联窗口未回传任务活动，任务在工具中的实际状态未知，请在原工具会话列表确认"
                 task["finished_at"] = _utc_now()
                 _touch(task)
                 marked.append(dict(task))

@@ -668,3 +668,39 @@ def test_resume_active_writer_exhausted_marks_waiting(monkeypatch):
     assert not any(c.get("status") == "failed" for c in server.calls)
 
 
+
+
+def test_confirmed_event_failure_sets_halt(monkeypatch):
+    """终态事件在窗口内未确认 → halt_reason 置位（主循环停领取停心跳退出）。"""
+    monkeypatch.setenv("PROJECT_EXECUTOR_TERMINAL_EVENT_MAX_WAIT_SECONDS", "0.2")
+    monkeypatch.setattr(daemon_mod.time, "sleep", lambda s: None)
+    server = FakeServer(fail_times=99)
+    codex = FakeCodex()
+    runner = _make_runner(monkeypatch, server, codex)
+    runner._run_codex_task(_task(), cwd="/tmp")
+    assert runner.halt_reason and "unconfirmed" in runner.halt_reason
+    assert codex.run_turn_calls == []  # 未确认前绝不执行
+
+
+def test_progress_unconfirmed_also_sets_halt(monkeypatch):
+    """负例：消费进度持续失败 → 本轮不执行且置位 halt（停止领取与心跳）。"""
+    monkeypatch.setattr(daemon_mod.time, "sleep", lambda s: None)
+    server = FakeServer(fail_times=99)
+    codex = FakeCodex()
+    runner = _make_runner(monkeypatch, server, codex)
+    runner._run_codex_task(_task(), cwd="/tmp")
+    assert runner.halt_reason and "progress event unconfirmed" in runner.halt_reason
+    assert codex.run_turn_calls == []
+
+
+def test_server_touch_task_sends_empty_event(monkeypatch):
+    from mac_executor.server_client import ServerClient
+
+    captured = {}
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["url"] = url; captured["json"] = json or {}
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: ({}))
+    monkeypatch.setattr("mac_executor.server_client.httpx.post", fake_post)
+    ServerClient(base_url="http://s", token="t").touch_task("task-9")
+    assert captured["url"].endswith("/v1/project-tasks/task-9/events")
+    assert captured["json"] == {}
