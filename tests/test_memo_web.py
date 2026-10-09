@@ -108,3 +108,36 @@ def test_memo_web_serves_version(monkeypatch) -> None:
     assert "version" in response.json()
     assert response.json()["version"] != ""
 
+
+def test_memo_web_v1_chat_endpoint(monkeypatch) -> None:
+    fast_result = {
+        "reply": "护照在书房第一个抽屉。",
+        "memories": [],
+        "query": "我的护照在哪里",
+        "action": "speak",
+        "debug_info": {"backend": "fast-chat", "intent": "query"},
+    }
+    async def _mock_fast(_query: str):
+        return fast_result
+
+    monkeypatch.setattr(fast_chat, "try_fast_memory_chat", _mock_fast)
+
+    with TestClient(memo_web.app) as client:
+        response = client.post("/v1/chat", json={"query": "我的护照在哪里"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["reply"] == "护照在书房第一个抽屉。"
+    assert data["action"] == "speak"
+    assert data["query"] == "我的护照在哪里"
+    assert "debug_info" in data
+
+
+def test_memo_web_v1_chat_rejects_blank(monkeypatch) -> None:
+    with TestClient(memo_web.app) as client:
+        response = client.post("/v1/chat", json={"query": "   "})
+
+    assert response.status_code == 422
+    assert "查询内容不能为空" in response.json()["detail"]
+
+

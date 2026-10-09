@@ -31,7 +31,7 @@ function setBusy(busy) {
   chips.forEach(chip => chip.disabled = busy);
   if (busy) {
     loadingIndicator.hidden = false;
-    statusTip.textContent = 'DeepSeek Harness 正在查询…';
+    statusTip.textContent = '正在处理…';
     statusTip.classList.add('busy');
     scrollToBottom();
   } else {
@@ -111,10 +111,10 @@ async function sendInstruction(customText) {
   setBusy(true);
 
   try {
-    const response = await fetch('/api/query', {
+    const response = await fetch('/v1/chat', {
       method: 'POST',
       headers: {'content-type': 'application/json'},
-      body: JSON.stringify({instruction: text}),
+      body: JSON.stringify({query: text}),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -122,7 +122,7 @@ async function sendInstruction(customText) {
     }
     replyCard.hidden = false;
     renderReply(payload.reply || '');
-    statusTip.textContent = '检索完成';
+    statusTip.textContent = '完成';
     statusTip.classList.remove('busy');
     // 发送成功后清空输入框并重置高度
     instruction.value = '';
