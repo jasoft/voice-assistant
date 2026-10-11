@@ -1149,6 +1149,37 @@ class TTSRequest(BaseModel):
 _TTS_MAX_CHARS = 2000
 
 
+async def _extract_sse_json_stream(lines: AsyncIterator[str]) -> AsyncIterator[dict]:
+    """从 SSE 行流解析 JSON 数据包，兼容多行格式（标准 SSE）与单行格式（mock/代理）。"""
+    data_lines: list[str] = []
+    async for raw_line in lines:
+        line = raw_line.strip("\r")
+        if not line:
+            if data_lines:
+                try:
+                    yield json.loads("\n".join(data_lines))
+                except json.JSONDecodeError:
+                    pass
+                data_lines.clear()
+            continue
+        if line.startswith("data:"):
+            content = line[5:]
+            if content.startswith(" "):
+                content = content[1:]
+            if not data_lines:
+                try:
+                    yield json.loads(content)
+                    continue
+                except json.JSONDecodeError:
+                    pass
+            data_lines.append(content)
+    if data_lines:
+        try:
+            yield json.loads("\n".join(data_lines))
+        except json.JSONDecodeError:
+            pass
+
+
 async def _qwen_tts_stream(text: str) -> AsyncIterator[bytes]:
     """流式调用阿里云百炼（DashScope）Qwen TTS（SSE），逐块 yield 16-bit LE PCM 字节（按 2 字节对齐）。
 
@@ -1193,16 +1224,7 @@ async def _qwen_tts_stream(text: str) -> AsyncIterator[bytes]:
                     raise RuntimeError(f"Qwen TTS 上游返回 {resp.status_code}：{body}")
                 carry = b""
                 header_stripped = False
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data_str = line[5:].strip()
-                    if not data_str:
-                        continue
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
+                async for chunk in _extract_sse_json_stream(resp.aiter_lines()):
                     if "code" in chunk and str(chunk.get("code")) != "200":
                         msg = chunk.get("message") or chunk.get("code")
                         raise RuntimeError(f"Qwen TTS 上游错误：{msg}")
@@ -1269,16 +1291,7 @@ async def _gemini_tts_stream(text: str) -> AsyncIterator[bytes]:
                     body = (await resp.aread()).decode("utf-8", "replace")[:300]
                     raise RuntimeError(f"Gemini TTS 上游返回 {resp.status_code}：{body}")
                 carry = b""
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data_str = line[5:].strip()
-                    if not data_str:
-                        continue
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
+                async for chunk in _extract_sse_json_stream(resp.aiter_lines()):
                     parts = (
                         (chunk.get("candidates") or [{}])[0]
                         .get("content", {})
@@ -1351,6 +1364,9 @@ async def tts(req: TTSRequest, user_id: str = Depends(get_user_id)):
     except RuntimeError as exc:
         log(f"tts: {exc}", level="error")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if not first:
+        raise HTTPException(status_code=502, detail="TTS 未生成音频内容")
 
     async def _gen() -> AsyncIterator[bytes]:
         if first:

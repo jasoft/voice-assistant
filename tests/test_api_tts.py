@@ -303,4 +303,116 @@ def test_tts_sanitizes_markdown_and_spoken_tag(monkeypatch, client):
     assert received[0] == "南京明天气温18到27度，早晚偏凉。"
 
 
+def test_qwen_stream_parses_multiline_sse(monkeypatch):
+    """阿里云百炼返回的多行格式化 JSON SSE 数据包，应被正确聚合解析。"""
+    class FakeResponse:
+        status_code = 200
+
+        async def aread(self):
+            return b""
+
+        async def aiter_lines(self):
+            lines = [
+                "id:1",
+                "event:result",
+                ":HTTP_STATUS/200",
+                "data:{",
+                'data:  "output" : {',
+                'data:    "type" : "sentence-begin",',
+                'data:    "audio" : {',
+                'data:      "data" : ""',
+                "data:    }",
+                "data:  }",
+                "data:}",
+                "",
+                "id:2",
+                "event:result",
+                ":HTTP_STATUS/200",
+                "data:{",
+                'data:  "output" : {',
+                'data:    "type" : "sentence-synthesis",',
+                'data:    "audio" : {',
+                'data:      "data" : "AQIDBA=="',  # 4 字节
+                "data:    }",
+                "data:  }",
+                "data:}",
+                "",
+                "id:3",
+                "event:result",
+                ":HTTP_STATUS/200",
+                "data:{",
+                'data:  "output" : {',
+                'data:    "type" : "sentence-synthesis",',
+                'data:    "audio" : {',
+                'data:      "data" : "BQYH"',  # 3 字节，奇数
+                "data:    }",
+                "data:  }",
+                "data:}",
+                "",
+                "id:4",
+                "event:result",
+                ":HTTP_STATUS/200",
+                "data:{",
+                'data:  "output" : {',
+                'data:    "type" : "sentence-end",',
+                'data:    "audio" : {',
+                'data:      "data" : ""',
+                "data:    }",
+                "data:  }",
+                "data:}",
+                "",
+            ]
+            for line in lines:
+                yield line
+
+    class FakeClient:
+        def __init__(self, timeout=None):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def stream(self, method, url, headers=None, json=None):
+            import contextlib
+
+            @contextlib.asynccontextmanager
+            async def cm():
+                yield FakeResponse()
+
+            return cm()
+
+    import httpx as _httpx
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda timeout=None: FakeClient())
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+
+    async def run() -> list[bytes]:
+        chunks = []
+        async for piece in api_main._qwen_tts_stream("测试"):
+            chunks.append(piece)
+        return chunks
+
+    import asyncio
+
+    chunks = asyncio.run(run())
+    assert chunks == [b"\x01\x02\x03\x04", b"\x05\x06"]
+
+
+def test_tts_fails_on_empty_audio(monkeypatch, client):
+    """当上游没有产出任何音频数据时，接口应返回 502 错误而非 200 空响应。"""
+    async def empty_stream(text):
+        if False:
+            yield b""
+
+    monkeypatch.setattr(api_main, "_tts_stream", empty_stream)
+
+    resp = client.post("/v1/tts", json={"text": "测试"})
+    assert resp.status_code == 502
+    assert "未生成音频内容" in resp.json()["detail"]
+
+
+
 
