@@ -437,32 +437,22 @@ struct AssistantShellView: View {
 
     private var copyReplyButton: some View {
         Button(action: copyReplyAction) {
-            HStack(spacing: 4) {
-                Image(systemName: isReplyCopied ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 11, weight: .semibold))
-                Text(isReplyCopied ? "已复制" : "复制")
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .foregroundStyle(
-                isReplyCopied
-                    ? Color(red: 0.16, green: 0.65, blue: 0.38)
-                    : Color(red: 0.35, green: 0.38, blue: 0.48)
-            )
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(isReplyCopied ? Color(red: 0.90, green: 0.97, blue: 0.92) : Color.white.opacity(0.85))
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(
-                                isReplyCopied
-                                    ? Color(red: 0.70, green: 0.90, blue: 0.76)
-                                    : Color(red: 0.85, green: 0.87, blue: 0.93),
-                                lineWidth: 1
-                            )
-                    )
-            )
+            Image(systemName: isReplyCopied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(
+                    isReplyCopied
+                        ? Color(red: 0.16, green: 0.65, blue: 0.38)
+                        : Color(red: 0.46, green: 0.47, blue: 0.54)
+                )
+                .frame(width: 28, height: 28)
+                .background(
+                    Circle()
+                        .fill(
+                            isReplyCopied
+                                ? Color(red: 0.90, green: 0.97, blue: 0.92)
+                                : Color.white.opacity(0.68)
+                        )
+                )
         }
         .buttonStyle(.plain)
         .help(isReplyCopied ? "已复制到剪贴板" : "复制回答内容")
