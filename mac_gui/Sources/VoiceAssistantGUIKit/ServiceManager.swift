@@ -21,11 +21,16 @@ public final class ServiceManager {
         self.queryBackend = queryBackend.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    private func logInfo(_ message: String) {
+        guard let data = "[\(Date())] [ServiceManager] \(message)\n".data(using: .utf8) else { return }
+        FileHandle.standardError.write(data)
+    }
+
     public func ensureServicesRunning() async {
         if queryBackend == "harness" || queryBackend == "deepseek-harness" {
-            print("DeepSeek Harness backend selected; PocketBase is disabled.")
+            logInfo("DeepSeek Harness backend selected; PocketBase is disabled.")
         } else if !isLocalServer {
-            print("Remote API selected; local PocketBase is disabled.")
+            logInfo("Remote API selected; local PocketBase is disabled.")
         } else {
             await ensurePocketBaseRunning()
         }
@@ -39,11 +44,11 @@ public final class ServiceManager {
 
     private func ensurePocketBaseRunning() async {
         if await isServiceRunning(url: pbURL.appendingPathComponent("api/health")) {
-            print("PocketBase is already running.")
+            logInfo("PocketBase is already running.")
             return
         }
 
-        print("Starting PocketBase...")
+        logInfo("Starting PocketBase...")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["bash", "scripts/start_pocketbase.sh"]
@@ -57,24 +62,24 @@ public final class ServiceManager {
             // Wait for it to become ready
             for _ in 0..<10 {
                 if await isServiceRunning(url: pbURL.appendingPathComponent("api/health")) {
-                    print("PocketBase started successfully.")
+                    logInfo("PocketBase started successfully.")
                     return
                 }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         } catch {
-            print("Failed to start PocketBase: \(error)")
+            logInfo("Failed to start PocketBase: \(error)")
         }
     }
 
     private func ensureAPIServerRunning() async {
         // The API server might have /v1/healthy or /healthy
         if await isServiceRunning(url: serverURL.deletingLastPathComponent().appendingPathComponent("healthy")) {
-            print("API Server is already running.")
+            logInfo("API Server is already running.")
             return
         }
 
-        print("Starting API Server...")
+        logInfo("Starting API Server...")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["uv", "run", "ptt-api"]
@@ -88,13 +93,13 @@ public final class ServiceManager {
             // Wait for it to become ready
             for _ in 0..<10 {
                 if await isServiceRunning(url: serverURL.deletingLastPathComponent().appendingPathComponent("healthy")) {
-                    print("API Server started successfully.")
+                    logInfo("API Server started successfully.")
                     return
                 }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         } catch {
-            print("Failed to start API Server: \(error)")
+            logInfo("Failed to start API Server: \(error)")
         }
     }
 
