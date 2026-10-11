@@ -40,6 +40,7 @@ from ..storage.providers.mem0 import Mem0RememberStore
 from .fast_chat import last_typesafe_debug, try_fast_memory_chat
 from .reply_stream import ReplyStream, current_stream, has_partial_reply, watch_prompt
 from ..audio.stt import run_stt
+from ..audio.tts import split_visual_and_spoken
 from ..utils.text import current_time_with_weekday_text
 
 
@@ -487,6 +488,13 @@ class QueryResponse(BaseModel):
     查询执行结果响应对象。
     """
     reply: str = Field(..., description="助手生成的最终文本回复。")
+    spoken_reply: Optional[str] = Field(
+        None,
+        description=(
+            "适合语音合成 (TTS) 朗读的纯口语化回复。无 Markdown、无生僻符号，"
+            "数字/单位完全口语化。客户端朗读时优先使用此字段，界面展示仍使用 reply。"
+        ),
+    )
     action: str = Field(
         "speak",
         description=(
@@ -834,11 +842,15 @@ async def _execute_harness_query(
         if isinstance(debug_info, dict) and debug_info.get("session_id")
         else None
     )
+    raw_reply = str(harness_result.get("reply", ""))
+    visual_reply, spoken_reply = split_visual_and_spoken(raw_reply)
+    harness_result["reply"] = visual_reply
+    harness_result["spoken_reply"] = spoken_reply
     try:
         _persist_harness_history(
             user_id=user_id,
             query=str(harness_result.get("query") or req.query),
-            reply=str(harness_result.get("reply", "")),
+            reply=visual_reply,
             mode=mode_name or (req.mode.value if req.mode else None),
             harness_session_id=harness_session_id,
         )
@@ -867,12 +879,14 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
                 f"fast-chat: served in {fast_result.get('debug_info', {}).get('elapsed_s', '?')}s",
                 level="info",
             )
+            raw_reply = str(fast_result.get("reply", ""))
+            visual_reply, spoken_reply = split_visual_and_spoken(raw_reply)
             # Persist to history
             try:
                 _persist_harness_history(
                     user_id=user_id,
                     query=req.query,
-                    reply=str(fast_result.get("reply", "")),
+                    reply=visual_reply,
                     mode="chat-fast",
                     harness_session_id=None,
                 )
@@ -890,7 +904,8 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
                     score=float(m.get("score") or 0.0),
                 ))
             return QueryResponse(
-                reply=str(fast_result.get("reply", "")),
+                reply=visual_reply,
+                spoken_reply=spoken_reply,
                 action=str(fast_result.get("action") or "speak"),
                 reasoning=fast_result.get("reasoning"),
                 memories=memories_out,
@@ -985,8 +1000,10 @@ def _stream_chat(req: QueryRequest, user_id: str) -> StreamingResponse:
                 if not context.text:
                     # Tool execution and memo writes are atomic; only publish after success.
                     await context.emit(result.reply)
-                elif context.text != result.reply:
-                    raise RuntimeError("流式回答与最终结果不一致")
+                else:
+                    context_vis, _ = split_visual_and_spoken(context.text)
+                    if context_vis != result.reply and context.text != result.reply:
+                        raise RuntimeError("流式回答与最终结果不一致")
                 await queue.put(("done", result.model_dump(mode="json")))
             except asyncio.CancelledError:
                 raise
@@ -1309,7 +1326,13 @@ _original_tts_stream = _tts_stream
 )
 async def tts(req: TTSRequest, user_id: str = Depends(get_user_id)):
     del user_id
-    text = req.text.strip()
+    if "<spoken>" in req.text.lower():
+        _, spoken_text = split_visual_and_spoken(req.text)
+        text = spoken_text.strip() or req.text.strip()
+    elif any(sym in req.text for sym in ("**", "##", "℃", "～", "km/h")):
+        text = sanitize_for_tts(req.text)
+    else:
+        text = req.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="文本为空")
     if _tts_stream is not _original_tts_stream:

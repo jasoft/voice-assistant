@@ -9,10 +9,24 @@ class ReplyStream:
     send: Callable[[str], Awaitable[None]]
     watch: bool = False
     text: str = ""
+    _spoken_started: bool = False
 
     async def emit(self, delta: str) -> None:
-        if delta:
-            self.text += delta
+        if not delta:
+            return
+        old_text = self.text
+        self.text += delta
+        if self._spoken_started:
+            return
+        lower_new = self.text.lower()
+        if "<spoken>" in lower_new:
+            self._spoken_started = True
+            spoken_idx = lower_new.find("<spoken>")
+            if spoken_idx > len(old_text):
+                remaining = self.text[len(old_text):spoken_idx]
+                if remaining:
+                    await self.send(remaining)
+        else:
             await self.send(delta)
 
 

@@ -281,3 +281,26 @@ def test_qwen_stream_strips_wav_header(monkeypatch):
     assert chunks == [b"\xaa\xbb\xcc\xdd", b"\x11\x22"]
 
 
+def test_tts_sanitizes_markdown_and_spoken_tag(monkeypatch, client):
+    received = []
+
+    async def fake_stream(text):
+        received.append(text)
+        yield b"\x01\x02"
+
+    monkeypatch.setattr(api_main, "_gemini_tts_stream", fake_stream)
+
+    raw_input = (
+        "南京明天天气：\n"
+        "- **气温**：18℃～27℃\n"
+        "<spoken>\n"
+        "南京明天气温18到27度，早晚偏凉。\n"
+        "</spoken>"
+    )
+    resp = client.post("/v1/tts", json={"text": raw_input})
+    assert resp.status_code == 200
+    assert len(received) == 1
+    assert received[0] == "南京明天气温18到27度，早晚偏凉。"
+
+
+

@@ -2,6 +2,7 @@ import Foundation
 
 public struct VAQueryResponse: Decodable {
     public let reply: String
+    public let spoken_reply: String?
     public let query: String?
     /// "speak"（默认，语音播报）或 "paste"（reply 应粘贴到目标窗口光标处）。
     public let action: String?

@@ -12,48 +12,86 @@ from ..utils.shell import ensure_bin
 TTS_STOP_SIGNAL_FILENAME = "stop_tts"
 
 def sanitize_for_tts(text: str) -> str:
-    # 1. 基础清理：去掉代码块、链接等
+    # 0. 剥离可能遗留的 <spoken> 标签本身
+    text = re.sub(r"</?spoken>", "", text, flags=re.IGNORECASE)
+
+    # 1. 基础清理：去掉代码块、链接、来源附录等
     text = re.sub(r"`{1,3}.*?`{1,3}", "", text, flags=re.DOTALL)
     text = re.sub(r"\[(.*?)\]\((https?://[^\s)]+)\)", r"\1", text)
     text = re.sub(r"https?://\S+", "", text)
-    
-    # 2. Markdown 格式清理
+    text = re.sub(r"（?数据来源[：:][^）\n]+）?", "", text)
+    text = re.sub(r"\b[a-zA-Z0-9-]+\.(in|com|cn|org|net|io)\b", "", text)
+
+    # 2. 特殊符号与单位口语化
+    text = re.sub(r"℃", "度", text)
+    text = re.sub(r"[～~]", "到", text)
+    text = re.sub(r"(?i)\bkm/h\b", "公里每小时", text)
+    text = re.sub(r"(\d+)%", r"百分之\1", text)
+    text = re.sub(r"%", "百分之", text)
+
+    # 3. Markdown 格式清理
     text = re.sub(r"[*_#~]", "", text)  # 去掉粗体、斜体、标题符号、删除线
-    
-    # 3. 结构化清理与自然停顿
+
+    # 4. 结构化清理与自然停顿
     lines = []
     for raw in text.splitlines():
         line = raw.strip()
         if not line:
             continue
-        if re.fullmatch(r"-{3,}", line): # 去掉分割线
+        if re.fullmatch(r"-{3,}", line):  # 去掉分割线
             continue
-        
-        # 处理列表项：把 - 或 * 开头的列表换成更自然的表达或加上停顿
-        # 比如："- 苹果" 变成 "，苹果" 或者是单纯去掉符号
+
+        # 处理列表项：把 - 或 * 开头的列表换成自然表达
         line = re.sub(r"^\s*[-*+]\s+", "，", line)
         line = re.sub(r"^\s*\d+\.\s+", "，", line)
-        
+
+        # 去掉冒号前后的空隙或冒号本身转换为自然停顿
+        line = re.sub(r"：\s*", "，", line)
+
         # 去掉括号内的辅助信息（如：(播报)、(语音)等）
         line = re.sub(r"\([^)]*(语音|回复|播报|记录)[^)]*\)", "", line)
-        
+
         if not line.strip():
             continue
         lines.append(line)
-    
-    # 用逗号或句号连接行，增加语流的自然感
+
     text = "。".join(lines)
-    
-    # 4. 去掉表情符号
+
+    # 5. 去掉表情符号
     text = re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]+", "", text)
     text = re.sub(r"[\uFE0E\uFE0F]", "", text)
-    
-    # 5. 最终清理多余空白
+
+    # 6. 最终标点与空白整理，杜绝畸形标点组合
     text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"[，。]{2,}", "。", text) # 合并重复的标点
+    text = re.sub(r"[，,]{2,}", "，", text)
+    text = re.sub(r"[。\.]{2,}", "。", text)
+    text = re.sub(r"[，,][。.]|[。.][，,]", "。", text)
+    text = re.sub(r"：[，。]", "。", text)
     text = text.strip("，。 ") + "。"
-    
+
     return text.strip()
+
+
+def split_visual_and_spoken(text: str) -> tuple[str, str]:
+    """将模型产出拆分为屏幕展示版本（visual）与语音朗读版本（spoken）。
+
+    若文本中包含 <spoken>...</spoken>（或未闭合的 <spoken>...），
+    则视觉版本为标签前/外的排版正文，口语版本为标签内的内容。
+    若未包含标签，则视觉版本为原样文本，口语版本回退为经过口语规范化的文本。
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return "", ""
+
+    spoken_match = re.search(r"<spoken>(.*?)(?:</spoken>|\Z)", raw, flags=re.DOTALL | re.IGNORECASE)
+    if spoken_match:
+        spoken_part = spoken_match.group(1).strip()
+        visual_part = (raw[:spoken_match.start()] + raw[spoken_match.end():]).strip()
+        # 清理口语版中可能残留的标点或换行
+        spoken_clean = re.sub(r"\s+", " ", spoken_part).strip()
+        return visual_part or spoken_clean, spoken_clean or sanitize_for_tts(visual_part)
+
+    return raw, sanitize_for_tts(raw)
 
 def tts_stop_signal_path() -> Path | None:
     raw = os.environ.get("PTT_GUI_CONTROL_DIR", "").strip()

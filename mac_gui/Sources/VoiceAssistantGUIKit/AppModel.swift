@@ -152,7 +152,7 @@ public final class AppModel: ObservableObject {
                 } else {
                     applySessionEvent(["type": "status", "phase": "done", "auto_close_seconds": 5])
                     // Optional: Play TTS locally
-                    speakLocally(text: response.reply)
+                    speakLocally(text: response.spoken_reply ?? response.reply)
                 }
             } catch {
                 applySessionEvent(["type": "error", "message": "API Error: \(error.localizedDescription)"])
