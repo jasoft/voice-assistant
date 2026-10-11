@@ -151,7 +151,15 @@ final class VoiceSession: ObservableObject {
                         phase = .replying
                         if autoSpeaking { speech.accept(text) }
                     case .done(let text):
-                        guard text == reply else { throw APIError.transport("回答内容不完整") }
+                        if reply != text {
+                            let replyTrimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let textTrimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if replyTrimmed == textTrimmed || reply.hasPrefix(text) || text.hasPrefix(reply) {
+                                reply = text
+                            } else {
+                                throw APIError.transport("回答内容不完整")
+                            }
+                        }
                         if autoSpeaking { speech.finishInput() }
                         phase = .replied
                         logger.info("text_done chars=\(self.reply.count)")

@@ -9,25 +9,83 @@ class ReplyStream:
     send: Callable[[str], Awaitable[None]]
     watch: bool = False
     text: str = ""
+    emitted_text: str = ""
+    _pending: str = ""
     _spoken_started: bool = False
 
     async def emit(self, delta: str) -> None:
         if not delta:
             return
-        old_text = self.text
         self.text += delta
         if self._spoken_started:
             return
-        lower_new = self.text.lower()
-        if "<spoken>" in lower_new:
+        self._pending += delta
+        await self._flush_safe(is_eof=False)
+
+    async def finish(self) -> None:
+        """流结束时调用，将缓冲区内安全的尾部内容刷出。"""
+        if self._spoken_started:
+            self._pending = ""
+            return
+        await self._flush_safe(is_eof=True)
+
+    async def _flush_safe(self, is_eof: bool = False) -> None:
+        if self._spoken_started:
+            self._pending = ""
+            return
+
+        # 1. 检查 pending 中是否已包含完整的 <spoken> 标签
+        lower_pending = self._pending.lower()
+        tag_pos = lower_pending.find("<spoken>")
+        if tag_pos != -1:
+            safe_text = self._pending[:tag_pos].rstrip("\r\n \t")
+            if safe_text:
+                await self.send(safe_text)
+                self.emitted_text += safe_text
             self._spoken_started = True
-            spoken_idx = lower_new.find("<spoken>")
-            if spoken_idx > len(old_text):
-                remaining = self.text[len(old_text):spoken_idx]
-                if remaining:
-                    await self.send(remaining)
-        else:
-            await self.send(delta)
+            self._pending = ""
+            return
+
+        if is_eof:
+            # 流已结束且未遇到完整 <spoken>：若尾部残留疑似标签前缀，裁掉
+            last_lt = self._pending.rfind("<")
+            if last_lt != -1 and "<spoken>".startswith(self._pending[last_lt:].lower()):
+                self._pending = self._pending[:last_lt]
+            safe_text = self._pending.rstrip("\r\n \t")
+            if safe_text:
+                await self.send(safe_text)
+                self.emitted_text += safe_text
+            self._pending = ""
+            return
+
+        # 2. 检查 pending 尾部是否包含疑似 <spoken> 前缀（例如 "<", "<sp", "<spoken"）
+        last_lt = self._pending.rfind("<")
+        if last_lt != -1:
+            tail = self._pending[last_lt:].lower()
+            if "<spoken>".startswith(tail):
+                prefix_candidate = self._pending[:last_lt].rstrip("\r\n \t")
+                if prefix_candidate:
+                    await self.send(prefix_candidate)
+                    self.emitted_text += prefix_candidate
+                    self._pending = self._pending[len(prefix_candidate):]
+                return
+
+        # 3. 检查 pending 尾部是否为纯空白字符（可能紧邻后续到来的 <spoken>）
+        # 在非空白字符到来之前暂扣尾随空白
+        trailing_ws_len = len(self._pending) - len(self._pending.rstrip("\r\n \t"))
+        if trailing_ws_len > 0:
+            safe_text = self._pending[:-trailing_ws_len]
+            if safe_text:
+                await self.send(safe_text)
+                self.emitted_text += safe_text
+                self._pending = self._pending[len(safe_text):]
+            return
+
+        # 4. 无疑似标签和尾随空白，全部安全下发
+        if self._pending:
+            await self.send(self._pending)
+            self.emitted_text += self._pending
+            self._pending = ""
 
 
 current_stream: ContextVar[ReplyStream | None] = ContextVar("reply_stream", default=None)
@@ -81,6 +139,8 @@ async def complete_reply(client, *, model: str, messages: list):
                 raise RuntimeError("回答未完整生成，请重新提问")
     finally:
         await response.close()
+    if stream:
+        await stream.finish()
     if not finished:
         raise RuntimeError("回答连接中断，请重新提问")
     if not pieces:

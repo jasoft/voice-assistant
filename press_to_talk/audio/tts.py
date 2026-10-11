@@ -12,7 +12,8 @@ from ..utils.shell import ensure_bin
 TTS_STOP_SIGNAL_FILENAME = "stop_tts"
 
 def sanitize_for_tts(text: str) -> str:
-    # 0. 剥离可能遗留的 <spoken> 标签本身
+    # 0. 剥离可能遗留的 <spoken> 标签本身（包括未闭合的 <spoken 碎片）
+    text = re.sub(r"<\s*/?spoken\b.*?(?:>|\Z)", "", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"</?spoken>", "", text, flags=re.IGNORECASE)
 
     # 1. 基础清理：去掉代码块、链接、来源附录等
@@ -83,7 +84,7 @@ def split_visual_and_spoken(text: str) -> tuple[str, str]:
     if not raw:
         return "", ""
 
-    spoken_match = re.search(r"<spoken>(.*?)(?:</spoken>|\Z)", raw, flags=re.DOTALL | re.IGNORECASE)
+    spoken_match = re.search(r"<\s*spoken\b[^>]*>?(.*?)(?:</spoken>|\Z)", raw, flags=re.DOTALL | re.IGNORECASE)
     if spoken_match:
         spoken_part = spoken_match.group(1).strip()
         visual_part = (raw[:spoken_match.start()] + raw[spoken_match.end():]).strip()

@@ -1000,10 +1000,18 @@ def _stream_chat(req: QueryRequest, user_id: str) -> StreamingResponse:
                 if not context.text:
                     # Tool execution and memo writes are atomic; only publish after success.
                     await context.emit(result.reply)
+                    await context.finish()
                 else:
+                    await context.finish()
                     context_vis, _ = split_visual_and_spoken(context.text)
-                    if context_vis != result.reply and context.text != result.reply:
-                        raise RuntimeError("流式回答与最终结果不一致")
+                    if context.emitted_text != result.reply:
+                        if result.reply.startswith(context.emitted_text):
+                            rem = result.reply[len(context.emitted_text):]
+                            if rem:
+                                await context.send(rem)
+                                context.emitted_text += rem
+                        elif context_vis != result.reply and context.text != result.reply:
+                            raise RuntimeError("流式回答与最终结果不一致")
                 await queue.put(("done", result.model_dump(mode="json")))
             except asyncio.CancelledError:
                 raise

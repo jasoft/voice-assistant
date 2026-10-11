@@ -126,3 +126,23 @@ async def test_upstream_eof_without_stop_is_failure_and_closes_stream():
         current_stream.reset(token)
     assert emitted == ["未完"]
     assert response.closed
+
+
+@pytest.mark.anyio
+async def test_reply_stream_buffers_spoken_tag_fragments():
+    emitted = []
+    async def send(text): emitted.append(text)
+    stream = ReplyStream(send, watch=True)
+    chunks = [
+        "唱歌技巧核心：",
+        "\n- 气息稳。",
+        "\n\n<spoken",
+        ">唱歌要先深吸一口气。</spoken>",
+    ]
+    for c in chunks:
+        await stream.emit(c)
+    await stream.finish()
+    full_emitted = "".join(emitted)
+    assert "<spoken" not in full_emitted
+    assert "<" not in full_emitted
+    assert full_emitted == "唱歌技巧核心：\n- 气息稳。"
