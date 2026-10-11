@@ -238,18 +238,11 @@ struct AssistantShellView: View {
                 }
                 .buttonStyle(.plain)
 
-                Text("记忆与历史")
+                Text("历史记录")
                     .font(.system(size: 21, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.16))
 
                 Spacer()
-
-                Button("打开记忆 CRUD") {
-                    SettingsWindowController.show(store: MemoryStore(workingDirectory: model.workingDirectory))
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(red: 0.31, green: 0.38, blue: 0.80))
             }
 
             historySearchField
@@ -311,11 +304,6 @@ struct AssistantShellView: View {
                         RemindersWindowController.show(workingDirectory: model.workingDirectory)
                     }
                     .help("设置手机提醒")
-
-                    iconButton(symbol: "gearshape") {
-                        SettingsWindowController.show(store: MemoryStore(workingDirectory: model.workingDirectory))
-                    }
-                    .help("系统设置")
                 }
             }
         }
