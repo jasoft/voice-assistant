@@ -8,6 +8,7 @@ struct AssistantShellView: View {
     @ObservedObject var model: AppModel
     @Namespace private var orbNamespace
     @FocusState private var inputFocused: Bool
+    @State private var isReplyCopied = false
 
     var body: some View {
         ZStack {
@@ -275,6 +276,8 @@ struct AssistantShellView: View {
                     ForEach(model.historyEntries) { entry in
                         HistoryEntryCard(entry: entry, onDelete: {
                             model.deleteHistoryEntry(entry)
+                        }, onCopy: {
+                            model.keepWindowOpen()
                         })
                     }
                 }
@@ -369,6 +372,7 @@ struct AssistantShellView: View {
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(Color(red: 0.10, green: 0.11, blue: 0.16))
                 Spacer()
+                copyReplyButton
                 speechToggleButton
                 if case .speaking = model.session.state.status {
                     Text("朗读中")
@@ -429,6 +433,57 @@ struct AssistantShellView: View {
         }
         .buttonStyle(.plain)
         .help(model.isSpeechMuted ? "当前已静音，点击恢复语音播放" : "当前正在播放，点击静音")
+    }
+
+    private var copyReplyButton: some View {
+        Button(action: copyReplyAction) {
+            HStack(spacing: 4) {
+                Image(systemName: isReplyCopied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(isReplyCopied ? "已复制" : "复制")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(
+                isReplyCopied
+                    ? Color(red: 0.16, green: 0.65, blue: 0.38)
+                    : Color(red: 0.35, green: 0.38, blue: 0.48)
+            )
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(isReplyCopied ? Color(red: 0.90, green: 0.97, blue: 0.92) : Color.white.opacity(0.85))
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(
+                                isReplyCopied
+                                    ? Color(red: 0.70, green: 0.90, blue: 0.76)
+                                    : Color(red: 0.85, green: 0.87, blue: 0.93),
+                                lineWidth: 1
+                            )
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .help(isReplyCopied ? "已复制到剪贴板" : "复制回答内容")
+        .disabled(replyPlainText.isEmpty)
+    }
+
+    private func copyReplyAction() {
+        guard !replyPlainText.isEmpty else { return }
+        model.keepWindowOpen()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(replyPlainText, forType: .string)
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isReplyCopied = true
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isReplyCopied = false
+            }
+        }
     }
 
     private var composer: some View {
@@ -1071,6 +1126,32 @@ private struct HistoryStyleCard<Content: View>: View {
 private struct HistoryEntryCard: View {
     let entry: HistoryEntry
     let onDelete: () -> Void
+    var onCopy: (() -> Void)? = nil
+    @State private var isCopied = false
+
+    private var textToCopy: String {
+        if !entry.reply.isEmpty {
+            return entry.reply
+        }
+        return entry.transcript
+    }
+
+    private func copyContent() {
+        guard !textToCopy.isEmpty else { return }
+        onCopy?()
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(textToCopy, forType: .string)
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isCopied = true
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isCopied = false
+            }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -1093,8 +1174,39 @@ private struct HistoryEntryCard: View {
                 MarkdownBodyText(text: entry.reply, fontSize: 13, textColor: NSColor.secondaryLabelColor.withAlphaComponent(0.95))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack {
+            HStack(spacing: 8) {
                 Spacer()
+                if !textToCopy.isEmpty {
+                    Button(action: copyContent) {
+                        Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(
+                                isCopied
+                                    ? Color(red: 0.16, green: 0.65, blue: 0.38)
+                                    : Color(red: 0.44, green: 0.45, blue: 0.52)
+                            )
+                            .frame(width: 28, height: 28)
+                            .background(
+                                Circle()
+                                    .fill(
+                                        isCopied
+                                            ? Color(red: 0.90, green: 0.97, blue: 0.92)
+                                            : Color(red: 0.95, green: 0.96, blue: 0.98)
+                                    )
+                                    .overlay(
+                                        Circle()
+                                            .stroke(
+                                                isCopied
+                                                    ? Color(red: 0.70, green: 0.90, blue: 0.76)
+                                                    : Color(red: 0.88, green: 0.89, blue: 0.94),
+                                                lineWidth: 1
+                                            )
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(isCopied ? "已复制到剪贴板" : "复制结果")
+                }
                 Button(action: onDelete) {
                     Label("删除", systemImage: "trash")
                         .font(.system(size: 12, weight: .bold))

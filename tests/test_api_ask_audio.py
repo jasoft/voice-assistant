@@ -51,7 +51,7 @@ def test_ask_audio_fast_path(monkeypatch, client):
     def fake_run_stt(url, token, path):
         return " 帮我记一下 明天买牛奶 "
 
-    async def fake_fast(query, *, stream_callback=None, selected_text=None):
+    async def fake_fast(query, *, stream_callback=None, selected_text=None, **kwargs):
         assert query == "帮我记一下 明天买牛奶"
         return {
             "reply": "✅ 已记入 Memos：明天买牛奶",
@@ -76,7 +76,7 @@ def test_ask_audio_fast_path(monkeypatch, client):
 def test_ask_audio_falls_back_to_harness(monkeypatch, client):
     fake = _FakeHarnessClient("晴天，适合出门")
 
-    async def fake_fast(query, *, stream_callback=None, selected_text=None):
+    async def fake_fast(query, *, stream_callback=None, selected_text=None, **kwargs):
         return None
 
     def fake_run_stt(url, token, path):
