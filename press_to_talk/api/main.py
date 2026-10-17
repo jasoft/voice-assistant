@@ -44,6 +44,7 @@ from .reply_stream import ReplyStream, current_stream, has_partial_reply
 from ..audio.stt import run_stt, run_fallback_stt
 from ..audio.tts import sanitize_for_tts, split_visual_and_spoken
 from ..utils.text import current_time_with_weekday_text
+from ..utils.env import load_workflow_config
 
 
 
@@ -104,6 +105,16 @@ def _history_service_for(user_id: str) -> StorageService:
     )
 
 
+def _watch_answer_prompt() -> str:
+    return str(
+        (load_workflow_config().get("prompts", {}).get("watch_answer") or {}).get("system_prompt", "")
+    ).strip()
+
+
+def _strip_watch_prompt(text: str, prompt: str) -> str:
+    return text.replace(prompt, "").strip() if prompt else text
+
+
 def _mem0_store_for(user_id: str) -> Mem0RememberStore:
     config = load_storage_config(user_id_override=user_id)
     config.backend = "mem0"
@@ -128,6 +139,9 @@ def _persist_harness_history(
         parts = clean_query.split("\n", 1)
         if len(parts) > 1:
             clean_query = parts[1].lstrip()
+    watch_prompt = _watch_answer_prompt()
+    clean_query = _strip_watch_prompt(clean_query, watch_prompt)
+    reply = _strip_watch_prompt(reply, watch_prompt)
 
     record = SessionHistoryRecord(
         session_id=f"{harness_session_id or 'harness'}:{uuid.uuid4().hex}",
@@ -1852,11 +1866,12 @@ async def get_history(user_id: str = Depends(get_user_id)):
     try:
         service = _history_service_for(user_id)
         records = service.history_store().list_recent(limit=20)
+        watch_prompt = _watch_answer_prompt()
         return [
             HistoryItem(
                 session_id=r.session_id,
-                transcript=r.transcript,
-                reply=r.reply,
+                transcript=_strip_watch_prompt(r.transcript, watch_prompt),
+                reply=_strip_watch_prompt(r.reply, watch_prompt),
                 created_at=r.started_at
             )
             for r in records
