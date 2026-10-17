@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     git \
     unzip \
     libasound2 \
+    libopus0 \
     portaudio19-dev \
     gcc \
     g++ \

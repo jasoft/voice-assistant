@@ -39,7 +39,7 @@ from ..storage.models import SessionHistoryRecord
 from ..storage.providers.mem0 import Mem0RememberStore
 from .fast_chat import last_typesafe_debug, try_fast_memory_chat
 from .reply_stream import ReplyStream, current_stream, has_partial_reply, watch_prompt
-from ..audio.stt import run_stt
+from ..audio.stt import run_stt, run_fallback_stt
 from ..audio.tts import sanitize_for_tts, split_visual_and_spoken
 from ..utils.text import current_time_with_weekday_text
 
@@ -1082,7 +1082,7 @@ def _wav_duration_seconds(path: Path) -> Optional[float]:
         return None
 
 
-async def _transcribe_upload(file: UploadFile) -> str:
+async def _transcribe_upload(file: UploadFile, *, fallback: bool = False) -> str:
     """落盘上传的录音并调用服务端 STT，返回识别文本。"""
     content = await file.read()
     if not content:
@@ -1096,11 +1096,16 @@ async def _transcribe_upload(file: UploadFile) -> str:
         if duration is not None and duration < _ASK_AUDIO_MIN_SECONDS:
             raise HTTPException(status_code=400, detail="录音太短，请说完再停止录音")
         stt_url = os.environ.get("PTT_STT_URL", "").strip()
-        if not stt_url:
+        if fallback and not stt_url:
             raise HTTPException(status_code=503, detail="STT 服务未配置（PTT_STT_URL）")
-        transcript = await asyncio.to_thread(
-            run_stt, stt_url, os.environ.get("PTT_STT_TOKEN", ""), audio_path
-        )
+        try:
+            transcript = await asyncio.to_thread(
+                run_fallback_stt if fallback else run_stt,
+                stt_url, os.environ.get("PTT_STT_TOKEN", ""), audio_path,
+            )
+        except Exception as exc:
+            log(f"STT failed: {type(exc).__name__}", level="error")
+            raise HTTPException(status_code=503, detail="语音识别服务暂时不可用，请重试") from exc
     finally:
         audio_path.unlink(missing_ok=True)
     transcript = (transcript or "").strip()
@@ -1138,13 +1143,24 @@ class TranscribeResponse(BaseModel):
     summary="仅语音转写：上传录音，返回识别文本（不触发问答）",
     description=(
         "与 /v1/ask-audio 的转写步骤一致，但只做 STT；客户端可先展示/确认识别文本，"
-        "再单独调用 /v1/chat 继续问答。"
+        "再单独调用 /v1/chat 继续问答。默认使用豆包，失败或空结果时使用原 STT fallback。"
     ),
 )
 async def transcribe(file: UploadFile = File(...), user_id: str = Depends(get_user_id)):
     del user_id
     transcript = await _transcribe_upload(file)
     log(f"transcribe: transcript={transcript[:80]}", level="info")
+    return TranscribeResponse(transcript=transcript)
+
+
+@app.post(
+    "/v1/transcribe/fallback",
+    response_model=TranscribeResponse,
+    summary="原 STT 转写接口（跳过豆包，仅使用 fallback）",
+)
+async def transcribe_fallback(file: UploadFile = File(...), user_id: str = Depends(get_user_id)):
+    del user_id
+    transcript = await _transcribe_upload(file, fallback=True)
     return TranscribeResponse(transcript=transcript)
 
 
