@@ -303,6 +303,20 @@ def test_tts_sanitizes_markdown_and_spoken_tag(monkeypatch, client):
     assert received[0] == "南京明天气温18到27度，早晚偏凉。"
 
 
+def test_tts_sanitizes_visual_reply_without_spoken_tag(monkeypatch, client):
+    received = []
+
+    async def fake_stream(text):
+        received.append(text)
+        yield b"\x01\x02"
+
+    monkeypatch.setattr(api_main, "_qwen_tts_stream", fake_stream)
+    resp = client.post("/v1/tts", json={"text": "**南京天气**\n- 22℃\n- 湿度85%"})
+    assert resp.status_code == 200
+    assert resp.content == b"\x01\x02"
+    assert received == ["南京天气。22度。湿度百分之85。"]
+
+
 def test_qwen_stream_parses_multiline_sse(monkeypatch):
     """阿里云百炼返回的多行格式化 JSON SSE 数据包，应被正确聚合解析。"""
     class FakeResponse:

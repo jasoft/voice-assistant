@@ -3,7 +3,7 @@
 uv run python watch_app/Tests/simulator_server.py
 Only external decision/LLM/TTS/history boundaries are replaced; no personal data writes.
 STT uses the configured real service for microphone checks.
-PCM is a test tone, not a claim of real TTS quality. Use a real API for voice validation.
+PCM is a test tone by default. VA_SIM_REAL_TTS=1 uses the configured real Qwen TTS.
 """
 from pathlib import Path
 import sys
@@ -31,6 +31,17 @@ main._persist_harness_history = lambda **kwargs: None
 fast_chat.ask_intent_and_delivery = lambda *args: {"intent": "chat", "delivery": "speak"}
 
 trace = Path("/tmp/va-watch-simulator-events.jsonl")
+spoken_reply = "南京现在二十二度，湿度百分之八十五。出门请带伞，注意及时补水。"
+handle_chat = main._handle_chat
+
+async def fixture_chat(req, user_id):
+    if req.query == "Agent口播测试":
+        await asyncio.sleep(2)
+        record("agent_done")
+        return main.QueryResponse(reply="**南京天气**\n- 22℃\n- 湿度85%", spoken_reply=spoken_reply, query=req.query)
+    return await handle_chat(req, user_id)
+
+main._handle_chat = fixture_chat
 
 def record(event, **data):
     with trace.open("a") as file:
@@ -43,6 +54,7 @@ async def completion(req: Request):
     pieces = ["先看结论：", "手表界面已经更清晰。\n\n", "- 回答优先显示。\n", "- 转动表冠阅读全文。\n", "- 点按停止可以打断语音。\n\n", "文字还在生成时，语音就能开始播放。"]
     if "长回答测试" in text:
         pieces += [f"\n第{i}条：正文完整保留，向上滚动仍能检查识别原话。" for i in range(1, 9)]
+    pieces += ["<spoken>" + spoken_reply + "</spoken>"]
     if "等待测试" in text: await asyncio.sleep(6)
     async def chunks():
         try:
@@ -73,6 +85,17 @@ async def tone(text):
         await asyncio.sleep(0.05)
     record("tts_done")
 main._gemini_tts_stream = tone
+
+if os.environ.get("VA_SIM_REAL_TTS") == "1":
+    async def real_speech(text):
+        record("tts_start", text=text)
+        size = 0
+        async for pcm in main._qwen_tts_stream(text):
+            size += len(pcm)
+            record("tts_pcm", bytes=len(pcm))
+            yield pcm
+        record("tts_done", bytes=size)
+    main._gemini_tts_stream = real_speech
 
 if __name__ == "__main__":
     uvicorn.run(main.app, host="127.0.0.1", port=10039, log_level="warning")

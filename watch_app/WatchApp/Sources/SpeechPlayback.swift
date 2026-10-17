@@ -11,6 +11,7 @@ final class PCMStreamPlayer {
     private var attached = false
     private var generation = UUID()
     private(set) var pendingBuffers = 0
+    private let logger = Logger(subsystem: "com.soj.voiceassistant.watch", category: "audio")
 
     func start() throws {
         if engine.isRunning {
@@ -37,11 +38,13 @@ final class PCMStreamPlayer {
             floats[i] = Float(Int16(bitPattern: bits)) / 32768
         }
         pendingBuffers += 1
+        logger.debug("audio_scheduled frames=\(count) pending=\(self.pendingBuffers)")
         let id = generation
         node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.generation == id else { return }
                 self.pendingBuffers = max(0, self.pendingBuffers - 1)
+                self.logger.debug("audio_played frames=\(count) pending=\(self.pendingBuffers)")
             }
         }
     }
@@ -100,15 +103,19 @@ final class SpeechPlayback: ObservableObject {
                     }
                     logger.info("tts_request chars=\(text.count)")
                     var received = false
+                    var receivedBytes = 0
+                    let started = Date()
                     for try await pcm in api.streamSpeech(text: text, serverBase: AppPrefs.serverURL, apiKey: AppPrefs.apiKey) {
                         guard !Task.isCancelled, generation == id else { return }
                         player.schedule(pcm)
+                        receivedBytes += pcm.count
                         if !received {
                             received = true
                             status = .playing
                             logger.info("audio_first_pcm")
                         }
                     }
+                    logger.info("tts_received bytes=\(receivedBytes) seconds=\(Date().timeIntervalSince(started))")
                     if !received { throw APIError.transport("没有收到语音，可继续阅读文字") }
                 }
                 while player.pendingBuffers > 0 && !Task.isCancelled {

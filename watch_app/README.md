@@ -12,7 +12,7 @@ watchOS 的公开生命周期没有单独的“点击图标”事件：使用 ba
 - 打开即录音；红色圆形停止按钮随真实输入音量缩放（72–96pt），点按结束并发送，固定 100pt 点击区域；显示录音时长；右上角取消直接丢弃录音，回到初始麦克风页，不请求识别。
 - 识别、思考和回答阶段，左上角麦克风随时打断并重录。思考时完整显示识别原话；首段回答出现后自动上滚到答案，原话保留在上方，可滚回检查。正文支持段落、行内 Markdown 与滚动，占满主体，无底部操作条。
 - 播放/停止放在右上角，主界面不再显示设置入口。
-- 新安装默认自动播报，尊重已有关闭设置。首段文字到达即准备语音；按句分段，首段无标点时最多缓存 400ms，再请求 `/v1/tts`；边收 24kHz/16bit/单声道 PCM 边播。剩余已到达的短句合并合成，避免每句话都等待一次网络往返。
+- 新安装默认自动播报，尊重已有关闭设置。屏幕继续流式显示正文；收到最终 `done` 后优先使用非空 `spoken_reply` 合成，缺失或空白时使用 `reply`。等待口播正文期间播放按钮禁用，手动重播也使用相同口播正文，避免提前读出显示版后重复朗读。音频仍通过 `/v1/tts` 边收 24kHz/16bit/单声道 PCM 边播。
 - 停止只停止播报；再说会取消当前生成、停止音频并开始新录音。流中断保留部分文字并提示，禁止失败后重跑另一个模型造成重复或改口。识别失败保留临时录音供显式重试；开始新录音时清理。
 - 旧服务器返回 JSON 时读取同一次响应兼容展示与播报，不重新发请求；旧服务器无法提供提前输出的体验。
 
@@ -31,7 +31,7 @@ event: delta
 data: {"text":"新增的文字"}
 
 event: done
-data: {"reply":"完整回答", "action":"speak", "memories":[], "images":[], "query":"原问句", "debug_info":{}}
+data: {"reply":"完整回答", "spoken_reply":"口语版回答", "action":"speak", "memories":[], "images":[], "query":"原问句", "debug_info":{}}
 
 event: error
 data: {"message":"回答中断，请重新提问"}
@@ -84,6 +84,17 @@ swiftc watch_app/WatchApp/Sources/SpeechTextBuffer.swift watch_app/Tests/SpeechT
 /tmp/watch-speech-tests
 ```
 
-夹具还支持“中断测试”“等待测试”，启动时加载 `.env` 中的真实 STT 配置，因此可识别麦克风录音；聊天和语音播放仍是测试替身。测试结束后应终止测试进程并不带 `VA_TEST_*` 覆盖重新启动 Watch，让用户使用正式服务。事件时间写入 `/tmp/va-watch-simulator-events.jsonl`，Watch 日志的 `text_first_delta`、`tts_request`、`audio_first_pcm`、`text_done` 可验证提前合成和提前播放。夹具不写个人备忘/会话历史。
+夹具还支持“中断测试”“等待测试”，启动时加载 `.env` 中的真实 STT 配置，因此可识别麦克风录音；聊天和语音播放仍是测试替身。测试结束后应终止测试进程并不带 `VA_TEST_*` 覆盖重新启动 Watch，让用户使用正式服务。事件时间写入 `/tmp/va-watch-simulator-events.jsonl`，Watch 日志的 `text_first_delta`、`text_done`、`tts_request`、`audio_first_pcm`、`tts_received`、`speech_finished` 可验证最终口播选择与播放时序；debug 日志 `audio_scheduled` / `audio_played` 可检查播放队列是否在中途耗尽。夹具不写个人备忘/会话历史。
 
 模拟器测试参数仅 Debug 可用：`--test-query` 绕过麦克风，仍运行实际网络/显示/播报流程；`--test-audio <WAV绝对路径>` 重放真实录音，仍运行上传/识别/问答，复制原文件后处理；`--test-idle` 检查待机页；`VA_TEST_LARGE_TEXT=1` 检查大字体。Release 不含这些覆盖。未传测试参数时按正式启动流程自动录音。实际触觉手感和抬腕行为仍需真机确认。
+
+### 口播正文与真实 TTS 对照
+
+```bash
+swiftc watch_app/WatchApp/Sources/APIClient.swift watch_app/Tests/ChatResponseTests.swift -o /tmp/watch-chat-response-tests
+/tmp/watch-chat-response-tests
+# 用真实 Qwen TTS 替换测试音；聊天与 Agent 返回仍为确定性夹具，不写个人历史。
+VA_SIM_REAL_TTS=1 uv run --no-sync python watch_app/Tests/simulator_server.py
+```
+
+指定测试服务后分别运行 `--test-query '口播测试'`（流式）与 `--test-query 'Agent口播测试'`（整段）。两者提供同一个口播正文、不同的显示正文；`/tmp/va-watch-simulator-events.jsonl` 的 `tts_start.text` 应始终等于口播版。测试完成后不带 `VA_TEST_*` 覆盖重新启动模拟器，恢复正式服务。
