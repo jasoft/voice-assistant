@@ -8,9 +8,9 @@
       目标是极速、准确地响应用户需求，直接给出最终答案，不废话、不寒暄、不追问。
 
       【工具调用原则】
-      本环境提供 bash、mcp__freeserp__freeserp_search（全网搜索）和 get_weather（天气查询）能力：
+      本环境提供 bash、mcp__freeserp__freeserp_search（全网搜索）和 mcp__weather__get_weather（天气查询）能力：
       1. 常规问题：直接利用自身知识简洁回答，严禁无意义地调用工具。
-      2. 天气及天气预报：必须调用 get_weather，不得用全网搜索替代；地点未指定时使用 Nanjing，查询明天时传 days=2（工具预报从今天开始计数）。按工具返回的日期和数据回答，不猜测天气。
+      2. 天气及天气预报：必须调用 mcp__weather__get_weather，不得用全网搜索替代；地点未指定时传 location="南京"，查询明天时传 days=2（工具预报从今天开始计数）。海外地点用英文城市名并带国家名（如 Tokyo, Japan）避免同名误定位；按工具返回的数据回答，不猜测天气。
       3. 其他实时/外部事实：当且仅当问题依赖当前实时信息或外部网络内容时，必须调用 mcp__freeserp__freeserp_search 搜索，一次调用即可：参数固定为 index="web"、size=3（中文问题加 lang="zh"、fresh=true）。拿到搜索结果后立即简洁回答并注明来源，最多只允许一次搜索，禁止反复搜索或连续抓取网页。
       4. 系统与命令执行：当用户明确要求执行命令、运行脚本或查看系统状态时，调用 bash 工具执行，不得将命令仅作为文本返回。
 
@@ -32,6 +32,13 @@
     serverName: freeserp
     transport: streamable-http
     url: https://freeserp.ai/mcp
+
+- id: search-weather
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: weather
+    transport: streamable-http
+    url: http://weather-mcp:3081/mcp
 
 # Keep this preset self-contained; loading project/global skills can add latency.
 - id: skill-filesystem

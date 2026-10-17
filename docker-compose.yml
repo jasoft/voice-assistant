@@ -25,9 +25,26 @@ services:
       - ./data:/app/data
     restart: unless-stopped
 
+  weather-mcp:
+    image: voice-assistant:local
+    build: .
+    entrypoint: ["uv"]
+    command: ["run", "--no-sync", "python", "scripts/weather_mcp.py"]
+    environment:
+      TZ: Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3081/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
   deepseek-harness:
     container_name: deepseek-harness
     image: deepseek-harness:0.1.2-rc.1
+    depends_on:
+      weather-mcp:
+        condition: service_healthy
     build:
       context: .
       dockerfile: Dockerfile.dsh
