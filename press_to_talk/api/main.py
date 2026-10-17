@@ -9,6 +9,7 @@ import os
 import asyncio
 import base64
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
@@ -246,6 +247,13 @@ class LoggingMiddleware:
             await self.app(scope, receive, send)
             return
 
+        path = scope["path"]
+        is_transcription = path in {"/v1/transcribe", "/v1/transcribe/fallback", "/v1/ask-audio"}
+        request_started = time.perf_counter()
+        request_id = uuid.uuid4().hex if is_transcription else ""
+        if is_transcription:
+            scope.setdefault("state", {})["ptt_request_id"] = request_id
+
         body = b""
         client_disconnected = False
         while True:
@@ -267,23 +275,32 @@ class LoggingMiddleware:
         if "authorization" in headers:
             headers["authorization"] = mask_auth_header(headers["authorization"])
 
-        try:
-            body_str = body.decode("utf-8", errors="replace")
-        except Exception:
-            body_str = "[binary data]"
-
-        if len(body_str) > 1000:
-            body_str = body_str[:1000] + "... [truncated]"
-
         client = scope.get("client")
-        log_content = [
-            f"Method: {scope.get('method', '?')}",
-            f"URL: {scope.get('path', '?')}",
-            f"Client: {client[0] if client else 'unknown'}",
-            f"Headers: {json.dumps(headers, indent=2)}",
-            f"Body: {body_str}",
-        ]
-        log_multiline("API Request Incoming", "\n".join(log_content), level="info")
+        if is_transcription:
+            log("api_transcription_request " + json.dumps({
+                "request_id": request_id,
+                "method": scope.get("method"),
+                "route": path,
+                "client": client[0] if client else None,
+                "content_type": headers.get("content-type"),
+                "content_length": headers.get("content-length"),
+                "body": "multipart omitted",
+            }), level="info")
+        else:
+            try:
+                body_str = body.decode("utf-8", errors="replace")
+            except Exception:
+                body_str = "[binary data]"
+            if len(body_str) > 1000:
+                body_str = body_str[:1000] + "... [truncated]"
+            log_content = [
+                f"Method: {scope.get('method', '?')}",
+                f"URL: {path}",
+                f"Client: {client[0] if client else 'unknown'}",
+                f"Headers: {json.dumps(headers, indent=2)}",
+                f"Body: {body_str}",
+            ]
+            log_multiline("API Request Incoming", "\n".join(log_content), level="info")
 
         # Re-wrap body for subsequent handlers: body 只投递一次，之后透传原始
         # receive（保留真实的 http.disconnect 检测——StreamingResponse 靠它监听
@@ -301,10 +318,19 @@ class LoggingMiddleware:
         response_status: list[int] = []
         response_content_type: list[str] = []
         response_body = bytearray()
+        response_body_size = 0
 
         async def send_wrapper(message):
+            nonlocal response_body_size
             if message["type"] == "http.response.start":
                 response_status.append(message.get("status", 0))
+                if is_transcription:
+                    message["headers"] = [
+                        (key, value) for key, value in message.get("headers", [])
+                        if key.lower() != b"x-ptt-request-id"
+                    ] + [
+                        (b"x-ptt-request-id", request_id.encode("ascii")),
+                    ]
                 response_content_type.append(
                     next(
                         (
@@ -316,7 +342,10 @@ class LoggingMiddleware:
                     )
                 )
             elif message["type"] == "http.response.body":
-                response_body.extend(message.get("body", b""))
+                chunk = message.get("body", b"")
+                response_body_size += len(chunk)
+                if not is_transcription:
+                    response_body.extend(chunk)
             await send(message)
 
         try:
@@ -325,13 +354,23 @@ class LoggingMiddleware:
             if response_status:
                 status = response_status[0]
                 content_type = response_content_type[0] or ""
-                if content_type.startswith("application/json"):
+                if is_transcription:
+                    log("api_transcription_response " + json.dumps({
+                        "request_id": request_id,
+                        "route": path,
+                        "http_status": status,
+                        "content_type": content_type,
+                        "response_bytes": response_body_size,
+                        "elapsed_ms": round((time.perf_counter() - request_started) * 1000, 1),
+                    }), level="info")
+                elif content_type.startswith("application/json"):
                     res_str = bytes(response_body).decode("utf-8", errors="replace")
                     if len(res_str) > 1000:
                         res_str = res_str[:1000] + "... [truncated]"
                 else:
                     res_str = f"[binary data {len(response_body)} bytes]"
-                log_multiline(f"API Response Sent (Status: {status})", res_str, level="info")
+                if not is_transcription:
+                    log_multiline(f"API Response Sent (Status: {status})", res_str, level="info")
 
 app = FastAPI(title="Press-to-Talk API", lifespan=lifespan)
 os.makedirs("data/photos", exist_ok=True)
@@ -1082,36 +1121,110 @@ def _wav_duration_seconds(path: Path) -> Optional[float]:
         return None
 
 
-async def _transcribe_upload(file: UploadFile, *, fallback: bool = False) -> str:
+async def _transcribe_upload(
+    file: UploadFile,
+    *,
+    fallback: bool = False,
+    request_id: str | None = None,
+    route: str = "/v1/transcribe",
+) -> str:
     """落盘上传的录音并调用服务端 STT，返回识别文本。"""
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="音频内容为空")
-    suffix = Path(file.filename or "audio.wav").suffix or ".wav"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(content)
-        audio_path = Path(tmp.name)
+    request_id = request_id or uuid.uuid4().hex
+    started = time.perf_counter()
+    stage = "upload_read"
+    audio_bytes = 0
+    duration_ms = None
+    model = "elevenlabs-transcription" if fallback else "doubao-transcription"
+    audio_path: Path | None = None
     try:
+        content = await file.read()
+        audio_bytes = len(content)
+        if not content:
+            raise HTTPException(status_code=400, detail="音频内容为空")
+        suffix = Path(file.filename or "audio.wav").suffix or ".wav"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            audio_path = Path(tmp.name)
+
+        stage = "audio_inspection"
+        inspect_started = time.perf_counter()
         duration = await asyncio.to_thread(_wav_duration_seconds, audio_path)
+        duration_ms = round(duration * 1000) if duration is not None else None
+        inspect_ms = round((time.perf_counter() - inspect_started) * 1000, 1)
         if duration is not None and duration < _ASK_AUDIO_MIN_SECONDS:
             raise HTTPException(status_code=400, detail="录音太短，请说完再停止录音")
         stt_url = os.environ.get("PTT_STT_URL", "").strip()
         if not stt_url:
             raise HTTPException(status_code=503, detail="STT 服务未配置（PTT_STT_URL）")
+
+        stage = "gateway_transcription"
+        gateway_started = time.perf_counter()
         try:
             transcript = await asyncio.to_thread(
                 run_fallback_stt if fallback else run_stt,
                 stt_url, os.environ.get("PTT_STT_TOKEN", ""), audio_path,
+                request_id=request_id, route=route, audio_duration_ms=duration_ms,
             )
         except Exception as exc:
-            log(f"STT failed: {type(exc).__name__}", level="error")
+            log("stt_request " + json.dumps({
+                "request_id": request_id,
+                "route": route,
+                "requested_model": model,
+                "stage": stage,
+                "audio_bytes": audio_bytes,
+                "audio_duration_ms": duration_ms,
+                "audio_inspection_ms": inspect_ms,
+                "gateway_elapsed_ms": round((time.perf_counter() - gateway_started) * 1000, 1),
+                "total_ms": round((time.perf_counter() - started) * 1000, 1),
+                "error_type": type(exc).__name__,
+                "result": "error",
+            }), level="error")
             raise HTTPException(status_code=503, detail="语音识别服务暂时不可用，请重试") from exc
+        transcript = (transcript or "").strip()
+        if not transcript:
+            raise HTTPException(status_code=422, detail="未能识别到语音内容")
+        log("stt_request " + json.dumps({
+            "request_id": request_id,
+            "route": route,
+            "requested_model": model,
+            "audio_bytes": audio_bytes,
+            "audio_duration_ms": duration_ms,
+            "audio_inspection_ms": inspect_ms,
+            "gateway_elapsed_ms": round((time.perf_counter() - gateway_started) * 1000, 1),
+            "transcript_chars": len(transcript),
+            "total_ms": round((time.perf_counter() - started) * 1000, 1),
+            "result": "ok",
+        }), level="info")
+        return transcript
+    except HTTPException as exc:
+        log("stt_request " + json.dumps({
+            "request_id": request_id,
+            "route": route,
+            "requested_model": model,
+            "stage": stage,
+            "audio_bytes": audio_bytes,
+            "audio_duration_ms": duration_ms,
+            "http_status": exc.status_code,
+            "total_ms": round((time.perf_counter() - started) * 1000, 1),
+            "result": "rejected",
+        }), level="warning")
+        raise
+    except Exception as exc:
+        log("stt_request " + json.dumps({
+            "request_id": request_id,
+            "route": route,
+            "requested_model": model,
+            "stage": stage,
+            "audio_bytes": audio_bytes,
+            "audio_duration_ms": duration_ms,
+            "error_type": type(exc).__name__,
+            "total_ms": round((time.perf_counter() - started) * 1000, 1),
+            "result": "error",
+        }), level="error")
+        raise
     finally:
-        audio_path.unlink(missing_ok=True)
-    transcript = (transcript or "").strip()
-    if not transcript:
-        raise HTTPException(status_code=422, detail="未能识别到语音内容")
-    return transcript
+        if audio_path is not None:
+            audio_path.unlink(missing_ok=True)
 
 
 @app.post(
@@ -1124,9 +1237,13 @@ async def _transcribe_upload(file: UploadFile, *, fallback: bool = False) -> str
         "响应额外携带 transcript 字段。"
     ),
 )
-async def ask_audio(file: UploadFile = File(...), user_id: str = Depends(get_user_id)):
-    transcript = await _transcribe_upload(file)
-    log(f"ask-audio: transcript={transcript[:80]}", level="info")
+async def ask_audio(request: Request, file: UploadFile = File(...),
+                    user_id: str = Depends(get_user_id)):
+    transcript = await _transcribe_upload(
+        file,
+        request_id=getattr(request.state, "ptt_request_id", None),
+        route="/v1/ask-audio",
+    )
     response = await _handle_chat(QueryRequest(query=transcript), user_id)
     return AudioAskResponse(transcript=transcript, **response.model_dump())
 
@@ -1146,10 +1263,14 @@ class TranscribeResponse(BaseModel):
         "再单独调用 /v1/chat 继续问答。默认使用豆包，失败或空结果时使用原 STT fallback。"
     ),
 )
-async def transcribe(file: UploadFile = File(...), user_id: str = Depends(get_user_id)):
+async def transcribe(request: Request, file: UploadFile = File(...),
+                     user_id: str = Depends(get_user_id)):
     del user_id
-    transcript = await _transcribe_upload(file)
-    log(f"transcribe: transcript={transcript[:80]}", level="info")
+    transcript = await _transcribe_upload(
+        file,
+        request_id=getattr(request.state, "ptt_request_id", None),
+        route="/v1/transcribe",
+    )
     return TranscribeResponse(transcript=transcript)
 
 
@@ -1158,9 +1279,15 @@ async def transcribe(file: UploadFile = File(...), user_id: str = Depends(get_us
     response_model=TranscribeResponse,
     summary="原 STT 转写接口（跳过豆包，仅使用 fallback）",
 )
-async def transcribe_fallback(file: UploadFile = File(...), user_id: str = Depends(get_user_id)):
+async def transcribe_fallback(request: Request, file: UploadFile = File(...),
+                              user_id: str = Depends(get_user_id)):
     del user_id
-    transcript = await _transcribe_upload(file, fallback=True)
+    transcript = await _transcribe_upload(
+        file,
+        fallback=True,
+        request_id=getattr(request.state, "ptt_request_id", None),
+        route="/v1/transcribe/fallback",
+    )
     return TranscribeResponse(transcript=transcript)
 
 

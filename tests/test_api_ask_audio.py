@@ -48,7 +48,7 @@ def client(monkeypatch):
 
 
 def test_ask_audio_fast_path(monkeypatch, client):
-    def fake_run_stt(url, token, path):
+    def fake_run_stt(url, token, path, **details):
         return " 帮我记一下 明天买牛奶 "
 
     async def fake_fast(query, *, stream_callback=None, selected_text=None, **kwargs):
@@ -79,7 +79,7 @@ def test_ask_audio_falls_back_to_harness(monkeypatch, client):
     async def fake_fast(query, *, stream_callback=None, selected_text=None, **kwargs):
         return None
 
-    def fake_run_stt(url, token, path):
+    def fake_run_stt(url, token, path, **details):
         return "今天天气怎么样"
 
     monkeypatch.setattr(api_main, "try_fast_memory_chat", fake_fast)
@@ -110,7 +110,7 @@ def test_ask_audio_rejects_empty_upload(client):
 
 
 def test_ask_audio_rejects_empty_transcript(monkeypatch, client):
-    def fake_run_stt(url, token, path):
+    def fake_run_stt(url, token, path, **details):
         return "   "
 
     monkeypatch.setattr(api_main, "run_stt", fake_run_stt)
