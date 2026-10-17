@@ -73,6 +73,7 @@ final class SpeechPlayback: ObservableObject {
     private var queue: [String] = []
     private var task: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
+    private var sessionReleaseTask: Task<Void, Never>?
     private var inputFinished = false
     private var generation = UUID()
     private let logger = Logger(subsystem: "com.soj.voiceassistant.watch", category: "speech")
@@ -85,6 +86,8 @@ final class SpeechPlayback: ObservableObject {
         let id = generation
         task = Task {
             do {
+                await waitForAudioSessionRelease()
+                guard !Task.isCancelled, generation == id else { return }
                 let session = AVAudioSession.sharedInstance()
                 try session.setCategory(.playback, mode: .default, policy: .default, options: [])
                 try session.setActive(true)
@@ -169,7 +172,14 @@ final class SpeechPlayback: ObservableObject {
         status = .stopped
         if hadAudio {
             player.stop()
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            let session = AVAudioSession.sharedInstance()
+            sessionReleaseTask = Task.detached {
+                try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            }
         }
+    }
+
+    func waitForAudioSessionRelease() async {
+        await sessionReleaseTask?.value
     }
 }

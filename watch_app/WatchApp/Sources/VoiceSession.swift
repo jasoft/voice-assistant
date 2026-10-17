@@ -97,6 +97,8 @@ final class VoiceSession: ObservableObject {
                 return
             }
             do {
+                await speech.waitForAudioSessionRelease()
+                guard !Task.isCancelled, generation == id else { return }
                 try recorder.start()
                 recordingStarted = Date()
                 phase = .recording
