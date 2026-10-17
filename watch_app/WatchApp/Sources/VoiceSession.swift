@@ -23,6 +23,7 @@ final class VoiceSession: ObservableObject {
     private var recordingFile: URL?
     private var isStarting = false
     private var autoSpeaking = false
+    private var isInBackground = false
     private var spokenReply = ""
     private var didUseTestLaunch = false
     private var launchPolicy = RecordingLaunchPolicy()
@@ -32,11 +33,16 @@ final class VoiceSession: ObservableObject {
     var canRetryTranscription: Bool { phase == .failed && recordingFile != nil }
 
     func didEnterBackground() {
+        isInBackground = true
         launchPolicy.didEnterBackground()
         speech.stop()
-        autoSpeaking = false
     }
     func activate() {
+        isInBackground = false
+        if phase == .replied, autoSpeaking, speech.status == .stopped {
+            startSpeech()
+            return
+        }
         guard launchPolicy.consumeActivation() else { return }
         guard phase != .recording, !isStarting else { return }
         #if DEBUG
@@ -164,9 +170,7 @@ final class VoiceSession: ObservableObject {
                             }
                         }
                         spokenReply = result.speechText
-                        if autoSpeaking {
-                            speech.begin(); speech.accept(spokenReply); speech.finishInput()
-                        }
+                        if autoSpeaking && !isInBackground { startSpeech() }
                         phase = .replied
                         logger.info("text_done chars=\(self.reply.count)")
                     }
@@ -191,9 +195,15 @@ final class VoiceSession: ObservableObject {
         if speech.status != .stopped {
             speech.stop(); autoSpeaking = false
         } else if !reply.isEmpty {
-            speech.begin(); speech.accept(spokenReply.isEmpty ? reply : spokenReply); speech.finishInput()
+            startSpeech()
         }
         WKInterfaceDevice.current().play(.click)
+    }
+
+    private func startSpeech() {
+        speech.begin()
+        speech.accept(spokenReply.isEmpty ? reply : spokenReply)
+        speech.finishInput()
     }
 
     /// Two spaced taps make the cue noticeable without the notification chime.
