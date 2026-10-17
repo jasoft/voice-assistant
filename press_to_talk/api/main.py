@@ -112,7 +112,14 @@ def _watch_answer_prompt() -> str:
 
 
 def _strip_watch_prompt(text: str, prompt: str) -> str:
-    return text.replace(prompt, "").strip() if prompt else text
+    text = text.replace(prompt, "") if prompt else text
+    start = "本次回答用于 Apple Watch 阅读和语音播报。"
+    end = "标签只能供服务端提取，不能出现在屏幕正文。"
+    if text.lstrip().startswith(start):
+        end_index = text.find(end)
+        if 0 <= end_index < 2000:
+            text = text[end_index + len(end):]
+    return text.strip()
 
 
 def _mem0_store_for(user_id: str) -> Mem0RememberStore:
