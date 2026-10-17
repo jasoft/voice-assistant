@@ -111,14 +111,17 @@ def _watch_answer_prompt() -> str:
     ).strip()
 
 
-def _strip_watch_prompt(text: str, prompt: str) -> str:
+def _strip_watch_prompt(text: str, prompt: str, *, drop_prompt_tail: bool = False) -> str:
     text = text.replace(prompt, "") if prompt else text
     start = "本次回答用于 Apple Watch 阅读和语音播报。"
     end = "标签只能供服务端提取，不能出现在屏幕正文。"
     start_index = text.find(start)
     end_index = text.find(end, start_index) if start_index >= 0 else -1
-    if start_index < 2000 and end_index >= 0:
-        text = text[:start_index] + text[end_index + len(end):]
+    if start_index < 2000:
+        if end_index >= 0:
+            text = text[:start_index] + text[end_index + len(end):]
+        elif drop_prompt_tail:
+            text = text[:start_index]
     return text.strip()
 
 
@@ -147,7 +150,7 @@ def _persist_harness_history(
         if len(parts) > 1:
             clean_query = parts[1].lstrip()
     watch_prompt = _watch_answer_prompt()
-    clean_query = _strip_watch_prompt(clean_query, watch_prompt)
+    clean_query = _strip_watch_prompt(clean_query, watch_prompt, drop_prompt_tail=True)
     reply = _strip_watch_prompt(reply, watch_prompt)
 
     record = SessionHistoryRecord(
@@ -1877,7 +1880,7 @@ async def get_history(user_id: str = Depends(get_user_id)):
         return [
             HistoryItem(
                 session_id=r.session_id,
-                transcript=_strip_watch_prompt(r.transcript, watch_prompt),
+                transcript=_strip_watch_prompt(r.transcript, watch_prompt, drop_prompt_tail=True),
                 reply=_strip_watch_prompt(r.reply, watch_prompt),
                 created_at=r.started_at
             )
