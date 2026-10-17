@@ -85,7 +85,14 @@ async def test_upstream_tokens_are_forwarded_and_reasoning_is_private():
     assert reply == "你好。"
     assert reply.reasoning == "private"
     assert create.call_args.kwargs["stream"] is True
-    assert "Apple Watch" in create.call_args.kwargs["messages"][-1]["content"]
+    messages = create.call_args.kwargs["messages"]
+    assert messages[0]["role"] == "system"
+    assert "Apple Watch" in messages[0]["content"]
+    assert all(
+        "Apple Watch" not in message["content"]
+        for message in messages
+        if message["role"] == "user"
+    )
     assert response.closed
 
 

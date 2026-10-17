@@ -109,7 +109,7 @@ async def complete_reply(client, *, model: str, messages: list):
     from ..harness.client import HarnessReply
     stream = current_stream.get()
     if stream and stream.watch:
-        messages = [*messages, {"role": "user", "content": watch_prompt()}]
+        messages = [{"role": "system", "content": watch_prompt()}, *messages]
     if stream is None:
         response = await client.chat.completions.create(model=model, messages=messages, max_tokens=4096)
         if not response.choices:
