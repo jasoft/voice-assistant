@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-model="${1:-fast}"
+model="${1:-gpt-6-luna}"
 resolved_model="$model"
 fast_max_tokens="${DSH_FAST_MAX_TOKENS:-4096}"
 agent_preset="memo-minimal"
@@ -66,6 +66,22 @@ awk -v model="$resolved_model" -v agent_preset="$agent_preset" '
 ' "$settings" > "$tmp"
 
 mv "$tmp" "$settings"
+
+# Register the deployment model with the existing OpenAI-compatible provider.
+if [[ "$model" == "gpt-6-luna" ]] && ! grep -qE '^[[:space:]]*- id: gpt-6-luna[[:space:]]*$' "$settings"; then
+  awk '
+    /^    cliproxyapp:/ { in_provider = 1 }
+    in_provider && /^      models:/ {
+      print
+      print "        - id: gpt-6-luna"
+      print "          maxTokens: 4096"
+      in_provider = 0
+      next
+    }
+    { print }
+  ' "$settings" > "$tmp"
+  mv "$tmp" "$settings"
+fi
 
 # Keep the DSH web UI on the same low-latency memory agent that the voice
 # assistant selects explicitly. The old memo-mem0 MCP preset remains available
