@@ -44,7 +44,7 @@ def test_failed_doubao_without_fallback_is_an_error(monkeypatch):
 
 def test_worker_is_bounded_and_parses_json(monkeypatch):
     def run(command, **kwargs):
-        assert command == [sys.executable, "-m", "press_to_talk.audio.doubao_stt", "a.wav"]
+        assert command == [sys.executable, str(Path(stt.__file__).with_name("doubao_stt.py")), "a.wav"]
         assert kwargs["timeout"] == 15
         assert kwargs["capture_output"] is True
         if sys.platform == "darwin":

@@ -17,7 +17,7 @@ def run_doubao_stt(audio_file: Path) -> str:
         )
     # Upstream registration uses blocking HTTP without a timeout; bound the whole worker.
     proc = subprocess.run(
-        [sys.executable, "-m", "press_to_talk.audio.doubao_stt", str(audio_file)],
+        [sys.executable, str(Path(__file__).with_name("doubao_stt.py")), str(audio_file)],
         capture_output=True, text=True, env=env, timeout=15, check=False,
     )
     if proc.returncode:
