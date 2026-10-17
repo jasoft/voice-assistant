@@ -38,7 +38,8 @@ async def fixture_chat(req, user_id):
     if req.query == "Agent口播测试":
         await asyncio.sleep(2)
         record("agent_done")
-        return main.QueryResponse(reply="**南京天气**\n- 22℃\n- 湿度85%", spoken_reply=spoken_reply, query=req.query)
+        return main.QueryResponse(reply="**南京天气**\n- 22℃\n- 湿度85%", spoken_reply=spoken_reply,
+                                  query=req.query, action="speak", reasoning=None, debug_info=None)
     return await handle_chat(req, user_id)
 
 main._handle_chat = fixture_chat
