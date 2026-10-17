@@ -68,12 +68,11 @@ def test_transcribe_rejects_empty_transcript(monkeypatch, client):
     assert resp.status_code == 422
 
 
-def test_default_transcribe_does_not_require_legacy_url(monkeypatch, client):
+def test_default_transcribe_requires_gateway_url(monkeypatch, client):
     monkeypatch.delenv("PTT_STT_URL")
     monkeypatch.setattr(api_main, "run_stt", lambda *args: "豆包结果")
     resp = client.post("/v1/transcribe", files={"file": ("a.wav", _wav_bytes(), "audio/wav")})
-    assert resp.status_code == 200
-    assert resp.json() == {"transcript": "豆包结果"}
+    assert resp.status_code == 503
 
 
 def test_fallback_endpoint_skips_doubao(monkeypatch, client):

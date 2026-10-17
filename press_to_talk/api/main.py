@@ -1096,7 +1096,7 @@ async def _transcribe_upload(file: UploadFile, *, fallback: bool = False) -> str
         if duration is not None and duration < _ASK_AUDIO_MIN_SECONDS:
             raise HTTPException(status_code=400, detail="录音太短，请说完再停止录音")
         stt_url = os.environ.get("PTT_STT_URL", "").strip()
-        if fallback and not stt_url:
+        if not stt_url:
             raise HTTPException(status_code=503, detail="STT 服务未配置（PTT_STT_URL）")
         try:
             transcript = await asyncio.to_thread(
