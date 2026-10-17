@@ -115,10 +115,10 @@ def _strip_watch_prompt(text: str, prompt: str) -> str:
     text = text.replace(prompt, "") if prompt else text
     start = "本次回答用于 Apple Watch 阅读和语音播报。"
     end = "标签只能供服务端提取，不能出现在屏幕正文。"
-    if text.lstrip().startswith(start):
-        end_index = text.find(end)
-        if 0 <= end_index < 2000:
-            text = text[end_index + len(end):]
+    start_index = text.find(start)
+    end_index = text.find(end, start_index) if start_index >= 0 else -1
+    if start_index < 2000 and end_index >= 0:
+        text = text[:start_index] + text[end_index + len(end):]
     return text.strip()
 
 
