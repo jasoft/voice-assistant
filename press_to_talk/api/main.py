@@ -6,9 +6,11 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, AsyncIterator
 from types import SimpleNamespace
 import os
+import sys
 import asyncio
 import base64
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
@@ -38,10 +40,11 @@ from .. import project_tasks as pt_tasks
 from ..storage.models import SessionHistoryRecord
 from ..storage.providers.mem0 import Mem0RememberStore
 from .fast_chat import last_typesafe_debug, try_fast_memory_chat
-from .reply_stream import ReplyStream, current_stream, has_partial_reply, watch_prompt
+from .reply_stream import ReplyStream, current_stream, has_partial_reply
 from ..audio.stt import run_stt, run_fallback_stt
 from ..audio.tts import sanitize_for_tts, split_visual_and_spoken
 from ..utils.text import current_time_with_weekday_text
+from ..utils.env import load_workflow_config
 
 
 
@@ -50,6 +53,10 @@ def mask_auth_header(auth_str: str) -> str:
     if not auth_str or len(auth_str) < 10:
         return "***"
     return f"{auth_str[:6]}...{auth_str[-4:]}"
+
+
+def _log_transcription_event(event: str, details: dict[str, Any], *, level: str = "info") -> None:
+    print(f"{level.upper()} {event} {json.dumps(details, ensure_ascii=False, separators=(',', ':'))}", file=sys.stderr, flush=True)
 
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
@@ -98,6 +105,26 @@ def _history_service_for(user_id: str) -> StorageService:
     )
 
 
+def _watch_answer_prompt() -> str:
+    return str(
+        (load_workflow_config().get("prompts", {}).get("watch_answer") or {}).get("system_prompt", "")
+    ).strip()
+
+
+def _strip_watch_prompt(text: str, prompt: str, *, drop_prompt_tail: bool = False) -> str:
+    text = text.replace(prompt, "") if prompt else text
+    start = "本次回答用于 Apple Watch 阅读和语音播报。"
+    end = "标签只能供服务端提取，不能出现在屏幕正文。"
+    start_index = text.find(start)
+    end_index = text.find(end, start_index) if start_index >= 0 else -1
+    if start_index < 2000:
+        if end_index >= 0:
+            text = text[:start_index] + text[end_index + len(end):]
+        elif drop_prompt_tail:
+            text = text[:start_index]
+    return text.strip()
+
+
 def _mem0_store_for(user_id: str) -> Mem0RememberStore:
     config = load_storage_config(user_id_override=user_id)
     config.backend = "mem0"
@@ -122,6 +149,9 @@ def _persist_harness_history(
         parts = clean_query.split("\n", 1)
         if len(parts) > 1:
             clean_query = parts[1].lstrip()
+    watch_prompt = _watch_answer_prompt()
+    clean_query = _strip_watch_prompt(clean_query, watch_prompt, drop_prompt_tail=True)
+    reply = _strip_watch_prompt(reply, watch_prompt)
 
     record = SessionHistoryRecord(
         session_id=f"{harness_session_id or 'harness'}:{uuid.uuid4().hex}",
@@ -246,6 +276,13 @@ class LoggingMiddleware:
             await self.app(scope, receive, send)
             return
 
+        path = scope["path"]
+        is_transcription = path in {"/v1/transcribe", "/v1/transcribe/fallback", "/v1/ask-audio"}
+        request_started = time.perf_counter()
+        request_id = uuid.uuid4().hex if is_transcription else ""
+        if is_transcription:
+            scope.setdefault("state", {})["ptt_request_id"] = request_id
+
         body = b""
         client_disconnected = False
         while True:
@@ -267,23 +304,32 @@ class LoggingMiddleware:
         if "authorization" in headers:
             headers["authorization"] = mask_auth_header(headers["authorization"])
 
-        try:
-            body_str = body.decode("utf-8", errors="replace")
-        except Exception:
-            body_str = "[binary data]"
-
-        if len(body_str) > 1000:
-            body_str = body_str[:1000] + "... [truncated]"
-
         client = scope.get("client")
-        log_content = [
-            f"Method: {scope.get('method', '?')}",
-            f"URL: {scope.get('path', '?')}",
-            f"Client: {client[0] if client else 'unknown'}",
-            f"Headers: {json.dumps(headers, indent=2)}",
-            f"Body: {body_str}",
-        ]
-        log_multiline("API Request Incoming", "\n".join(log_content), level="info")
+        if is_transcription:
+            _log_transcription_event("api_transcription_request", {
+                "request_id": request_id,
+                "method": scope.get("method"),
+                "route": path,
+                "client": client[0] if client else None,
+                "content_type": headers.get("content-type"),
+                "content_length": headers.get("content-length"),
+                "body": "multipart omitted",
+            })
+        else:
+            try:
+                body_str = body.decode("utf-8", errors="replace")
+            except Exception:
+                body_str = "[binary data]"
+            if len(body_str) > 1000:
+                body_str = body_str[:1000] + "... [truncated]"
+            log_content = [
+                f"Method: {scope.get('method', '?')}",
+                f"URL: {path}",
+                f"Client: {client[0] if client else 'unknown'}",
+                f"Headers: {json.dumps(headers, indent=2)}",
+                f"Body: {body_str}",
+            ]
+            log_multiline("API Request Incoming", "\n".join(log_content), level="info")
 
         # Re-wrap body for subsequent handlers: body 只投递一次，之后透传原始
         # receive（保留真实的 http.disconnect 检测——StreamingResponse 靠它监听
@@ -301,10 +347,19 @@ class LoggingMiddleware:
         response_status: list[int] = []
         response_content_type: list[str] = []
         response_body = bytearray()
+        response_body_size = 0
 
         async def send_wrapper(message):
+            nonlocal response_body_size
             if message["type"] == "http.response.start":
                 response_status.append(message.get("status", 0))
+                if is_transcription:
+                    message["headers"] = [
+                        (key, value) for key, value in message.get("headers", [])
+                        if key.lower() != b"x-ptt-request-id"
+                    ] + [
+                        (b"x-ptt-request-id", request_id.encode("ascii")),
+                    ]
                 response_content_type.append(
                     next(
                         (
@@ -316,7 +371,10 @@ class LoggingMiddleware:
                     )
                 )
             elif message["type"] == "http.response.body":
-                response_body.extend(message.get("body", b""))
+                chunk = message.get("body", b"")
+                response_body_size += len(chunk)
+                if not is_transcription:
+                    response_body.extend(chunk)
             await send(message)
 
         try:
@@ -325,13 +383,23 @@ class LoggingMiddleware:
             if response_status:
                 status = response_status[0]
                 content_type = response_content_type[0] or ""
-                if content_type.startswith("application/json"):
+                if is_transcription:
+                    _log_transcription_event("api_transcription_response", {
+                        "request_id": request_id,
+                        "route": path,
+                        "http_status": status,
+                        "content_type": content_type,
+                        "response_bytes": response_body_size,
+                        "elapsed_ms": round((time.perf_counter() - request_started) * 1000, 1),
+                    })
+                elif content_type.startswith("application/json"):
                     res_str = bytes(response_body).decode("utf-8", errors="replace")
                     if len(res_str) > 1000:
                         res_str = res_str[:1000] + "... [truncated]"
                 else:
                     res_str = f"[binary data {len(response_body)} bytes]"
-                log_multiline(f"API Response Sent (Status: {status})", res_str, level="info")
+                if not is_transcription:
+                    log_multiline(f"API Response Sent (Status: {status})", res_str, level="info")
 
 app = FastAPI(title="Press-to-Talk API", lifespan=lifespan)
 os.makedirs("data/photos", exist_ok=True)
@@ -934,8 +1002,6 @@ async def _handle_chat(req: QueryRequest, user_id: str) -> QueryResponse:
             selection = selection[:20000]
         slow_query = f"{slow_query}\n\n【用户当前选中的文本】\n{selection}"
 
-    if watch_prompt():
-        slow_query += "\n\n" + watch_prompt()
     slow_req = req.model_copy(update={"query": slow_query})
 
     try:
@@ -1082,36 +1148,110 @@ def _wav_duration_seconds(path: Path) -> Optional[float]:
         return None
 
 
-async def _transcribe_upload(file: UploadFile, *, fallback: bool = False) -> str:
+async def _transcribe_upload(
+    file: UploadFile,
+    *,
+    fallback: bool = False,
+    request_id: str | None = None,
+    route: str = "/v1/transcribe",
+) -> str:
     """落盘上传的录音并调用服务端 STT，返回识别文本。"""
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="音频内容为空")
-    suffix = Path(file.filename or "audio.wav").suffix or ".wav"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(content)
-        audio_path = Path(tmp.name)
+    request_id = request_id or uuid.uuid4().hex
+    started = time.perf_counter()
+    stage = "upload_read"
+    audio_bytes = 0
+    duration_ms = None
+    model = "elevenlabs-transcription" if fallback else "doubao-transcription"
+    audio_path: Path | None = None
     try:
+        content = await file.read()
+        audio_bytes = len(content)
+        if not content:
+            raise HTTPException(status_code=400, detail="音频内容为空")
+        suffix = Path(file.filename or "audio.wav").suffix or ".wav"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            audio_path = Path(tmp.name)
+
+        stage = "audio_inspection"
+        inspect_started = time.perf_counter()
         duration = await asyncio.to_thread(_wav_duration_seconds, audio_path)
+        duration_ms = round(duration * 1000) if duration is not None else None
+        inspect_ms = round((time.perf_counter() - inspect_started) * 1000, 1)
         if duration is not None and duration < _ASK_AUDIO_MIN_SECONDS:
             raise HTTPException(status_code=400, detail="录音太短，请说完再停止录音")
         stt_url = os.environ.get("PTT_STT_URL", "").strip()
         if not stt_url:
             raise HTTPException(status_code=503, detail="STT 服务未配置（PTT_STT_URL）")
+
+        stage = "gateway_transcription"
+        gateway_started = time.perf_counter()
         try:
             transcript = await asyncio.to_thread(
                 run_fallback_stt if fallback else run_stt,
                 stt_url, os.environ.get("PTT_STT_TOKEN", ""), audio_path,
+                request_id=request_id, route=route, audio_duration_ms=duration_ms,
             )
         except Exception as exc:
-            log(f"STT failed: {type(exc).__name__}", level="error")
+            _log_transcription_event("stt_request", {
+                "request_id": request_id,
+                "route": route,
+                "requested_model": model,
+                "stage": stage,
+                "audio_bytes": audio_bytes,
+                "audio_duration_ms": duration_ms,
+                "audio_inspection_ms": inspect_ms,
+                "gateway_elapsed_ms": round((time.perf_counter() - gateway_started) * 1000, 1),
+                "total_ms": round((time.perf_counter() - started) * 1000, 1),
+                "error_type": type(exc).__name__,
+                "result": "error",
+            }, level="error")
             raise HTTPException(status_code=503, detail="语音识别服务暂时不可用，请重试") from exc
+        transcript = (transcript or "").strip()
+        if not transcript:
+            raise HTTPException(status_code=422, detail="未能识别到语音内容")
+        _log_transcription_event("stt_request", {
+            "request_id": request_id,
+            "route": route,
+            "requested_model": model,
+            "audio_bytes": audio_bytes,
+            "audio_duration_ms": duration_ms,
+            "audio_inspection_ms": inspect_ms,
+            "gateway_elapsed_ms": round((time.perf_counter() - gateway_started) * 1000, 1),
+            "transcript_chars": len(transcript),
+            "total_ms": round((time.perf_counter() - started) * 1000, 1),
+            "result": "ok",
+        })
+        return transcript
+    except HTTPException as exc:
+        _log_transcription_event("stt_request", {
+            "request_id": request_id,
+            "route": route,
+            "requested_model": model,
+            "stage": stage,
+            "audio_bytes": audio_bytes,
+            "audio_duration_ms": duration_ms,
+            "http_status": exc.status_code,
+            "total_ms": round((time.perf_counter() - started) * 1000, 1),
+            "result": "rejected",
+        }, level="warning")
+        raise
+    except Exception as exc:
+        _log_transcription_event("stt_request", {
+            "request_id": request_id,
+            "route": route,
+            "requested_model": model,
+            "stage": stage,
+            "audio_bytes": audio_bytes,
+            "audio_duration_ms": duration_ms,
+            "error_type": type(exc).__name__,
+            "total_ms": round((time.perf_counter() - started) * 1000, 1),
+            "result": "error",
+        }, level="error")
+        raise
     finally:
-        audio_path.unlink(missing_ok=True)
-    transcript = (transcript or "").strip()
-    if not transcript:
-        raise HTTPException(status_code=422, detail="未能识别到语音内容")
-    return transcript
+        if audio_path is not None:
+            audio_path.unlink(missing_ok=True)
 
 
 @app.post(
@@ -1124,9 +1264,13 @@ async def _transcribe_upload(file: UploadFile, *, fallback: bool = False) -> str
         "响应额外携带 transcript 字段。"
     ),
 )
-async def ask_audio(file: UploadFile = File(...), user_id: str = Depends(get_user_id)):
-    transcript = await _transcribe_upload(file)
-    log(f"ask-audio: transcript={transcript[:80]}", level="info")
+async def ask_audio(request: Request, file: UploadFile = File(...),
+                    user_id: str = Depends(get_user_id)):
+    transcript = await _transcribe_upload(
+        file,
+        request_id=getattr(request.state, "ptt_request_id", None),
+        route="/v1/ask-audio",
+    )
     response = await _handle_chat(QueryRequest(query=transcript), user_id)
     return AudioAskResponse(transcript=transcript, **response.model_dump())
 
@@ -1146,10 +1290,14 @@ class TranscribeResponse(BaseModel):
         "再单独调用 /v1/chat 继续问答。默认使用豆包，失败或空结果时使用原 STT fallback。"
     ),
 )
-async def transcribe(file: UploadFile = File(...), user_id: str = Depends(get_user_id)):
+async def transcribe(request: Request, file: UploadFile = File(...),
+                     user_id: str = Depends(get_user_id)):
     del user_id
-    transcript = await _transcribe_upload(file)
-    log(f"transcribe: transcript={transcript[:80]}", level="info")
+    transcript = await _transcribe_upload(
+        file,
+        request_id=getattr(request.state, "ptt_request_id", None),
+        route="/v1/transcribe",
+    )
     return TranscribeResponse(transcript=transcript)
 
 
@@ -1158,9 +1306,15 @@ async def transcribe(file: UploadFile = File(...), user_id: str = Depends(get_us
     response_model=TranscribeResponse,
     summary="原 STT 转写接口（跳过豆包，仅使用 fallback）",
 )
-async def transcribe_fallback(file: UploadFile = File(...), user_id: str = Depends(get_user_id)):
+async def transcribe_fallback(request: Request, file: UploadFile = File(...),
+                              user_id: str = Depends(get_user_id)):
     del user_id
-    transcript = await _transcribe_upload(file, fallback=True)
+    transcript = await _transcribe_upload(
+        file,
+        fallback=True,
+        request_id=getattr(request.state, "ptt_request_id", None),
+        route="/v1/transcribe/fallback",
+    )
     return TranscribeResponse(transcript=transcript)
 
 
@@ -1722,11 +1876,12 @@ async def get_history(user_id: str = Depends(get_user_id)):
     try:
         service = _history_service_for(user_id)
         records = service.history_store().list_recent(limit=20)
+        watch_prompt = _watch_answer_prompt()
         return [
             HistoryItem(
                 session_id=r.session_id,
-                transcript=r.transcript,
-                reply=r.reply,
+                transcript=_strip_watch_prompt(r.transcript, watch_prompt, drop_prompt_tail=True),
+                reply=_strip_watch_prompt(r.reply, watch_prompt),
                 created_at=r.started_at
             )
             for r in records

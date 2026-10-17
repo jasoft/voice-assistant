@@ -1,0 +1,3 @@
+# Local config and dependencies for new worktrees.
+copy .env
+share .venv

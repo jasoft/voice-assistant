@@ -29,7 +29,7 @@ from typing import Any
 last_typesafe_debug: ContextVar[dict[str, Any] | None] = ContextVar("last_typesafe_debug", default=None)
 
 from ..harness import DeepSeekHarnessClient
-from .reply_stream import complete_reply, has_partial_reply, watch_prompt
+from .reply_stream import complete_reply, has_partial_reply
 from ..storage.providers.memos import (
     MemosClient,
     _strip_tags_and_voice_prefix,
@@ -326,7 +326,7 @@ async def _answer_with_harness(query: str, memos: list[dict[str, Any]], selectio
 
     client = _chat_harness_client()
     try:
-        result = await client.query(prompt + ("\n\n" + watch_prompt() if watch_prompt() else ""))
+        result = await client.query(prompt)
         reply = str(result.get("reply", "")).strip()
         reasoning = str(result.get("reasoning", "") or "").strip()
         from ..harness.client import HarnessReply
@@ -358,7 +358,7 @@ async def _compose_with_harness(query: str, selection: str) -> str | None:
 
     client = _chat_harness_client()
     try:
-        result = await client.query(prompt + ("\n\n" + watch_prompt() if watch_prompt() else ""))
+        result = await client.query(prompt)
         reply = str(result.get("reply", "")).strip()
         reasoning = str(result.get("reasoning", "") or "").strip()
         log(f"fast-chat: harness 产出粘贴内容 {len(reply)} 字", level="info")

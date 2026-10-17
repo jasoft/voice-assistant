@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -36,7 +37,9 @@ def _wav_bytes(seconds: float = 1.0, rate: int = 16000) -> bytes:
 
 
 def test_transcribe_returns_text(monkeypatch, client):
-    def fake_run_stt(url, token, path):
+    def fake_run_stt(url, token, path, **details):
+        assert details["request_id"]
+        assert details["route"] == "/v1/transcribe"
         return " 帮我记一下 明天买牛奶 "
 
     monkeypatch.setattr(api_main, "run_stt", fake_run_stt)
@@ -46,7 +49,27 @@ def test_transcribe_returns_text(monkeypatch, client):
     )
 
     assert resp.status_code == 200
+    assert resp.headers["x-ptt-request-id"]
     assert resp.json()["transcript"] == "帮我记一下 明天买牛奶"
+
+
+def test_transcription_logs_correlate_without_recording_transcript(monkeypatch, client, capsys):
+    secret_phrase = "这段识别内容不能写进日志"
+    monkeypatch.setattr(api_main, "run_stt", lambda *args, **kwargs: secret_phrase)
+
+    response = client.post(
+        "/v1/transcribe", files={"file": ("a.wav", _wav_bytes(), "audio/wav")}
+    )
+
+    request_id = response.headers["x-ptt-request-id"]
+    lines = [line for line in capsys.readouterr().err.splitlines() if "transcription_" in line or "stt_request " in line]
+    assert response.status_code == 200
+    assert response.json()["transcript"] == secret_phrase
+    assert len(lines) == 3
+    assert all(secret_phrase not in line for line in lines)
+    assert all(request_id in line for line in lines)
+    for line in lines:
+        json.loads(line[line.index("{"):])
 
 
 def test_transcribe_rejects_short_recording(client):
@@ -57,7 +80,7 @@ def test_transcribe_rejects_short_recording(client):
 
 
 def test_transcribe_rejects_empty_transcript(monkeypatch, client):
-    def fake_run_stt(url, token, path):
+    def fake_run_stt(url, token, path, **details):
         return "   "
 
     monkeypatch.setattr(api_main, "run_stt", fake_run_stt)
@@ -77,7 +100,7 @@ def test_default_transcribe_requires_gateway_url(monkeypatch, client):
 
 def test_fallback_endpoint_skips_doubao(monkeypatch, client):
     monkeypatch.setattr(api_main, "run_stt", lambda *args: pytest.fail("Fallback must skip Doubao"))
-    monkeypatch.setattr(api_main, "run_fallback_stt", lambda *args: "原服务结果")
+    monkeypatch.setattr(api_main, "run_fallback_stt", lambda *args, **kwargs: "原服务结果")
     resp = client.post("/v1/transcribe/fallback", files={"file": ("a.wav", _wav_bytes(), "audio/wav")})
     assert resp.status_code == 200
     assert resp.json() == {"transcript": "原服务结果"}
@@ -94,7 +117,7 @@ def test_fallback_endpoint_requires_auth(client):
 def test_stt_failure_returns_503_and_cleans_upload(monkeypatch, client, endpoint, function):
     paths = []
 
-    def fail(url, token, path):
+    def fail(url, token, path, **details):
         paths.append(path)
         raise RuntimeError("provider failed")
 
