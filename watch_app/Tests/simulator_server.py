@@ -35,10 +35,11 @@ spoken_reply = "南京现在二十二度，湿度百分之八十五。出门请�
 handle_chat = main._handle_chat
 
 async def fixture_chat(req, user_id):
-    if req.query == "Agent口播测试":
+    if req.query in ("Agent口播测试", "长语音缓冲测试"):
         await asyncio.sleep(2)
         record("agent_done")
-        return main.QueryResponse(reply="**南京天气**\n- 22℃\n- 湿度85%", spoken_reply=spoken_reply,
+        speech = ("长语音缓冲测试。" + spoken_reply) * 3 if req.query == "长语音缓冲测试" else spoken_reply
+        return main.QueryResponse(reply="**南京天气**\n- 22℃\n- 湿度85%", spoken_reply=speech,
                                   query=req.query, action="speak", reasoning=None, debug_info=None)
     return await handle_chat(req, user_id)
 
@@ -81,9 +82,19 @@ async def tone(text):
     if "播放失败测试" in text: raise RuntimeError("fixture TTS failure")
     samples = [int(2500 * math.sin(i * 2 * math.pi * 440 / 24000)) for i in range(12000)]
     pcm = struct.pack("<" + "h" * len(samples), *samples)
-    for i in range(0, len(pcm), 4800):
-        yield pcm[i:i + 4800]
-        await asyncio.sleep(0.05)
+    if "长语音缓冲测试" in text:
+        try:
+            for i in range(200):
+                if i == 10: await asyncio.sleep(1)
+                yield pcm[:4800]
+                record("tts_pcm", bytes=4800, total_bytes=(i + 1) * 4800)
+                await asyncio.sleep(0.05)
+        finally:
+            record("tts_closed")
+    else:
+        for i in range(0, len(pcm), 4800):
+            yield pcm[i:i + 4800]
+            await asyncio.sleep(0.05)
     record("tts_done")
 main._gemini_tts_stream = tone
 

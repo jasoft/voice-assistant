@@ -13,7 +13,8 @@ watchOS 的公开生命周期没有单独的“点击图标”事件：使用 ba
 - 识别、思考和回答阶段，左上角麦克风随时打断并重录。思考时完整显示识别原话；首段回答出现后自动上滚到答案，原话保留在上方，可滚回检查。正文支持段落、行内 Markdown 与滚动，占满主体，无底部操作条。
 - 播放/停止放在右上角，主界面不再显示设置入口。
 - 新安装默认自动播报，尊重已有关闭设置。屏幕继续流式显示正文；收到最终 `done` 后优先使用非空 `spoken_reply` 合成，缺失或空白时使用 `reply`。等待口播正文期间播放按钮禁用，手动重播也使用相同口播正文，避免提前读出显示版后重复朗读。音频仍通过 `/v1/tts` 边收 24kHz/16bit/单声道 PCM 边播。
-- 停止只停止播报；再说会取消当前生成、停止音频并开始新录音。流中断保留部分文字并提示，禁止失败后重跑另一个模型造成重复或改口。识别失败保留临时录音供显式重试；开始新录音时清理。
+- 播放前先缓存 5 秒 PCM（24kHz/16bit/单声道，共 240000 字节）；短于 5 秒的回复在接收完毕后直接播放。缓存期间右上角仍可停止。
+- 停止时立即切回播放图标并取消接收；音频转换、引擎启动/停止/重置与会话释放都在独立 actor 执行，避免阻塞界面。重播/重录等待上一次清理完成，旧音频不能在新会话中重新启动。停止只停止播报；再说会取消当前生成、停止音频并开始新录音。流中断保留部分文字并提示，禁止失败后重跑另一个模型造成重复或改口。识别失败保留临时录音供显式重试；开始新录音时清理。
 - 旧服务器返回 JSON 时读取同一次响应兼容展示与播报，不重新发请求；旧服务器无法提供提前输出的体验。
 
 ## API 契约
@@ -82,7 +83,11 @@ uv run pytest tests/test_api_chat_stream.py tests/test_fast_chat_harness.py \
   tests/test_api_ask_audio.py tests/test_api_transcribe.py tests/test_api_tts.py -q
 swiftc watch_app/WatchApp/Sources/SpeechTextBuffer.swift watch_app/Tests/SpeechTextBufferTests.swift -o /tmp/watch-speech-tests
 /tmp/watch-speech-tests
+swiftc -parse-as-library watch_app/WatchApp/Sources/{SpeechPlayback,SpeechTextBuffer}.swift watch_app/Tests/SpeechPlaybackTests.swift -o /tmp/watch-playback-tests
+/tmp/watch-playback-tests
 ```
+
+`--test-query '长语音缓冲测试'` 提供 20 秒 PCM，并在前段插入一次 1 秒网络停顿。日志 `audio_playback_started buffered_bytes=240000` 验证起播门槛；`speech_stop_requested` 和 `audio_cleanup_finished` 验证异步停止。`SpeechPlaybackTests` 用缓慢的音频清理替身检查主线程响应、停止后立即重播、短音频 EOF 起播及旧任务取消。
 
 夹具还支持“中断测试”“等待测试”，启动时加载 `.env` 中的真实 STT 配置，因此可识别麦克风录音；聊天和语音播放仍是测试替身。测试结束后应终止测试进程并不带 `VA_TEST_*` 覆盖重新启动 Watch，让用户使用正式服务。事件时间写入 `/tmp/va-watch-simulator-events.jsonl`，Watch 日志的 `text_first_delta`、`text_done`、`tts_request`、`audio_first_pcm`、`tts_received`、`speech_finished` 可验证最终口播选择与播放时序；debug 日志 `audio_scheduled` / `audio_played` 可检查播放队列是否在中途耗尽。夹具不写个人备忘/会话历史。
 
