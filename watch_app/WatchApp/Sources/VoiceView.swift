@@ -18,7 +18,9 @@ struct VoiceView: View {
                         }
                     } else if session.busy || !session.reply.isEmpty || !session.transcript.isEmpty {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button { session.startRecording() } label: { Image(systemName: "mic.fill") }
+                            Button { session.startRecording() } label: {
+                                Image(systemName: "mic.fill").frame(width: 44, height: 44).contentShape(Rectangle())
+                            }
                                 .accessibilityLabel("打断并重新录音")
                         }
                         ToolbarItem(placement: .topBarTrailing) {
@@ -90,6 +92,7 @@ private struct PlaybackButton: View {
         if !session.reply.isEmpty {
             Button { session.toggleSpeech() } label: {
                 Image(systemName: speech.status == .stopped ? "play.fill" : "stop.fill")
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
             }
             .accessibilityLabel(speech.status == .stopped ? "播放回答" : "停止播放")
             .disabled(session.busy)
