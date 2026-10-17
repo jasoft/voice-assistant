@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ..utils.logging import log
+
+
+def _log_gateway_event(details: dict, *, level: str = "info") -> None:
+    print(f"{level.upper()} stt_gateway_call {json.dumps(details, ensure_ascii=False, separators=(',', ':'))}", file=sys.stderr, flush=True)
 
 
 def run_stt(
@@ -67,7 +71,7 @@ def _transcribe(
         response.raise_for_status()
         text = response.json().get("text")
         text = text.strip() if isinstance(text, str) else ""
-        log("stt_gateway_call " + json.dumps({
+        _log_gateway_event({
             "request_id": request_id,
             "route": route,
             "requested_model": model,
@@ -83,11 +87,11 @@ def _transcribe(
             "gateway_ms": response.headers.get("x-litellm-response-duration-ms"),
             "gateway_call_id": response.headers.get("x-litellm-call-id"),
             "result": "ok" if text else "empty",
-        }, ensure_ascii=False), level="info")
+        })
         return text
     except Exception as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
-        log("stt_gateway_call " + json.dumps({
+        _log_gateway_event({
             "request_id": request_id,
             "route": route,
             "requested_model": model,
@@ -101,5 +105,5 @@ def _transcribe(
             "gateway_ms": response.headers.get("x-litellm-response-duration-ms") if response else None,
             "error_type": type(exc).__name__,
             "result": "error",
-        }, ensure_ascii=False), level="error")
+        }, level="error")
         raise

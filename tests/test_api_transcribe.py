@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -52,9 +53,7 @@ def test_transcribe_returns_text(monkeypatch, client):
     assert resp.json()["transcript"] == "帮我记一下 明天买牛奶"
 
 
-def test_transcription_logs_correlate_without_recording_transcript(monkeypatch, client):
-    events = []
-    monkeypatch.setattr(api_main, "log", lambda message, **kwargs: events.append(message))
+def test_transcription_logs_correlate_without_recording_transcript(monkeypatch, client, capsys):
     secret_phrase = "这段识别内容不能写进日志"
     monkeypatch.setattr(api_main, "run_stt", lambda *args, **kwargs: secret_phrase)
 
@@ -63,10 +62,14 @@ def test_transcription_logs_correlate_without_recording_transcript(monkeypatch, 
     )
 
     request_id = response.headers["x-ptt-request-id"]
+    lines = [line for line in capsys.readouterr().err.splitlines() if "transcription_" in line or "stt_request " in line]
     assert response.status_code == 200
     assert response.json()["transcript"] == secret_phrase
-    assert any(request_id in event for event in events)
-    assert all(secret_phrase not in event for event in events)
+    assert len(lines) == 3
+    assert all(secret_phrase not in line for line in lines)
+    assert all(request_id in line for line in lines)
+    for line in lines:
+        json.loads(line[line.index("{"):])
 
 
 def test_transcribe_rejects_short_recording(client):

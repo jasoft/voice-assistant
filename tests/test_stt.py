@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import httpx
 import pytest
@@ -8,7 +9,7 @@ from press_to_talk.audio import stt
 
 @pytest.mark.parametrize("function,model", [(stt.run_stt, "doubao-transcription"),
                                           (stt.run_fallback_stt, "elevenlabs-transcription")])
-def test_gateway_contract(monkeypatch, tmp_path, function, model):
+def test_gateway_contract(monkeypatch, tmp_path, function, model, capsys):
     audio = tmp_path / "a.wav"
     audio.write_bytes(b"test-audio")
 
@@ -37,6 +38,10 @@ def test_gateway_contract(monkeypatch, tmp_path, function, model):
         "https://gateway/v1/", "test-token", audio,
         request_id="test-request-1", route="/v1/transcribe", audio_duration_ms=1000,
     ) == "南京"
+    line = next(line for line in capsys.readouterr().err.splitlines() if "stt_gateway_call " in line)
+    details = json.loads(line[line.index("{"):])
+    assert details["request_id"] == "test-request-1"
+    assert details["model_group"] == model
 
 
 def test_missing_gateway_is_an_error():

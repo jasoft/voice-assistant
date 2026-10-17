@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, AsyncIterator
 from types import SimpleNamespace
 import os
+import sys
 import asyncio
 import base64
 import tempfile
@@ -51,6 +52,10 @@ def mask_auth_header(auth_str: str) -> str:
     if not auth_str or len(auth_str) < 10:
         return "***"
     return f"{auth_str[:6]}...{auth_str[-4:]}"
+
+
+def _log_transcription_event(event: str, details: dict[str, Any], *, level: str = "info") -> None:
+    print(f"{level.upper()} {event} {json.dumps(details, ensure_ascii=False, separators=(',', ':'))}", file=sys.stderr, flush=True)
 
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
@@ -277,7 +282,7 @@ class LoggingMiddleware:
 
         client = scope.get("client")
         if is_transcription:
-            log("api_transcription_request " + json.dumps({
+            _log_transcription_event("api_transcription_request", {
                 "request_id": request_id,
                 "method": scope.get("method"),
                 "route": path,
@@ -285,7 +290,7 @@ class LoggingMiddleware:
                 "content_type": headers.get("content-type"),
                 "content_length": headers.get("content-length"),
                 "body": "multipart omitted",
-            }), level="info")
+            })
         else:
             try:
                 body_str = body.decode("utf-8", errors="replace")
@@ -355,14 +360,14 @@ class LoggingMiddleware:
                 status = response_status[0]
                 content_type = response_content_type[0] or ""
                 if is_transcription:
-                    log("api_transcription_response " + json.dumps({
+                    _log_transcription_event("api_transcription_response", {
                         "request_id": request_id,
                         "route": path,
                         "http_status": status,
                         "content_type": content_type,
                         "response_bytes": response_body_size,
                         "elapsed_ms": round((time.perf_counter() - request_started) * 1000, 1),
-                    }), level="info")
+                    })
                 elif content_type.startswith("application/json"):
                     res_str = bytes(response_body).decode("utf-8", errors="replace")
                     if len(res_str) > 1000:
@@ -1166,7 +1171,7 @@ async def _transcribe_upload(
                 request_id=request_id, route=route, audio_duration_ms=duration_ms,
             )
         except Exception as exc:
-            log("stt_request " + json.dumps({
+            _log_transcription_event("stt_request", {
                 "request_id": request_id,
                 "route": route,
                 "requested_model": model,
@@ -1178,12 +1183,12 @@ async def _transcribe_upload(
                 "total_ms": round((time.perf_counter() - started) * 1000, 1),
                 "error_type": type(exc).__name__,
                 "result": "error",
-            }), level="error")
+            }, level="error")
             raise HTTPException(status_code=503, detail="语音识别服务暂时不可用，请重试") from exc
         transcript = (transcript or "").strip()
         if not transcript:
             raise HTTPException(status_code=422, detail="未能识别到语音内容")
-        log("stt_request " + json.dumps({
+        _log_transcription_event("stt_request", {
             "request_id": request_id,
             "route": route,
             "requested_model": model,
@@ -1194,10 +1199,10 @@ async def _transcribe_upload(
             "transcript_chars": len(transcript),
             "total_ms": round((time.perf_counter() - started) * 1000, 1),
             "result": "ok",
-        }), level="info")
+        })
         return transcript
     except HTTPException as exc:
-        log("stt_request " + json.dumps({
+        _log_transcription_event("stt_request", {
             "request_id": request_id,
             "route": route,
             "requested_model": model,
@@ -1207,10 +1212,10 @@ async def _transcribe_upload(
             "http_status": exc.status_code,
             "total_ms": round((time.perf_counter() - started) * 1000, 1),
             "result": "rejected",
-        }), level="warning")
+        }, level="warning")
         raise
     except Exception as exc:
-        log("stt_request " + json.dumps({
+        _log_transcription_event("stt_request", {
             "request_id": request_id,
             "route": route,
             "requested_model": model,
@@ -1220,7 +1225,7 @@ async def _transcribe_upload(
             "error_type": type(exc).__name__,
             "total_ms": round((time.perf_counter() - started) * 1000, 1),
             "result": "error",
-        }), level="error")
+        }, level="error")
         raise
     finally:
         if audio_path is not None:
