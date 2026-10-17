@@ -6,11 +6,17 @@ struct TranscribeResponse: Decodable {
 
 struct ChatResponse: Decodable {
     let reply: String
+    let spoken_reply: String?
+
+    var speechText: String {
+        let spoken = spoken_reply?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return spoken.isEmpty ? reply : spoken
+    }
 }
 
 enum ChatStreamEvent {
     case delta(String)
-    case done(String)
+    case done(ChatResponse)
 }
 
 enum APIError: LocalizedError {
@@ -60,10 +66,10 @@ final class APIClient {
                         // never send a second request that might duplicate a memo write.
                         var body = Data()
                         for try await byte in bytes { try Task.checkCancellation(); body.append(byte) }
-                        let reply = try JSONDecoder().decode(ChatResponse.self, from: body).reply
-                        guard !reply.isEmpty else { throw APIError.transport("回答为空") }
-                        continuation.yield(.delta(reply))
-                        continuation.yield(.done(reply))
+                        let result = try JSONDecoder().decode(ChatResponse.self, from: body)
+                        guard !result.reply.isEmpty else { throw APIError.transport("回答为空") }
+                        continuation.yield(.delta(result.reply))
+                        continuation.yield(.done(result))
                         continuation.finish()
                         return
                     }
@@ -79,7 +85,7 @@ final class APIClient {
                         switch event {
                         case "delta": continuation.yield(.delta(payload["text"] as? String ?? ""))
                         case "done":
-                            continuation.yield(.done(payload["reply"] as? String ?? ""))
+                            continuation.yield(.done(try JSONDecoder().decode(ChatResponse.self, from: data)))
                             continuation.finish()
                             return
                         case "error": throw APIError.transport(payload["message"] as? String ?? "回答中断")

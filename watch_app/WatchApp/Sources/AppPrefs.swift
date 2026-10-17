@@ -31,7 +31,7 @@ enum AppPrefs {
 
     private static let autoPlayKey = "va.autoPlay"
 
-    /// 首段文字到达后自动合成并播放；新安装默认开启，尊重已有设置。
+    /// 最终口播正文到达后自动合成并播放；新安装默认开启，尊重已有设置。
     static var autoPlay: Bool {
         get {
             #if DEBUG

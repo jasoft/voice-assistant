@@ -23,6 +23,7 @@ final class VoiceSession: ObservableObject {
     private var recordingFile: URL?
     private var isStarting = false
     private var autoSpeaking = false
+    private var spokenReply = ""
     private var didUseTestLaunch = false
     private var launchPolicy = RecordingLaunchPolicy()
     private let logger = Logger(subsystem: "com.soj.voiceassistant.watch", category: "session")
@@ -80,7 +81,7 @@ final class VoiceSession: ObservableObject {
         recorder.stop()?.deleteTemporaryRecording()
         isStarting = false
         recordingFile?.deleteTemporaryRecording(); recordingFile = nil
-        transcript = ""; reply = ""; error = nil; elapsed = 0; level = 0
+        transcript = ""; reply = ""; spokenReply = ""; error = nil; elapsed = 0; level = 0
     }
 
     func startRecording() {
@@ -145,12 +146,12 @@ final class VoiceSession: ObservableObject {
                         if reply.isEmpty {
                             logger.info("text_first_delta")
                             playMilestoneHaptic()
-                            if AppPrefs.autoPlay { autoSpeaking = true; speech.begin() }
+                            autoSpeaking = AppPrefs.autoPlay
                         }
                         reply += text
                         phase = .replying
-                        if autoSpeaking { speech.accept(text) }
-                    case .done(let text):
+                    case .done(let result):
+                        let text = result.reply
                         if reply != text {
                             let replyTrimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
                             let textTrimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -160,7 +161,10 @@ final class VoiceSession: ObservableObject {
                                 throw APIError.transport("回答内容不完整")
                             }
                         }
-                        if autoSpeaking { speech.finishInput() }
+                        spokenReply = result.speechText
+                        if autoSpeaking {
+                            speech.begin(); speech.accept(spokenReply); speech.finishInput()
+                        }
                         phase = .replied
                         logger.info("text_done chars=\(self.reply.count)")
                     }
@@ -181,12 +185,11 @@ final class VoiceSession: ObservableObject {
     }
 
     func toggleSpeech() {
+        guard !busy else { return }
         if speech.status != .stopped {
             speech.stop(); autoSpeaking = false
         } else if !reply.isEmpty {
-            autoSpeaking = phase == .replying
-            speech.begin(); speech.accept(reply)
-            if !busy { speech.finishInput() }
+            speech.begin(); speech.accept(spokenReply.isEmpty ? reply : spokenReply); speech.finishInput()
         }
         WKInterfaceDevice.current().play(.click)
     }

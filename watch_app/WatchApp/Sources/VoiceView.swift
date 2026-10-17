@@ -92,6 +92,7 @@ private struct PlaybackButton: View {
                 Image(systemName: speech.status == .stopped ? "play.fill" : "stop.fill")
             }
             .accessibilityLabel(speech.status == .stopped ? "播放回答" : "停止播放")
+            .disabled(session.busy)
         }
     }
 }

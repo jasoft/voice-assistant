@@ -40,7 +40,7 @@ from ..storage.providers.mem0 import Mem0RememberStore
 from .fast_chat import last_typesafe_debug, try_fast_memory_chat
 from .reply_stream import ReplyStream, current_stream, has_partial_reply, watch_prompt
 from ..audio.stt import run_stt
-from ..audio.tts import split_visual_and_spoken
+from ..audio.tts import sanitize_for_tts, split_visual_and_spoken
 from ..utils.text import current_time_with_weekday_text
 
 
