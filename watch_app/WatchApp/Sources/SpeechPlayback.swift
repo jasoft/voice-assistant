@@ -1,74 +1,14 @@
-import AVFoundation
 import Combine
-import WatchKit
 import OSLog
-
-@MainActor
-final class PCMStreamPlayer {
-    private let engine = AVAudioEngine()
-    private let node = AVAudioPlayerNode()
-    private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
-    private var attached = false
-    private var generation = UUID()
-    private(set) var pendingBuffers = 0
-    private let logger = Logger(subsystem: "com.soj.voiceassistant.watch", category: "audio")
-
-    func start() throws {
-        if engine.isRunning {
-            engine.stop()
-        }
-        if !attached {
-            engine.attach(node)
-            attached = true
-        }
-        engine.disconnectNodeOutput(node)
-        engine.connect(node, to: engine.mainMixerNode, format: format)
-        engine.prepare()
-        try engine.start()
-        node.play()
-    }
-
-    func schedule(_ pcm: Data) {
-        let count = pcm.count / 2
-        guard count > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)) else { return }
-        buffer.frameLength = AVAudioFrameCount(count)
-        let floats = buffer.floatChannelData![0]
-        for i in 0..<count {
-            let bits = UInt16(pcm[i * 2]) | (UInt16(pcm[i * 2 + 1]) << 8)
-            floats[i] = Float(Int16(bitPattern: bits)) / 32768
-        }
-        pendingBuffers += 1
-        logger.debug("audio_scheduled frames=\(count) pending=\(self.pendingBuffers)")
-        let id = generation
-        node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.generation == id else { return }
-                self.pendingBuffers = max(0, self.pendingBuffers - 1)
-                self.logger.debug("audio_played frames=\(count) pending=\(self.pendingBuffers)")
-            }
-        }
-    }
-
-    func stop() {
-        generation = UUID()
-        pendingBuffers = 0
-        node.pause()
-        node.stop()
-        node.reset()
-        if engine.isRunning {
-            engine.stop()
-            engine.reset()
-        }
-    }
-}
 
 @MainActor
 final class SpeechPlayback: ObservableObject {
     enum Status { case stopped, preparing, playing }
     @Published private(set) var status: Status = .stopped
     @Published private(set) var error: String?
-    private lazy var player = PCMStreamPlayer()
-    private let api = APIClient()
+    private let player: PCMStreamPlayer
+    private let api: APIClient
+    private static let startupBufferBytes = 24_000 * 2 * 5
     private var buffer = SpeechTextBuffer()
     private var queue: [String] = []
     private var task: Task<Void, Never>?
@@ -77,6 +17,11 @@ final class SpeechPlayback: ObservableObject {
     private var inputFinished = false
     private var generation = UUID()
     private let logger = Logger(subsystem: "com.soj.voiceassistant.watch", category: "speech")
+
+    init(player: PCMStreamPlayer = PCMStreamPlayer(), api: APIClient = APIClient()) {
+        self.player = player
+        self.api = api
+    }
 
     func begin() {
         stop()
@@ -88,10 +33,10 @@ final class SpeechPlayback: ObservableObject {
             do {
                 await waitForAudioSessionRelease()
                 guard !Task.isCancelled, generation == id else { return }
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playback, mode: .default, policy: .default, options: [])
-                try session.setActive(true)
-                try player.start()
+                try await player.start()
+                guard !Task.isCancelled, generation == id else { return }
+                var bufferedBytes = 0
+                var playing = false
                 while !Task.isCancelled {
                     if queue.isEmpty {
                         if inputFinished { break }
@@ -110,32 +55,43 @@ final class SpeechPlayback: ObservableObject {
                     let started = Date()
                     for try await pcm in api.streamSpeech(text: text, serverBase: AppPrefs.serverURL, apiKey: AppPrefs.apiKey) {
                         guard !Task.isCancelled, generation == id else { return }
-                        player.schedule(pcm)
+                        await player.schedule(pcm)
+                        guard !Task.isCancelled, generation == id else { return }
                         receivedBytes += pcm.count
+                        bufferedBytes += pcm.count
                         if !received {
                             received = true
-                            status = .playing
                             logger.info("audio_first_pcm")
+                        }
+                        if !playing && bufferedBytes >= Self.startupBufferBytes {
+                            await player.play()
+                            guard !Task.isCancelled, generation == id else { return }
+                            playing = true
+                            status = .playing
+                            logger.info("audio_playback_started buffered_bytes=\(bufferedBytes)")
                         }
                     }
                     logger.info("tts_received bytes=\(receivedBytes) seconds=\(Date().timeIntervalSince(started))")
                     if !received { throw APIError.transport("没有收到语音，可继续阅读文字") }
                 }
-                while player.pendingBuffers > 0 && !Task.isCancelled {
+                guard !Task.isCancelled, generation == id else { return }
+                if !playing && bufferedBytes > 0 {
+                    await player.play()
+                    guard !Task.isCancelled, generation == id else { return }
+                    status = .playing
+                    logger.info("audio_playback_started short_reply_bytes=\(bufferedBytes)")
+                }
+                while !Task.isCancelled {
+                    if await player.pendingBuffers == 0 { break }
                     try await Task.sleep(nanoseconds: 50_000_000)
                 }
-                guard generation == id else { return }
-                player.stop()
-                status = .stopped
-                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                guard !Task.isCancelled, generation == id else { return }
+                stop()
                 logger.info("speech_finished")
             } catch {
                 guard !Task.isCancelled, generation == id else { return }
                 self.error = "语音播放失败，文字仍可阅读"
-                player.stop()
-                status = .stopped
-                flushTask?.cancel()
-                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                stop()
                 logger.error("speech_failed: \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -171,10 +127,12 @@ final class SpeechPlayback: ObservableObject {
         queue = []; buffer = SpeechTextBuffer(); inputFinished = false
         status = .stopped
         if hadAudio {
-            player.stop()
-            let session = AVAudioSession.sharedInstance()
-            sessionReleaseTask = Task.detached {
-                try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            logger.info("speech_stop_requested")
+            let previousRelease = sessionReleaseTask
+            let player = self.player
+            sessionReleaseTask = Task {
+                await previousRelease?.value
+                await player.stop()
             }
         }
     }
