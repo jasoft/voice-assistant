@@ -24,7 +24,7 @@
 ```bash
 OPENAI_API_KEY=your_key
 OPENAI_BASE_URL=your_base_url
-# 原 STT 的 fallback 配置；默认识别无需这两个值
+# LiteLLM 统一 STT 网关配置（默认与 fallback 共用）
 PTT_STT_URL=your_litellm_endpoint
 PTT_STT_TOKEN=your_litellm_token
 PTT_API_KEY=your_default_user_token
