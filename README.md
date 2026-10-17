@@ -25,17 +25,17 @@
 OPENAI_API_KEY=your_key
 OPENAI_BASE_URL=your_base_url
 # 原 STT 的 fallback 配置；默认识别无需这两个值
-PTT_STT_URL=your_fallback_stt_endpoint
-PTT_STT_TOKEN=your_fallback_stt_token
+PTT_STT_URL=your_litellm_endpoint
+PTT_STT_TOKEN=your_litellm_token
 PTT_API_KEY=your_default_user_token
 ```
 
 录音默认跟随 macOS 当前的系统输入设备。如果需要固定某个设备，可在 `.env` 中设置设备名称或 PortAudio 索引，例如 `PTT_INPUT_DEVICE=Wireless Mic Rx`；也可以启动时传入 `--input-device`。程序会在录音日志中报告实际使用的设备。
 
-语音识别默认使用 [doubao-asr-free](https://github.com/RayMorTwinkle/doubao-asr-free)，CLI、Mac GUI 和手表共用同一识别策略。macOS 需要 `brew install opus`；Docker 镜像已包含 `libopus0`。依赖固定到已验证的 Git 提交，首次使用自动注册设备，凭据保存在忽略的 `data/doubao-asr-credentials.json`，可用 `PTT_DOUBAO_CREDENTIAL_PATH` 指定其他路径；Docker 的 data 挂载会保留它。
+语音识别统一调用 LiteLLM 网关（`PTT_STT_URL` 为网关的 `/v1` 地址，`PTT_STT_TOKEN` 为网关密钥）。豆包实现、Opus 依赖及持久化凭据由 `litellm-elevenlabs-bridge` 容器管理，其他 App 也可使用标准 `POST /v1/audio/transcriptions` 接口。
 
-- `POST /v1/transcribe`：默认豆包；失败、15 秒整体超时或空结果时自动使用原 STT。客户端地址和响应 `{"transcript":"识别文本"}` 不变。
-- `POST /v1/transcribe/fallback`：原 STT 的独立入口，直接使用 `PTT_STT_URL` / `PTT_STT_TOKEN`，跳过豆包。鉴权与上传参数相同。
+- `POST /v1/transcribe`：请求网关模型 `doubao-transcription`，由网关在失败时切换到 ElevenLabs。
+- `POST /v1/transcribe/fallback`：请求网关原模型 `elevenlabs-transcription`，跳过豆包。鉴权与上传参数相同。
 - `/v1/ask-audio` 同样默认豆包并自动 fallback。临时录音在成功和失败后均会清理；两种识别都不可用时返回 503。
 
 如果要让 DeepSeek Harness 作为唯一的个人助理后台，再加入：

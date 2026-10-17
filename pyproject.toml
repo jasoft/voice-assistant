@@ -21,7 +21,6 @@ dependencies = [
   "uvicorn>=0.27.0",
   "python-multipart>=0.0.9",
   "httpx>=0.27.0",
-  "doubaoime-asr",
 ]
 
 [project.scripts]
@@ -34,9 +33,6 @@ ptt-token = "press_to_talk.storage.token_manager:main"
 
 [tool.uv]
 package = true
-
-[tool.uv.sources]
-doubaoime-asr = { git = "https://github.com/RayMorTwinkle/doubao-asr-free.git", rev = "7a99097e8e4ed4a58c57f975346689d724fde6a3" }
 
 [tool.setuptools.packages.find]
 include = ["press_to_talk*", "mac_executor*"]
