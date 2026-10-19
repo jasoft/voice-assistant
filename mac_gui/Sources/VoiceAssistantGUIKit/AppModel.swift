@@ -25,15 +25,20 @@ public final class AppModel: ObservableObject {
     @Published public var draftInput = ""
     @Published public private(set) var isSpeechMuted = false
 
+    public let audioRecorder = AudioRecorder()
+    public private(set) var speechPlayback: SpeechPlayback?
+
     private let bridge: PTTProcessBridge
     private let serviceManager: ServiceManager?
     private let forwardedArgs: [String]
     public let workingDirectory: URL
     private var cancellables = Set<AnyCancellable>()
     private var historySearchTask: Task<Void, Never>?
-    private let vaClient: VAClient?
+    public private(set) var vaClient: VAClient?
     private var ttsProcess: Process?
     private(set) var isShuttingDown = false
+    private var audioMeterTimer: Timer?
+    private var activeQueryTask: Task<Void, Never>?
 
     // MARK: 选中文本 / 回贴（改写与生成功能）
 
@@ -59,7 +64,9 @@ public final class AppModel: ObservableObject {
 
         let config = VAConfig.load(workingDirectory: workingDirectory)
         if let config = config {
-            self.vaClient = VAClient(config: config)
+            let client = VAClient(config: config)
+            self.vaClient = client
+            self.speechPlayback = SpeechPlayback(client: client)
             self.serviceManager = ServiceManager(
                 workingDirectory: workingDirectory,
                 serverURL: config.serverURL,
@@ -68,6 +75,7 @@ public final class AppModel: ObservableObject {
             )
         } else {
             self.vaClient = nil
+            self.speechPlayback = nil
             self.serviceManager = nil
         }
 
@@ -121,40 +129,105 @@ public final class AppModel: ObservableObject {
         }
 
         if type == "transcript", let text = payload["text"] as? String, !text.isEmpty {
-            // Intercept transcript and switch to API
             if vaClient != nil {
                 bridge.stop()
-                performRemoteQuery(text: text)
+                performRemoteStreamQuery(text: text)
             }
         }
     }
 
     private var selectionCaptureTask: Task<Void, Never>?
 
-    private func performRemoteQuery(text: String) {
+    // MARK: 原生录音与电平监控
+
+    private func startAudioMetering() {
+        stopAudioMetering()
+        audioMeterTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self = self, self.audioRecorder.isRecording else { return }
+                let power = self.audioRecorder.currentPower()
+                let normalized = Double(max(0.0, min(1.0, (power + 50.0) / 50.0)))
+                let speaking = normalized > 0.05
+                self.applySessionEvent([
+                    "type": "audio_level",
+                    "level": normalized,
+                    "speaking": speaking
+                ])
+            }
+        }
+    }
+
+    private func stopAudioMetering() {
+        audioMeterTimer?.invalidate()
+        audioMeterTimer = nil
+    }
+
+    private func transcribeAndQuery(fileURL: URL) {
+        applySessionEvent(["type": "status", "phase": "transcribing"])
+        activeQueryTask?.cancel()
+        activeQueryTask = Task { @MainActor in
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            guard let client = vaClient else { return }
+            do {
+                let transcript = try await client.transcribe(fileURL: fileURL)
+                guard !isShuttingDown, !Task.isCancelled else { return }
+                let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    applySessionEvent(["type": "status", "phase": "no_speech"])
+                    return
+                }
+                applySessionEvent(["type": "transcript", "text": trimmed])
+                performRemoteStreamQuery(text: trimmed)
+            } catch {
+                guard !isShuttingDown, !Task.isCancelled else { return }
+                applySessionEvent(["type": "error", "message": "语音识别失败：\(error.localizedDescription)"])
+            }
+        }
+    }
+
+    private func performRemoteStreamQuery(text: String) {
         applySessionEvent(["type": "status", "phase": "thinking"])
-        Task { @MainActor in
-            // 若剪贴板探测仍在进行中，等待探测结束以携带选中文本
+        activeQueryTask?.cancel()
+        activeQueryTask = Task { @MainActor in
             if let task = selectionCaptureTask {
                 _ = await task.result
             }
             let selectedText = selectionText
-            // 每次口述一个稳定请求身份：网络层重试同一口述时必须复用，服务端据此幂等
             let requestID = UUID().uuidString
+            guard let client = vaClient else { return }
             do {
-                guard let client = vaClient else { return }
-                let response = try await client.chat(text: text, selectedText: selectedText, requestID: requestID)
-                guard !isShuttingDown else { return }
-                applySessionEvent(["type": "reply", "text": response.reply])
-                if response.action == "paste" {
-                    let note = await deliverPaste(response.reply)
-                    applySessionEvent(["type": "status", "phase": "done", "auto_close_seconds": 5, "note": note])
-                } else {
-                    applySessionEvent(["type": "status", "phase": "done", "auto_close_seconds": 5])
-                    // Optional: Play TTS locally
-                    speakLocally(text: response.spoken_reply ?? response.reply)
+                var accumulatedReply = ""
+                var receivedFirstDelta = false
+                for try await event in client.streamChat(query: text, selectedText: selectedText, requestID: requestID) {
+                    guard !isShuttingDown, !Task.isCancelled else { return }
+                    switch event {
+                    case .delta(let delta):
+                        guard !delta.isEmpty else { continue }
+                        accumulatedReply += delta
+                        if !receivedFirstDelta {
+                            receivedFirstDelta = true
+                        }
+                        applySessionEvent(["type": "reply", "text": accumulatedReply])
+                    case .done(let response):
+                        let finalReply = response.reply.isEmpty ? accumulatedReply : response.reply
+                        applySessionEvent(["type": "reply", "text": finalReply])
+                        if response.action == "paste" {
+                            let note = await deliverPaste(finalReply)
+                            applySessionEvent(["type": "status", "phase": "done", "auto_close_seconds": 5, "note": note])
+                        } else {
+                            applySessionEvent(["type": "status", "phase": "done", "auto_close_seconds": 5])
+                            if !isSpeechMuted {
+                                speechPlayback?.play(text: response.spoken_reply ?? finalReply)
+                            }
+                        }
+                        return
+                    }
+                }
+                if !receivedFirstDelta && accumulatedReply.isEmpty {
+                    applySessionEvent(["type": "error", "message": "回答为空，请重新提问"])
                 }
             } catch {
+                guard !isShuttingDown, !Task.isCancelled else { return }
                 applySessionEvent(["type": "error", "message": "API Error: \(error.localizedDescription)"])
             }
         }
@@ -165,9 +238,6 @@ public final class AppModel: ObservableObject {
 
     // MARK: 选中文本捕获与回贴
 
-    /// 窗口激活前定位上一个前台应用并读取选中文本。
-    /// 1. AX 优先同步读取；
-    /// 2. AX 未命中（大多数 Web/Electron 划词场景）无缝走 Cmd+C 快速剪贴板探测。
     private func captureSelectionFromPreviousApp() {
         guard SelectionBridge.isAXTrusted else {
             selectionNotice = "未授予「辅助功能」权限：无法读取选中文本与自动粘贴（系统设置 → 隐私与安全性 → 辅助功能，添加 VoiceAssistantGUI）"
@@ -183,7 +253,7 @@ public final class AppModel: ObservableObject {
             return
         }
 
-        // 2. AX 读不到，启动剪贴板 Cmd+C 探测（支持 Orca、浏览器网页、VSCode、Slack、聊天窗口等划选内容）
+        // 2. AX 读不到，启动剪贴板 Cmd+C 探测
         isFocusExchangeInFlight = true
         selectionCaptureTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -196,7 +266,6 @@ public final class AppModel: ObservableObject {
         }
     }
 
-    /// 把生成内容回贴到目标窗口；无法回贴时降级为"留在剪贴板"。
     private func deliverPaste(_ text: String) async -> String {
         guard let target = selectionTarget, SelectionBridge.isAXTrusted else {
             let pasteboard = NSPasteboard.general
@@ -214,7 +283,6 @@ public final class AppModel: ObservableObject {
         return "已复制到剪贴板，请手动 Command+V 粘贴"
     }
 
-    /// 粘贴完成后焦点已交还目标应用，窗口静置一段时间自动退出；任何交互都会取消。
     private func schedulePostPasteExit() {
         postPasteExitTask?.cancel()
         postPasteExitTask = Task { @MainActor [weak self] in
@@ -237,20 +305,10 @@ public final class AppModel: ObservableObject {
         session.apply(jsonLine: line)
     }
 
-    private func speakLocally(text: String) {
-        guard !isSpeechMuted else { return }
-        stopSpeaking() // Kill existing playback
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["qwen-tts",  text ]
-        process.currentDirectoryURL = workingDirectory
-
-        // Pass through existing environment which might have PATH for qwen-tts
-        process.environment = ProcessInfo.processInfo.environment
-
-        self.ttsProcess = process
-        try? process.run()
+    private func stopSpeechPlaybackNow() {
+        speechPlayback?.stop()
+        bridge.stopSpeechPlayback()
+        stopLocalSpeech()
     }
 
     private func stopLocalSpeech() {
@@ -271,19 +329,33 @@ public final class AppModel: ObservableObject {
         }
     }
 
-    private func stopSpeechPlaybackNow() {
-        bridge.stopSpeechPlayback()
-        stopLocalSpeech()
-    }
-
     public func startRecording() {
         cancelPostPasteExit()
         session.stopCountdown()
         session.resetForNewSession()
         screenMode = .live
-        bridge.stop()
-        stopLocalSpeech()
-        bridge.start(additionalArgs: forwardedArgs, workingDirectory: workingDirectory)
+        stopSpeechPlaybackNow()
+        activeQueryTask?.cancel()
+
+        if vaClient != nil {
+            Task { @MainActor in
+                let granted = await audioRecorder.requestPermission()
+                guard granted else {
+                    applySessionEvent(["type": "error", "message": "请在系统设置中允许麦克风权限"])
+                    return
+                }
+                do {
+                    try audioRecorder.start()
+                    applySessionEvent(["type": "status", "phase": "recording"])
+                    startAudioMetering()
+                } catch {
+                    applySessionEvent(["type": "error", "message": "无法启动录音：\(error.localizedDescription)"])
+                }
+            }
+        } else {
+            bridge.stop()
+            bridge.start(additionalArgs: forwardedArgs, workingDirectory: workingDirectory)
+        }
     }
 
     public func startNewConversation() {
@@ -306,13 +378,14 @@ public final class AppModel: ObservableObject {
         session.stopCountdown()
         session.resetForNewSession()
         screenMode = .live
-        bridge.stop()
-        stopLocalSpeech()
+        stopSpeechPlaybackNow()
+        activeQueryTask?.cancel()
 
         if vaClient != nil {
             session.apply(jsonLine: "{\"type\": \"transcript\", \"text\": \"\(prompt.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: "\\n"))\"}")
-            performRemoteQuery(text: prompt)
+            performRemoteStreamQuery(text: prompt)
         } else {
+            bridge.stop()
             bridge.startTextInput(
                 text: prompt,
                 additionalArgs: forwardedArgs,
@@ -323,7 +396,16 @@ public final class AppModel: ObservableObject {
 
     public func stopRecording() {
         session.stopCountdown()
-        bridge.stopRecording()
+        if vaClient != nil && audioRecorder.isRecording {
+            stopAudioMetering()
+            guard let fileURL = audioRecorder.stop() else {
+                applySessionEvent(["type": "status", "phase": "no_speech"])
+                return
+            }
+            transcribeAndQuery(fileURL: fileURL)
+        } else {
+            bridge.stopRecording()
+        }
     }
 
     public func stopSpeaking() {
@@ -335,8 +417,6 @@ public final class AppModel: ObservableObject {
         keepWindowOpen()
         isSpeechMuted.toggle()
 
-        // Muting must silence the current output immediately; unmuting takes
-        // effect on the next generated reply instead of replaying old text.
         if isSpeechMuted {
             stopSpeechPlaybackNow()
         }
@@ -371,7 +451,8 @@ public final class AppModel: ObservableObject {
     }
 
     public var isRecording: Bool {
-        session.state.status.isRecording
+        if audioRecorder.isRecording { return true }
+        return session.state.status.isRecording
     }
 
     public var canInterruptCurrentRun: Bool {
@@ -385,12 +466,15 @@ public final class AppModel: ObservableObject {
 
     public func interruptCurrentRun() {
         keepWindowOpen()
-        switch session.state.status {
-        case .recording:
+        if audioRecorder.isRecording {
             stopRecording()
+            return
+        }
+        switch session.state.status {
         case .speaking:
             stopSpeaking()
         case .transcribing, .thinking:
+            activeQueryTask?.cancel()
             bridge.stop()
             session.resetForNewSession()
         default:
@@ -401,18 +485,12 @@ public final class AppModel: ObservableObject {
     public func handleEscapeKey() {
         keepWindowOpen()
         screenMode = .live
-        switch session.state.status {
-        case .recording, .transcribing, .thinking:
-            bridge.stop()
-            session.resetForNewSession()
-        case .speaking:
-            stopSpeaking()
-            session.resetForNewSession()
-        case .done, .error, .cancelled:
-            session.resetForNewSession()
-        case .idle:
-            break
-        }
+        stopAudioMetering()
+        audioRecorder.cancel()
+        activeQueryTask?.cancel()
+        stopSpeechPlaybackNow()
+        bridge.stop()
+        session.resetForNewSession()
     }
 
     public func prepareForTermination() {
@@ -423,8 +501,10 @@ public final class AppModel: ObservableObject {
         isShuttingDown = true
         historySearchTask?.cancel()
         postPasteExitTask?.cancel()
+        activeQueryTask?.cancel()
+        stopAudioMetering()
+        audioRecorder.cancel()
 
-        // Stop the launcher first so a run cannot start another TTS child.
         bridge.stop()
         stopSpeechPlaybackNow()
         stopServices()
@@ -445,7 +525,6 @@ public final class AppModel: ObservableObject {
             do {
                 if let client = vaClient {
                     let entries = try await client.fetchHistory()
-                    // Filter locally if query is provided since API might not support it yet
                     if !query.isEmpty {
                         historyEntries = entries.filter { $0.transcript.contains(query) || $0.reply.contains(query) }
                     } else {
@@ -474,12 +553,6 @@ public final class AppModel: ObservableObject {
         Task { @MainActor in
             do {
                 if vaClient != nil {
-                    // Note: Current API might not support delete.
-                    // If not, we just log it or show an error.
-                    // For now, let's assume it doesn't and just remove locally or show warning.
-                    // Actually, let's keep it calling local bridge if no API support.
-                    // But the user wants history from server.
-                    // I'll skip remote delete for now as I didn't see it in main.py.
                     historyEntries.removeAll { $0.id == entry.id }
                 } else {
                     let historyStore = HistoryStore.fromEnvironment(workingDirectory: workingDirectory)

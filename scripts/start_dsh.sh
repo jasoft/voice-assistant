@@ -6,6 +6,9 @@ project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 dsh_home="${DSH_HOME:-$HOME/.dsh}"
 credentials_file="$dsh_home/.credentials.yaml"
 
+# Point Node module resolution to include dsh nested modules
+export NODE_PATH="${NODE_PATH:-/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules:/usr/local/lib/node_modules}"
+
 # The same checked-in preset is used on macOS and in the Docker image. Point it
 # at this checkout's wrapper unless a deployment deliberately overrides it.
 export MEMO_API_SCRIPT="${MEMO_API_SCRIPT:-$project_root/scripts/memo_api.py}"

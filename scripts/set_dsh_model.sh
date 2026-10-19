@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-model="${1:-gpt-6-luna}"
+model="${1:-paid}"
 resolved_model="$model"
 fast_max_tokens="${DSH_FAST_MAX_TOKENS:-4096}"
 agent_preset="memo-minimal"
@@ -75,6 +75,23 @@ if [[ "$model" == "gpt-6-luna" ]] && ! grep -qE '^[[:space:]]*- id: gpt-6-luna[[
       print
       print "        - id: gpt-6-luna"
       print "          maxTokens: 4096"
+      in_provider = 0
+      next
+    }
+    { print }
+  ' "$settings" > "$tmp"
+  mv "$tmp" "$settings"
+fi
+
+if [[ "$model" == "paid" ]] && ! grep -qE '^[[:space:]]*- id: paid[[:space:]]*$' "$settings"; then
+  awk '
+    /^    cliproxyapp:/ { in_provider = 1 }
+    in_provider && /^      models:/ {
+      print
+      print "        - id: paid"
+      print "          maxTokens: 8192"
+      print "          compat:"
+      print "            supportsDeveloperRole: false"
       in_provider = 0
       next
     }

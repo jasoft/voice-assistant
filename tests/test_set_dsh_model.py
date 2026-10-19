@@ -7,7 +7,7 @@ ROOT = Path(__file__).parents[1]
 SCRIPT = ROOT / "scripts" / "set_dsh_model.sh"
 
 
-def test_default_model_registers_luna_idempotently(tmp_path: Path) -> None:
+def test_default_model_registers_paid_idempotently(tmp_path: Path) -> None:
     settings = tmp_path / "settings.yaml"
     settings.write_text("""llm-pi-ai:
   providers:
@@ -22,6 +22,27 @@ agent-default-model:
     env = {**os.environ, "DSH_SETTINGS": str(settings)}
     for _ in range(2):
         subprocess.run([str(SCRIPT)], check=True, env=env)
+    text = settings.read_text()
+    assert "model: paid\n" in text
+    assert text.count("- id: paid\n") == 1
+    assert "- id: fast\n          maxTokens: 4096" in text
+
+
+def test_explicit_luna_model_registers_idempotently(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.yaml"
+    settings.write_text("""llm-pi-ai:
+  providers:
+    cliproxyapp:
+      models:
+        - id: fast
+          maxTokens: 4096
+agent-default-model:
+  provider: cliproxyapp
+  model: fast
+""")
+    env = {**os.environ, "DSH_SETTINGS": str(settings)}
+    for _ in range(2):
+        subprocess.run([str(SCRIPT), "gpt-6-luna"], check=True, env=env)
     text = settings.read_text()
     assert "model: gpt-6-luna\n" in text
     assert text.count("- id: gpt-6-luna\n") == 1

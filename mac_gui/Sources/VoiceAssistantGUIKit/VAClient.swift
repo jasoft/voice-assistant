@@ -1,6 +1,6 @@
 import Foundation
 
-public struct VAQueryResponse: Decodable {
+public struct VAQueryResponse: Decodable, Sendable {
     public let reply: String
     public let spoken_reply: String?
     public let query: String?
@@ -28,11 +28,176 @@ public struct VAReminderItem: Decodable {
     public let schedule_description: String?
 }
 
+public enum VAStreamEvent: Sendable {
+    case delta(String)
+    case done(VAQueryResponse)
+}
+
 public final class VAClient: Sendable {
-    private let config: VAConfig
+    public let config: VAConfig
     
     public init(config: VAConfig) {
         self.config = config
+    }
+
+    /// 上传录音文件，仅转录为文本（不触发问答）。
+    public func transcribe(fileURL: URL) async throws -> String {
+        let base = config.serverURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard let endpoint = URL(string: "\(base)/v1/transcribe") else {
+            throw NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid transcribe URL"])
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+
+        let boundary = "va-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        let audioData = try Data(contentsOf: fileURL)
+        var body = Data()
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"recording.wav\"\r\n".utf8))
+        body.append(Data("Content-Type: audio/wav\r\n\r\n".utf8))
+        body.append(audioData)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        request.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+        }
+        if httpResponse.statusCode != 200 {
+            let errorMsg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
+            throw NSError(domain: "VAClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMsg])
+        }
+        struct TranscribeResult: Decodable {
+            let transcript: String
+        }
+        return try JSONDecoder().decode(TranscribeResult.self, from: data).transcript
+    }
+
+    /// 流式请求服务端 /v1/tts（24kHz/16bit/单声道 PCM），逐块产出音频字节。
+    public func streamSpeech(text: String) -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                let base = config.serverURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+                guard let endpoint = URL(string: "\(base)/v1/tts") else {
+                    continuation.finish(throwing: NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid TTS URL"]))
+                    return
+                }
+                var request = URLRequest(url: endpoint)
+                request.httpMethod = "POST"
+                request.timeoutInterval = 90
+                request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text])
+
+                do {
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                        continuation.finish(throwing: NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "TTS request failed"]))
+                        return
+                    }
+                    var buffer = Data()
+                    buffer.reserveCapacity(4800)
+                    for try await byte in bytes {
+                        buffer.append(byte)
+                        if buffer.count >= 4800 {
+                            continuation.yield(buffer)
+                            buffer = Data()
+                            buffer.reserveCapacity(4800)
+                        }
+                    }
+                    if !buffer.isEmpty {
+                        continuation.yield(buffer)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// 流式 SSE 问答：获取逐字 delta 与最终回复 / 动作。
+    public func streamChat(query: String, selectedText: String? = nil, requestID: String? = nil) -> AsyncThrowingStream<VAStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let base = config.serverURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+                    guard let endpoint = URL(string: "\(base)/v1/chat") else {
+                        throw NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid chat URL"])
+                    }
+                    var request = URLRequest(url: endpoint)
+                    request.httpMethod = "POST"
+                    request.timeoutInterval = 60
+                    request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+                    var payload: [String: Any] = ["query": query, "stream": true]
+                    if let selectedText, !selectedText.isEmpty {
+                        payload["selected_text"] = selectedText
+                    }
+                    if let requestID, !requestID.isEmpty {
+                        payload["request_id"] = requestID
+                    }
+                    request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    guard let http = response as? HTTPURLResponse else {
+                        throw NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+                    }
+                    guard (200..<300).contains(http.statusCode) else {
+                        var body = Data()
+                        for try await byte in bytes { body.append(byte); if body.count >= 4096 { break } }
+                        let errorMsg = String(data: body, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+                        throw NSError(domain: "VAClient", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMsg])
+                    }
+
+                    if http.value(forHTTPHeaderField: "Content-Type")?.contains("application/json") == true {
+                        var body = Data()
+                        for try await byte in bytes { try Task.checkCancellation(); body.append(byte) }
+                        let result = try JSONDecoder().decode(VAQueryResponse.self, from: body)
+                        continuation.yield(.delta(result.reply))
+                        continuation.yield(.done(result))
+                        continuation.finish()
+                        return
+                    }
+
+                    var event = ""
+                    for try await line in bytes.lines {
+                        try Task.checkCancellation()
+                        if line.hasPrefix("event:") {
+                            event = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                        }
+                        guard line.hasPrefix("data:"),
+                              let data = String(line.dropFirst(5)).data(using: .utf8),
+                              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                            continue
+                        }
+                        switch event {
+                        case "delta":
+                            continuation.yield(.delta(payload["text"] as? String ?? ""))
+                        case "done":
+                            continuation.yield(.done(try JSONDecoder().decode(VAQueryResponse.self, from: data)))
+                            continuation.finish()
+                            return
+                        case "error":
+                            throw NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: payload["message"] as? String ?? "回答中断"])
+                        default:
+                            break
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
     
     /// Send a stateless one-shot request through the dedicated fast chat Agent.

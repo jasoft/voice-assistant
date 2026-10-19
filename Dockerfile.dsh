@@ -8,7 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @deepseek-ai/dsh@0.1.2-rc.1
+RUN npm install -g @deepseek-ai/dsh@0.1.2-rc.1 \
+    && ln -sf /usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/* /usr/local/lib/node_modules/@deepseek-ai/ 2>/dev/null || true
+
+ENV NODE_PATH="/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules:/usr/local/lib/node_modules"
 
 COPY scripts/patch_dsh_runtime.js /app/scripts/patch_dsh_runtime.js
 RUN node /app/scripts/patch_dsh_runtime.js && rm -f /app/scripts/patch_dsh_runtime.js
