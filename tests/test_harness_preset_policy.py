@@ -128,22 +128,17 @@ def test_fast_chat_preset_routes_memory_and_brave_without_skills() -> None:
     assert [entry["id"] for entry in entries] == [
         "persona",
         "memory-shell",
-        "search-web",
-        "search-weather",
         "skill-filesystem",
     ]
     persona = entries[0]["config"].get("prefix") or entries[0]["config"].get("text", "")
-    mcp = entries[2]
-    assert "mcp__search__search" in persona
+    assert "search_api.py" in persona
+    assert "weather_api.py" in persona
     assert "禁止反复搜索" in persona
     assert "bash" in persona
     assert "不追问" in persona
     assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
-    assert mcp["name"] == "@deepseek-ai/dsh-mcp-client"
-    assert mcp["config"]["transport"] == "streamable-http"
-    assert mcp["config"]["url"] == "http://search-mcp:3082/mcp"
-    assert entries[4]["name"] == "@deepseek-ai/dsh-skill-filesystem"
-    assert entries[4]["config"]["includeDefaultRoots"] is False
+    assert entries[2]["name"] == "@deepseek-ai/dsh-skill-filesystem"
+    assert entries[2]["config"]["includeDefaultRoots"] is False
     # chat-fast 刻意不加载 web 工具，避免模型陷入反复搜索/抓取的循环
     assert "tool-web" not in [entry["id"] for entry in entries]
     assert not (chat_dir / "skills").exists()

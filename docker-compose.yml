@@ -26,44 +26,9 @@ services:
       - ./data:/app/data
     restart: unless-stopped
 
-  weather-mcp:
-    image: voice-assistant:local
-    build: .
-    entrypoint: ["uv"]
-    command: ["run", "--no-sync", "python", "scripts/weather_mcp.py"]
-    environment:
-      TZ: Asia/Shanghai
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3081/health', timeout=2)"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-    restart: unless-stopped
-
-  search-mcp:
-    image: voice-assistant:local
-    build: .
-    entrypoint: ["uv"]
-    command: ["run", "--no-sync", "python", "scripts/search_mcp.py"]
-    env_file: .env
-    environment:
-      TZ: Asia/Shanghai
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3082/health', timeout=2)"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-    restart: unless-stopped
-
   deepseek-harness:
     container_name: deepseek-harness
     image: deepseek-harness:0.1.2-rc.1
-    depends_on:
-      weather-mcp:
-        condition: service_healthy
-      search-mcp:
-        condition: service_healthy
     build:
       context: .
       dockerfile: Dockerfile.dsh
@@ -84,6 +49,7 @@ services:
       MEMOS_TOKEN: memos_pat_voice_assistant_lan_2026
       REMINDER_API_URL: http://voice-assistant:10031
       PTT_API_KEY: ${PTT_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
     command:
       - --host
       - 0.0.0.0
@@ -100,6 +66,7 @@ services:
       - ./config/deepseek-harness/agent-presets/memo-minimal:/root/.dsh/.agent-presets/memo-minimal
       - ./config/deepseek-harness/agent-presets/memo-mem0:/root/.dsh/.agent-presets/memo-mem0
       - ./config/deepseek-harness/agent-presets/chat-fast:/root/.dsh/.agent-presets/chat-fast
+      - ./scripts:/app/scripts
     ports:
       - "3080:3080"
     restart: unless-stopped
