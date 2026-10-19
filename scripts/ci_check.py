@@ -119,7 +119,7 @@ def main():
     # - Fast-path、Harness 与 Memos (test_fast_chat_harness.py, test_typesafe_client.py, test_memos_*.py)
     # - 存储层逻辑 (test_storage_cli.py, test_storage_diagnose.py 等)
     if not run_command(
-        "uv run pytest -m 'not e2e' --durations=5",
+        "uv run --no-sync pytest -m 'not e2e' --durations=5",
         env=ci_env,
         stream=True,
     ):

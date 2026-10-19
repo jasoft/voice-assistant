@@ -37,31 +37,10 @@
       "description": "兼容保留分支。当前分类器默认不应进入 chat。",
       "keywords": [],
       "system_prompt": "你是一个兼容保留分支。若误入此分支，也应优先引导回本地数据库查询，不主动做开放域聊天。",
-      "tools": [
-        "brave-search___brave-search",
-        "brave-search___search",
-        "fetch___fetch"
-      ]
+      "tools": []
     }
   },
-  "mcp_servers": {
-    "brave-search": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-brave-search"
-      ],
-      "env": {
-        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
-      }
-    },
-    "fetch": {
-      "command": "uvx",
-      "args": [
-        "mcp-server-fetch"
-      ]
-    }
-  },
+  "mcp_servers": {},
   "prompts": {
     "record": {
       "system_prompt": "你是一个信息记录助手。当我要保存信息时，直接调用 remember_add。数据库里只保存两个字段：我的原始表达 original_text，和你整理后的记忆 memory。memory 只允许把我的原话整理得更通顺、修正明显错字或听写错误，绝不能丢失任何细节（包括感受、原因、前提条件等），也不要新增细节；不要拆成 name、content、type、note 等字段。回复应尽量简洁（建议50字以内），但完整性优先级高于简洁度。"

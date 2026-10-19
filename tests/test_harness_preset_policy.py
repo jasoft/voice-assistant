@@ -97,7 +97,7 @@ def test_compose_uses_minimal_preset_and_mounts_presets() -> None:
     # 主链路 10s；memo-web 回退链路 20s
     assert compose.count('PTT_HARNESS_TIMEOUT_SECONDS: "10"') == 1
     assert compose.count('PTT_HARNESS_TIMEOUT_SECONDS: "20"') == 1
-    # 主链路与 memo-web 回退链路的 fast-path（chat-fast）放宽到 45s（freeserp 搜索耗时更长）
+    # 主链路与 memo-web 回退链路的 fast-path（chat-fast）放宽到 45s（网络搜索耗时更长）
     assert compose.count('PTT_CHAT_TIMEOUT_SECONDS: "45"') == 2
     assert 'PTT_HARNESS_ASYNC_TIMEOUT_SECONDS: "60"' in compose
     assert "./config/deepseek-harness/agent-presets/memo-minimal:/root/.dsh/.agent-presets/memo-minimal" in compose
@@ -128,20 +128,20 @@ def test_fast_chat_preset_routes_memory_and_brave_without_skills() -> None:
     assert [entry["id"] for entry in entries] == [
         "persona",
         "memory-shell",
-        "search-freeserp",
+        "search-web",
         "search-weather",
         "skill-filesystem",
     ]
     persona = entries[0]["config"].get("prefix") or entries[0]["config"].get("text", "")
     mcp = entries[2]
-    assert "mcp__freeserp__freeserp_search" in persona
+    assert "mcp__search__search" in persona
     assert "禁止反复搜索" in persona
     assert "bash" in persona
     assert "不追问" in persona
     assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
     assert mcp["name"] == "@deepseek-ai/dsh-mcp-client"
     assert mcp["config"]["transport"] == "streamable-http"
-    assert mcp["config"]["url"] == "https://freeserp.ai/mcp"
+    assert mcp["config"]["url"] == "http://search-mcp:3082/mcp"
     assert entries[4]["name"] == "@deepseek-ai/dsh-skill-filesystem"
     assert entries[4]["config"]["includeDefaultRoots"] is False
     # chat-fast 刻意不加载 web 工具，避免模型陷入反复搜索/抓取的循环

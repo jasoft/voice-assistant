@@ -136,7 +136,7 @@ async def _execute_chat_pipeline(query_text: str) -> dict[str, Any]:
     except Exception as exc:
         log(f"Memo Web fast-path 异常，回退 chat-fast Agent: {exc}", level="warn")
 
-    # 2. 回退到 chat-fast Harness Agent（具备联网搜索 FreeSerp 与记忆综合能力）
+    # 2. 回退到 chat-fast Harness Agent（具备联网搜索 DeepSeek 与记忆综合能力）
     chat_preset = os.environ.get("PTT_CHAT_HARNESS_AGENT_PRESET", "chat-fast")
     timeout = float(os.environ.get("PTT_CHAT_TIMEOUT_SECONDS", "30.0"))
     existing_client = getattr(app.state, "harness_client", None)

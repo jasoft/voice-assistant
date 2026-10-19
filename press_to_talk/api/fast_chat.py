@@ -699,7 +699,7 @@ async def try_fast_memory_chat(
     log(f"fast-chat: typesafe intent={intent} delivery={delivery} in {elapsed_ts:.2f}s", level="info")
 
     rule_override = None
-    # 显式网络搜索与时效性查询嗅探：明确要求联网搜索时，转交具备 FreeSerp 搜索工具的 Agent
+    # 显式网络搜索与时效性查询嗅探：明确要求联网搜索时，转交具备 DeepSeek 搜索工具的 Agent
     search_keywords = ("查网络", "查一下网络", "搜索网络", "搜一下网络", "上网查", "联网搜索", "百度一下", "谷歌一下", "全网搜索", "查下网络", "搜索一下")
     has_memo_kw = any(k in query for k in ("备忘", "memo", "记忆"))
     if not has_memo_kw and any(kw in query for kw in search_keywords):

@@ -40,11 +40,29 @@ services:
       retries: 3
     restart: unless-stopped
 
+  search-mcp:
+    image: voice-assistant:local
+    build: .
+    entrypoint: ["uv"]
+    command: ["run", "--no-sync", "python", "scripts/search_mcp.py"]
+    env_file: .env
+    environment:
+      TZ: Asia/Shanghai
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3082/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
   deepseek-harness:
     container_name: deepseek-harness
     image: deepseek-harness:0.1.2-rc.1
     depends_on:
       weather-mcp:
+        condition: service_healthy
+      search-mcp:
         condition: service_healthy
     build:
       context: .
@@ -97,7 +115,7 @@ services:
       PTT_HARNESS_API_URL: http://deepseek-harness:3080
       PTT_HARNESS_AGENT_PRESET: memo-minimal
       PTT_HARNESS_TIMEOUT_SECONDS: "20"
-      # fast-path 拆词/回答走 chat-fast（可能触发 freeserp 网络搜索，耗时更长）
+      # fast-path 拆词/回答走 chat-fast（可能触发 DeepSeek 全网搜索，耗时更长）
       PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast
       PTT_CHAT_TIMEOUT_SECONDS: "45"
       PTT_HARNESS_MODEL: fast
