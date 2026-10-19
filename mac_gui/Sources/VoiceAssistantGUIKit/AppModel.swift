@@ -180,7 +180,12 @@ public final class AppModel: ObservableObject {
                 performRemoteStreamQuery(text: trimmed)
             } catch {
                 guard !isShuttingDown, !Task.isCancelled else { return }
-                applySessionEvent(["type": "error", "message": "语音识别失败：\(error.localizedDescription)"])
+                let desc = error.localizedDescription
+                if desc.contains("未能识别") || desc.contains("未识别") || desc.contains("422") {
+                    applySessionEvent(["type": "status", "phase": "no_speech"])
+                } else {
+                    applySessionEvent(["type": "error", "message": "语音识别失败：\(desc)"])
+                }
             }
         }
     }

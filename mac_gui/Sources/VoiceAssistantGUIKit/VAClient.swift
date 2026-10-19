@@ -40,12 +40,38 @@ public final class VAClient: Sendable {
         self.config = config
     }
 
+    /// 构建标准化端点 URL，安全处理 base 是否携带 /v1 或其他子路径
+    public static func makeEndpointURL(base: URL, endpoint: String) -> URL {
+        var url = base
+        if url.pathComponents.last == "query" {
+            url.deleteLastPathComponent()
+        }
+        let cleanEndpoint = endpoint.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        if url.pathComponents.last == cleanEndpoint {
+            return url
+        }
+        if url.pathComponents.last != "v1" && !url.path.hasSuffix("/v1") {
+            url.appendPathComponent("v1")
+        }
+        url.appendPathComponent(cleanEndpoint)
+        return url
+    }
+
+    public static func serverMessage(from data: Data, statusCode: Int) -> String {
+        struct Payload: Decodable { let detail: String? }
+        if let payload = try? JSONDecoder().decode(Payload.self, from: data),
+           let detail = payload.detail, !detail.isEmpty {
+            return detail
+        }
+        if let str = String(data: data, encoding: .utf8), !str.isEmpty {
+            return str
+        }
+        return "HTTP \(statusCode)"
+    }
+
     /// 上传录音文件，仅转录为文本（不触发问答）。
     public func transcribe(fileURL: URL) async throws -> String {
-        let base = config.serverURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-        guard let endpoint = URL(string: "\(base)/v1/transcribe") else {
-            throw NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid transcribe URL"])
-        }
+        let endpoint = Self.makeEndpointURL(base: config.serverURL, endpoint: "transcribe")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 60
@@ -68,7 +94,7 @@ public final class VAClient: Sendable {
             throw NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
         }
         if httpResponse.statusCode != 200 {
-            let errorMsg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
+            let errorMsg = Self.serverMessage(from: data, statusCode: httpResponse.statusCode)
             throw NSError(domain: "VAClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMsg])
         }
         struct TranscribeResult: Decodable {
@@ -81,11 +107,7 @@ public final class VAClient: Sendable {
     public func streamSpeech(text: String) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
-                let base = config.serverURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-                guard let endpoint = URL(string: "\(base)/v1/tts") else {
-                    continuation.finish(throwing: NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid TTS URL"]))
-                    return
-                }
+                let endpoint = Self.makeEndpointURL(base: config.serverURL, endpoint: "tts")
                 var request = URLRequest(url: endpoint)
                 request.httpMethod = "POST"
                 request.timeoutInterval = 90
@@ -126,10 +148,7 @@ public final class VAClient: Sendable {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let base = config.serverURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-                    guard let endpoint = URL(string: "\(base)/v1/chat") else {
-                        throw NSError(domain: "VAClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid chat URL"])
-                    }
+                    let endpoint = Self.makeEndpointURL(base: config.serverURL, endpoint: "chat")
                     var request = URLRequest(url: endpoint)
                     request.httpMethod = "POST"
                     request.timeoutInterval = 60
@@ -267,17 +286,8 @@ public final class VAClient: Sendable {
         return try JSONDecoder().decode(VAQueryResponse.self, from: data)
     }
     
-    static func makeChatURL(base: URL) -> URL {
-        var url = base
-
-        // Older configurations may still point at the original query route.
-        if url.pathComponents.last == "query" {
-            url.deleteLastPathComponent()
-        }
-        if url.pathComponents.last != "chat" {
-            url.appendPathComponent("chat")
-        }
-        return url
+    public static func makeChatURL(base: URL) -> URL {
+        makeEndpointURL(base: base, endpoint: "chat")
     }
 
     public func fetchHistory() async throws -> [HistoryEntry] {

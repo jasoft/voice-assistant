@@ -37,14 +37,22 @@ enum APIError: LocalizedError {
 }
 
 final class APIClient {
+    public static func makeEndpointURL(serverBase: String, endpointPath: String) -> URL? {
+        var base = serverBase.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        if base.hasSuffix("/v1") {
+            base = String(base.dropLast(3)).trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        }
+        let cleanPath = endpointPath.hasPrefix("/") ? endpointPath : "/\(endpointPath)"
+        return URL(string: "\(base)\(cleanPath)")
+    }
+
     /// Actual SSE deltas. An EOF without done is an interrupted reply, never success.
     /// `requestID`：本次口述的稳定请求身份，重试同一口述必须复用（服务端项目任务幂等）。
     func streamChat(query: String, serverBase: String, apiKey: String, requestID: String?) -> AsyncThrowingStream<ChatStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let base = serverBase.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-                    guard let url = URL(string: "\(base)/v1/chat") else { throw APIError.invalidURL }
+                    guard let url = Self.makeEndpointURL(serverBase: serverBase, endpointPath: "/v1/chat") else { throw APIError.invalidURL }
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.timeoutInterval = 60
@@ -111,8 +119,7 @@ final class APIClient {
 
     /// 用识别文本走 /v1/chat 问答，返回回复。
     func chat(query: String, serverBase: String, apiKey: String, requestID: String? = nil) async throws -> String {
-        let base = serverBase.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-        guard let endpoint = URL(string: "\(base)/v1/chat") else {
+        guard let endpoint = Self.makeEndpointURL(serverBase: serverBase, endpointPath: "/v1/chat") else {
             throw APIError.invalidURL
         }
         var request = URLRequest(url: endpoint)
@@ -145,8 +152,7 @@ final class APIClient {
     func streamSpeech(text: String, serverBase: String, apiKey: String) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
-                let base = serverBase.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-                guard let endpoint = URL(string: "\(base)/v1/tts") else {
+                guard let endpoint = Self.makeEndpointURL(serverBase: serverBase, endpointPath: "/v1/tts") else {
                     continuation.finish(throwing: APIError.invalidURL)
                     return
                 }
@@ -201,8 +207,7 @@ final class APIClient {
         serverBase: String,
         apiKey: String
     ) async throws -> Data {
-        let base = serverBase.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-        guard let endpoint = URL(string: "\(base)\(endpointPath)") else {
+        guard let endpoint = Self.makeEndpointURL(serverBase: serverBase, endpointPath: endpointPath) else {
             throw APIError.invalidURL
         }
         var request = URLRequest(url: endpoint)
@@ -239,10 +244,19 @@ final class APIClient {
     }
 
     private static func serverMessage(from data: Data) -> String {
-        struct Payload: Decodable { let detail: String }
-        if let payload = try? JSONDecoder().decode(Payload.self, from: data),
-           !payload.detail.isEmpty {
-            return payload.detail
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let detail = obj["detail"] as? String, !detail.isEmpty {
+                return detail
+            }
+            if let detailArr = obj["detail"] as? [[String: Any]] {
+                let msgs = detailArr.compactMap { $0["msg"] as? String }
+                if !msgs.isEmpty {
+                    return msgs.joined(separator: "; ")
+                }
+            }
+            if let msg = obj["message"] as? String, !msg.isEmpty {
+                return msg
+            }
         }
         return ""
     }

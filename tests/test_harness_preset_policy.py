@@ -97,8 +97,8 @@ def test_compose_uses_minimal_preset_and_mounts_presets() -> None:
     # 主链路 10s；memo-web 回退链路 20s
     assert compose.count('PTT_HARNESS_TIMEOUT_SECONDS: "10"') == 1
     assert compose.count('PTT_HARNESS_TIMEOUT_SECONDS: "20"') == 1
-    # memo-web 的 fast-path（chat-fast）单独放宽到 45s（freeserp 搜索耗时更长）
-    assert compose.count('PTT_CHAT_TIMEOUT_SECONDS: "45"') == 1
+    # 主链路与 memo-web 回退链路的 fast-path（chat-fast）放宽到 45s（freeserp 搜索耗时更长）
+    assert compose.count('PTT_CHAT_TIMEOUT_SECONDS: "45"') == 2
     assert 'PTT_HARNESS_ASYNC_TIMEOUT_SECONDS: "60"' in compose
     assert "./config/deepseek-harness/agent-presets/memo-minimal:/root/.dsh/.agent-presets/memo-minimal" in compose
     assert "./config/deepseek-harness/agent-presets/memo-mem0:/root/.dsh/.agent-presets/memo-mem0" in compose
@@ -155,7 +155,7 @@ def test_compose_and_api_wire_the_fast_chat_endpoint() -> None:
 
     assert "./config/deepseek-harness/agent-presets/chat-fast:/root/.dsh/.agent-presets/chat-fast" in compose
     assert 'PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast' in compose
-    assert 'PTT_CHAT_TIMEOUT_SECONDS: "30"' in compose
+    assert 'PTT_CHAT_TIMEOUT_SECONDS: "45"' in compose
     assert 'MEM0_REQUEST_TIMEOUT_SECONDS: "3"' in compose
     assert '@app.post(\n    "/v1/chat"' in api
     assert '@app.post(\n    "/chat"' in api

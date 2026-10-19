@@ -397,7 +397,7 @@ def test_chat_is_one_shot_with_dedicated_fast_agent(path: str, monkeypatch) -> N
     call_args, call_kwargs = fake_client.query.await_args
     assert "今天怎么样" in call_args[0]
     assert "当前北京时间" in call_args[0]
-    assert call_kwargs == {"photo": None, "timeout_seconds": 30.0}
+    assert call_kwargs == {"photo": None, "timeout_seconds": 45.0}
     fake_client.close.assert_awaited_once()
     assert len(persisted) == 1
     assert persisted[0].mode == "chat"

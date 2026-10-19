@@ -17,7 +17,7 @@ services:
       MEM0_BASE_URL: http://mem0-api.docker.home
       MEM0_API_KEY: ${MEM0_API_KEY:-mem0-admin-sk-lan-secure-2026}
       PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast
-      PTT_CHAT_TIMEOUT_SECONDS: "30"
+      PTT_CHAT_TIMEOUT_SECONDS: "45"
       PTT_REMINDER_STORE_PATH: /app/data/reminders.json
     ports:
       - "10031:10031"

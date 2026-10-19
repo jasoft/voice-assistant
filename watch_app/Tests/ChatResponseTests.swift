@@ -16,6 +16,17 @@ struct ChatResponseTests {
             let legacy = try decoder.decode(ChatResponse.self, from: data)
             assert(legacy.speechText == "兼容旧服务")
         }
+
+        // Test makeEndpointURL
+        let url1 = APIClient.makeEndpointURL(serverBase: "https://va.soj.myds.me:1443", endpointPath: "/v1/chat")
+        assert(url1?.absoluteString == "https://va.soj.myds.me:1443/v1/chat")
+
+        let url2 = APIClient.makeEndpointURL(serverBase: "http://docker.home:10031/v1", endpointPath: "/v1/chat")
+        assert(url2?.absoluteString == "http://docker.home:10031/v1/chat")
+
+        let url3 = APIClient.makeEndpointURL(serverBase: "http://docker.home:10031/v1/", endpointPath: "/v1/transcribe")
+        assert(url3?.absoluteString == "http://docker.home:10031/v1/transcribe")
+
         print("ChatResponse: spoken preference and legacy fallback passed")
     }
 }

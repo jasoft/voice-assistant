@@ -93,10 +93,72 @@ struct VAClientRoutingTests {
         ("http://127.0.0.1:10031/v1", "http://127.0.0.1:10031/v1/chat"),
         ("http://127.0.0.1:10031/v1/query", "http://127.0.0.1:10031/v1/chat"),
         ("http://127.0.0.1:10031/chat", "http://127.0.0.1:10031/chat"),
+        ("http://docker.home:10031", "http://docker.home:10031/v1/chat"),
     ])
     func chatClientUsesOneShotChatEndpoint(base: String, expected: String) {
         let url = VAClient.makeChatURL(base: URL(string: base)!)
 
         #expect(url.absoluteString == expected)
+    }
+
+    @Test(arguments: [
+        ("http://docker.home:10031/v1", "http://docker.home:10031/v1/transcribe"),
+        ("http://docker.home:10031", "http://docker.home:10031/v1/transcribe"),
+        ("http://docker.home:10031/v1/query", "http://docker.home:10031/v1/transcribe"),
+    ])
+    func transcribeEndpointNeverDuplicatesV1(base: String, expected: String) {
+        let url = VAClient.makeEndpointURL(base: URL(string: base)!, endpoint: "transcribe")
+
+        #expect(url.absoluteString == expected)
+    }
+
+    @Test(arguments: [
+        ("http://docker.home:10031/v1", "http://docker.home:10031/v1/tts"),
+        ("http://docker.home:10031", "http://docker.home:10031/v1/tts"),
+    ])
+    func ttsEndpointNeverDuplicatesV1(base: String, expected: String) {
+        let url = VAClient.makeEndpointURL(base: URL(string: base)!, endpoint: "tts")
+
+        #expect(url.absoluteString == expected)
+    }
+
+    @Test
+    func liveServerIntegration() async throws {
+        guard let url = URL(string: "http://docker.home:10031/v1") else { return }
+        var pingReq = URLRequest(url: URL(string: "http://docker.home:10031/v1/query")!)
+        pingReq.timeoutInterval = 2
+        guard (try? await URLSession.shared.data(for: pingReq)) != nil else {
+            return
+        }
+        let config = VAConfig(
+            serverURL: url,
+            apiKey: "soj-default-token",
+            pbURL: URL(string: "http://127.0.0.1:18090")!,
+            queryBackend: "deepseek-harness"
+        )
+        let client = VAClient(config: config)
+
+        let testWav = URL(fileURLWithPath: "/tmp/test_speech.wav")
+        if FileManager.default.fileExists(atPath: testWav.path) {
+            let transcript = try await client.transcribe(fileURL: testWav)
+            #expect(!transcript.isEmpty)
+        }
+
+        var fullReply = ""
+        for try await event in client.streamChat(query: "你好") {
+            switch event {
+            case .delta(let text):
+                fullReply += text
+            case .done(let resp):
+                #expect(!resp.reply.isEmpty)
+            }
+        }
+        #expect(!fullReply.isEmpty)
+
+        var pcmBytes = 0
+        for try await chunk in client.streamSpeech(text: "测试语音") {
+            pcmBytes += chunk.count
+        }
+        #expect(pcmBytes > 0)
     }
 }

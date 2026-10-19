@@ -61,7 +61,7 @@ def _log_transcription_event(event: str, details: dict[str, Any], *, level: str 
 # Global base config to be loaded once at startup
 base_config: Optional[Config] = None
 _harness_clients: dict[str, DeepSeekHarnessClient] = {}
-_chat_timeout_default = 30.0
+_chat_timeout_default = 45.0
 
 
 def _chat_timeout_seconds() -> float:
