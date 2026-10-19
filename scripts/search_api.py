@@ -21,9 +21,22 @@ def _get_api_key() -> str:
     if key:
         return key
 
+    try:
+        with open("/proc/1/environ", "rb") as f:
+            for item in f.read().split(b"\0"):
+                k, sep, v = item.partition(b"=")
+                if k == b"DEEPSEEK_API_KEY" and v:
+                    val = v.decode("utf-8", errors="ignore").strip().strip("'\"")
+                    if val:
+                        return val
+    except Exception:
+        pass
+
     candidate_files = [
         Path(os.environ.get("DSH_HOME") or (Path.home() / ".dsh")) / ".env",
+        Path("/root/.dsh/.env"),
         Path(__file__).resolve().parents[1] / ".env",
+        Path("/app/.env"),
     ]
     for env_file in candidate_files:
         if not env_file.is_file():
