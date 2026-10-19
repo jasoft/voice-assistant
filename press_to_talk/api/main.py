@@ -272,6 +272,10 @@ class LoggingMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            while scope.get("path", "").startswith("/v1/v1/"):
+                scope["path"] = scope["path"][3:]
+
         if scope["type"] != "http" or not scope["path"].startswith("/v1"):
             await self.app(scope, receive, send)
             return

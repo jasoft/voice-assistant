@@ -97,16 +97,22 @@ def main():
     # ─────────────────────────────────────────────
     # Step 2: 依赖检查
     # ─────────────────────────────────────────────
-    log("Step 2: 检查基础依赖 (uv)...")
+    log("Step 2: 检查基础依赖 (uv, swift, swiftc)...")
     if not run_command("uv --version", stream=False):
         print("uv not found. Please install uv.")
         sys.exit(1)
 
+    has_swift = shutil.which("swift") is not None
+    has_swiftc = shutil.which("swiftc") is not None
+    if not (has_swift and has_swiftc):
+        warn("未检测到 swift / swiftc 工具链，将跳过 Mac 与 Watch 客户端本地编译与测试！")
+
     # ─────────────────────────────────────────────
-    # Step 3: 核心单元与功能测试 (非 e2e)
+    # Step 3: 后端核心单元与双端协议契约测试 (非 e2e)
     # ─────────────────────────────────────────────
-    log("Step 3: 运行全量单元与集成测试 (pytest -m 'not e2e')...")
+    log("Step 3: 运行全量单元与双端契约测试 (pytest -m 'not e2e')...")
     # 一次性运行全部单元测试套件，耗时 ~15s，无缝覆盖：
+    # - 双端全链路协议契约测试 (test_clients_contract.py: /v1/v1/归一化、transcribe、TTS PCM、SSE流式、paste改写)
     # - API 端点与请求健壮性 (test_api_*.py)
     # - 行为树核心逻辑 (test_bt_base.py, test_bt_nodes.py)
     # - 配置校验与错误处理 (test_config_validation.py, test_error_handling.py)
@@ -117,13 +123,76 @@ def main():
         env=ci_env,
         stream=True,
     ):
-        failed_checks.append("单元测试套件 (pytest -m 'not e2e')")
+        failed_checks.append("后端单元与契约测试套件 (pytest -m 'not e2e')")
 
     # ─────────────────────────────────────────────
-    # Step 4: (可选) Docker 构建与端点测试
+    # Step 4: Mac GUI 客户端测试套件
+    # ─────────────────────────────────────────────
+    if has_swift:
+        log("Step 4: 运行 Mac GUI 客户端测试 (swift test in mac_gui)...")
+        if not run_command("swift test --package-path mac_gui", stream=True):
+            failed_checks.append("Mac GUI 客户端测试 (swift test)")
+        else:
+            log("Mac GUI 客户端测试全部通过！")
+
+        # ─────────────────────────────────────────────
+        # Step 5: Mac GUI Release 构建校验
+        # ─────────────────────────────────────────────
+        log("Step 5: 验证 Mac GUI Release 编译构建 (swift build -c release)...")
+        if not run_command("swift build -c release --package-path mac_gui", stream=True):
+            failed_checks.append("Mac GUI Release 编译构建 (swift build -c release)")
+        else:
+            log("Mac GUI Release 构建验证通过！")
+
+    # ─────────────────────────────────────────────
+    # Step 6: Apple Watch 客户端单元与回归测试
+    # ─────────────────────────────────────────────
+    if has_swiftc:
+        log("Step 6: 运行 Apple Watch 客户端单元与回归测试 (watch_app/Tests)...")
+        watch_tests = [
+            (
+                "watch-launch-policy",
+                "watch_app/WatchApp/Sources/RecordingLaunchPolicy.swift watch_app/Tests/RecordingLaunchPolicyTests.swift",
+            ),
+            (
+                "watch-speech-buffer",
+                "watch_app/WatchApp/Sources/SpeechTextBuffer.swift watch_app/Tests/SpeechTextBufferTests.swift",
+            ),
+            (
+                "watch-chat-response",
+                "watch_app/WatchApp/Sources/APIClient.swift watch_app/Tests/ChatResponseTests.swift",
+            ),
+            (
+                "watch-speech-playback",
+                "watch_app/WatchApp/Sources/SpeechPlayback.swift watch_app/WatchApp/Sources/SpeechTextBuffer.swift watch_app/Tests/SpeechPlaybackTests.swift",
+            ),
+        ]
+
+        watch_passed = True
+        bin_dir = test_data_dir / "watch_test_bins"
+        bin_dir.mkdir(exist_ok=True)
+
+        for name, sources in watch_tests:
+            out_bin = bin_dir / name
+            compile_cmd = f"swiftc -parse-as-library {sources} -o {out_bin}"
+            if not run_command(compile_cmd, stream=False):
+                failed_checks.append(f"Apple Watch 测试编译失败: {name}")
+                watch_passed = False
+                break
+
+            if not run_command(str(out_bin), stream=True):
+                failed_checks.append(f"Apple Watch 测试用例断言失败: {name}")
+                watch_passed = False
+                break
+
+        if watch_passed:
+            log("Apple Watch 客户端核心测试全部通过！")
+
+    # ─────────────────────────────────────────────
+    # Step 7: (可选) Docker 构建与端点测试
     # ─────────────────────────────────────────────
     if args.with_docker:
-        log("Step 4: Docker 构建与运行验证 (已显式启用 --with-docker)...")
+        log("Step 7: Docker 构建与运行验证 (已显式启用 --with-docker)...")
         docker_env = ci_env.copy()
         if run_command("docker ps > /dev/null 2>&1", stream=False):
             pass
