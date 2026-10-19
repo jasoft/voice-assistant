@@ -168,9 +168,6 @@ class TestStorageConfig:
 
     def test_storage_backend_valid(self):
         """测试存储后端有效"""
-        try:
-            from press_to_talk.storage import load_storage_config
-            config = load_storage_config()
-            assert config.backend in ["sqlite_fts5", "mem0", "memory"]
-        except Exception as e:
-            pytest.skip(f"无法验证存储后端: {e}")
+        from press_to_talk.storage import load_storage_config
+        config = load_storage_config()
+        assert config.backend in ["memos", "pocketbase", "sqlite_fts5", "mem0", "memory"]

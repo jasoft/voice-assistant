@@ -5,7 +5,7 @@ import signal
 import pytest
 import requests
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def pocketbase_server():
     """
     启动 PocketBase 并在测试结束后关闭。

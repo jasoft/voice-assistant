@@ -1,8 +1,6 @@
 import http.server
 import json
-import os
 import socketserver
-import subprocess
 import threading
 import pytest
 
@@ -35,39 +33,31 @@ class MockPBHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def test_storage_cli_json_validity():
-    # 模拟运行 ptt-storage memory list 并通过管道传给 jq
+def test_storage_cli_json_validity(monkeypatch, capsys):
+    # 模拟运行 ptt-storage memory list 并验证 JSON 输出
     # 启动轻量 local mock server，确保单元测试脱机且稳定
     with socketserver.TCPServer(("127.0.0.1", 0), MockPBHandler) as httpd:
         port = httpd.server_address[1]
         server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         server_thread.start()
 
-        env = os.environ.copy()
-        env["PTT_REMEMBER_BACKEND"] = "pocketbase"
-        env["PTT_PB_URL"] = f"http://127.0.0.1:{port}"
-        cmd = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "press_to_talk.storage.cli_app",
-            "--user-id",
-            "test-user",
-            "memory",
-            "list",
-            "--limit",
-            "1",
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        monkeypatch.setenv("PTT_REMEMBER_BACKEND", "pocketbase")
+        monkeypatch.setenv("PTT_PB_URL", f"http://127.0.0.1:{port}")
+
+        from press_to_talk.storage import cli_app
+
+        exit_code = cli_app.main(
+            ["--user-id", "test-user", "memory", "list", "--limit", "1"]
+        )
         httpd.shutdown()
 
-    assert result.returncode == 0, f"CLI command failed with stderr: {result.stderr}"
+    assert exit_code == 0
 
+    captured = capsys.readouterr()
     try:
-        data = json.loads(result.stdout)
+        data = json.loads(captured.out)
         assert isinstance(data, list), "CLI output should be a JSON list"
         if len(data) > 0:
             assert "photo_path" in data[0], "Each record should contain photo_path"
     except json.JSONDecodeError as e:
-        pytest.fail(f"CLI output is not valid JSON: {result.stdout}\nError: {e}")
+        pytest.fail(f"CLI output is not valid JSON: {captured.out}\nError: {e}")
