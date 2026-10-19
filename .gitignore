@@ -34,7 +34,7 @@ deepseek-harness/.cron_update_hermes.sh
 
 # Local editor/system artifacts and generated environments.
 .DS_Store
-.venv*/
+.venv*
 .pytest_cache/
 .ruff_cache/
 *.log

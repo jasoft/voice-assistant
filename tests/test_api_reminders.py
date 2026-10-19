@@ -1,13 +1,20 @@
+from contextlib import contextmanager
+
 from fastapi.testclient import TestClient
 
 from press_to_talk.api import main as api_main
 from press_to_talk.api.auth import get_user_id
 
 
+@contextmanager
 def _client(monkeypatch):
     monkeypatch.setattr(api_main, "base_config", object(), raising=False)
     api_main.app.dependency_overrides[get_user_id] = lambda: "test-user"
-    return TestClient(api_main.app)
+    try:
+        with TestClient(api_main.app) as client:
+            yield client
+    finally:
+        api_main.app.dependency_overrides.clear()
 
 
 def test_create_list_and_cancel_remote_reminders(tmp_path, monkeypatch):

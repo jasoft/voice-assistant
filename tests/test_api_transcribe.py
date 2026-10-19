@@ -13,6 +13,7 @@ from press_to_talk.api import main as api_main
 
 @pytest.fixture
 def client(monkeypatch):
+    api_main.app.dependency_overrides.clear()
     monkeypatch.setenv("PTT_QUERY_BACKEND", "harness")
     monkeypatch.setenv("PTT_API_KEY", "test-token")
     monkeypatch.setenv("PTT_STT_URL", "http://fake-stt.local/v1")
@@ -20,7 +21,10 @@ def client(monkeypatch):
     monkeypatch.setattr(api_main, "base_config", SimpleNamespace(), raising=False)
     test_client = TestClient(api_main.app)
     test_client.headers.update({"Authorization": "Bearer test-token"})
-    return test_client
+    try:
+        yield test_client
+    finally:
+        api_main.app.dependency_overrides.clear()
 
 
 def _wav_bytes(seconds: float = 1.0, rate: int = 16000) -> bytes:

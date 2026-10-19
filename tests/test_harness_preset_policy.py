@@ -113,7 +113,7 @@ def test_compose_allows_wrapper_execution_inside_disposable_harness_container() 
 def test_deploy_defaults_to_fast_model() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
 
-    assert "./scripts/set_dsh_model.sh fast" in deploy
+    assert "./scripts/set_dsh_model.sh gpt-6-luna" in deploy
     assert "./scripts/set_dsh_model.sh free" not in deploy
 
 
@@ -128,6 +128,7 @@ def test_fast_chat_preset_routes_memory_and_brave_without_skills() -> None:
         "persona",
         "memory-shell",
         "search-freeserp",
+        "search-weather",
         "skill-filesystem",
     ]
     persona = entries[0]["config"].get("prefix") or entries[0]["config"].get("text", "")
@@ -140,8 +141,8 @@ def test_fast_chat_preset_routes_memory_and_brave_without_skills() -> None:
     assert mcp["name"] == "@deepseek-ai/dsh-mcp-client"
     assert mcp["config"]["transport"] == "streamable-http"
     assert mcp["config"]["url"] == "https://freeserp.ai/mcp"
-    assert entries[3]["name"] == "@deepseek-ai/dsh-skill-filesystem"
-    assert entries[3]["config"]["includeDefaultRoots"] is False
+    assert entries[4]["name"] == "@deepseek-ai/dsh-skill-filesystem"
+    assert entries[4]["config"]["includeDefaultRoots"] is False
     # chat-fast 刻意不加载 web 工具，避免模型陷入反复搜索/抓取的循环
     assert "tool-web" not in [entry["id"] for entry in entries]
     assert not (chat_dir / "skills").exists()

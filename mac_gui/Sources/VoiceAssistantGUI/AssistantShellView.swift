@@ -706,11 +706,20 @@ struct AssistantShellView: View {
     }
 
     private var showsIdleStage: Bool {
-        model.session.state.status == .idle
+        switch model.session.state.status {
+        case .idle:
+            return true
+        case .done(let reply):
+            return reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && model.session.state.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && visibleErrorMessage == nil
+        default:
+            return false
+        }
     }
 
     private var showQuickActions: Bool {
-        model.session.state.status == .idle
+        showsIdleStage
     }
 
     private var showTranscriptBubble: Bool {
@@ -728,8 +737,10 @@ struct AssistantShellView: View {
 
     private var showContinueButton: Bool {
         switch model.session.state.status {
-        case .speaking, .done:
+        case .speaking:
             return true
+        case .done(let reply):
+            return !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         default:
             return false
         }
@@ -743,6 +754,9 @@ struct AssistantShellView: View {
     private var visibleErrorMessage: String? {
         if case .error(let message) = model.session.state.status {
             return message
+        }
+        if !model.session.state.errorMessage.isEmpty {
+            return model.session.state.errorMessage
         }
         return nil
     }

@@ -75,4 +75,60 @@ struct PTTProcessBridgeTests {
         #expect(PTTProcessBridge.terminationTargets(processIdentifier: 0).isEmpty)
         #expect(PTTProcessBridge.terminationTargets(processIdentifier: -1).isEmpty)
     }
+
+    @Test
+    func terminationDispositionWithErrorDoesNotEmitDone() {
+        let disposition = PTTProcessBridge.terminationDisposition(
+            isCurrentGeneration: true,
+            wasStoppedExplicitly: false,
+            receivedEvent: false,
+            stderrText: "error: Too many levels of symbolic links (os error 62)\nstack trace...",
+            currentStatus: .idle
+        )
+
+        #expect(disposition.errorMessage == "error: Too many levels of symbolic links (os error 62)")
+        #expect(disposition.emitDone == false)
+    }
+
+    @Test
+    func terminationDispositionWithoutEventsOrStderrProvidesDefaultErrorAndDoesNotEmitDone() {
+        let disposition = PTTProcessBridge.terminationDisposition(
+            isCurrentGeneration: true,
+            wasStoppedExplicitly: false,
+            receivedEvent: false,
+            stderrText: "",
+            currentStatus: .idle
+        )
+
+        #expect(disposition.errorMessage == "press-to-talk 未产生任何事件输出")
+        #expect(disposition.emitDone == false)
+    }
+
+    @Test
+    func terminationDispositionWithEventsEmitsDoneWhenNotAlreadyDone() {
+        let disposition = PTTProcessBridge.terminationDisposition(
+            isCurrentGeneration: true,
+            wasStoppedExplicitly: false,
+            receivedEvent: true,
+            stderrText: "",
+            currentStatus: .recording(.waiting)
+        )
+
+        #expect(disposition.errorMessage == nil)
+        #expect(disposition.emitDone == true)
+    }
+
+    @Test
+    func terminationDispositionWhenStoppedExplicitlyEmitsNothing() {
+        let disposition = PTTProcessBridge.terminationDisposition(
+            isCurrentGeneration: true,
+            wasStoppedExplicitly: true,
+            receivedEvent: false,
+            stderrText: "some error",
+            currentStatus: .recording(.waiting)
+        )
+
+        #expect(disposition.errorMessage == nil)
+        #expect(disposition.emitDone == false)
+    }
 }

@@ -26,8 +26,10 @@ public final class SessionViewModel: ObservableObject {
 
     private func handleThinkingTimer(status: AssistantStatus) {
         switch status {
-        case .speaking, .done:
+        case .speaking:
             isResponseStage = true
+        case .done(let reply):
+            isResponseStage = !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         default:
             isResponseStage = false
         }

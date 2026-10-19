@@ -206,7 +206,7 @@ public final class PTTProcessBridge {
         self.controlDirectory = nil
     }
 
-    static func terminationDisposition(
+    nonisolated static func terminationDisposition(
         isCurrentGeneration: Bool,
         wasStoppedExplicitly: Bool,
         receivedEvent: Bool,
@@ -230,11 +230,15 @@ public final class PTTProcessBridge {
         }
 
         let emitDone: Bool
-        switch currentStatus {
-        case .done, .error:
+        if errorMessage != nil {
             emitDone = false
-        default:
-            emitDone = true
+        } else {
+            switch currentStatus {
+            case .done, .error:
+                emitDone = false
+            default:
+                emitDone = true
+            }
         }
         return TerminationDisposition(errorMessage: errorMessage, emitDone: emitDone)
     }

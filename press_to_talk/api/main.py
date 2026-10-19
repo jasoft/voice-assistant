@@ -117,7 +117,7 @@ def _strip_watch_prompt(text: str, prompt: str, *, drop_prompt_tail: bool = Fals
     end = "标签只能供服务端提取，不能出现在屏幕正文。"
     start_index = text.find(start)
     end_index = text.find(end, start_index) if start_index >= 0 else -1
-    if start_index < 2000:
+    if 0 <= start_index < 2000:
         if end_index >= 0:
             text = text[:start_index] + text[end_index + len(end):]
         elif drop_prompt_tail:
