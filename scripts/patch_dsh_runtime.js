@@ -129,4 +129,13 @@ patchFile('*/@earendil-works/pi-ai/dist/api/openai-completions.js', (code) => {
   return code;
 });
 
+// 6. 避免在无 HMR 服务时 user patch-layer watching 抛错崩溃
+patchFile('*/@deepseek-ai/dsh-app-boot/lib/index.js', (code) => {
+  code = code.replace(
+    'if (hmr === void 0) throw new Error(`${binName}: user patch-layer watching requires the Cordis HMR service`);',
+    'if (hmr === void 0) return async () => {};'
+  );
+  return code;
+});
+
 console.log('All dsh patches applied successfully!');
