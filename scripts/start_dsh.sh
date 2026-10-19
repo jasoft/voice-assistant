@@ -44,9 +44,16 @@ if [[ -z "${BRAVE_API_KEY:-}" && -f "$credentials_file" ]]; then
   fi
 fi
 
-if [[ -z "${BRAVE_API_KEY:-}" ]]; then
-  printf '未找到 BRAVE_API_KEY，请配置 %s 或导出 BRAVE_API_KEY。\n' "$credentials_file" >&2
-  exit 1
+if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
+  if [[ -f "$dsh_home/.env" ]]; then
+    if grep -q "^DEEPSEEK_API_KEY=" "$dsh_home/.env"; then
+      sed -i "s/^DEEPSEEK_API_KEY=.*/DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}/" "$dsh_home/.env" 2>/dev/null || true
+    else
+      echo "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}" >> "$dsh_home/.env"
+    fi
+  else
+    echo "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}" > "$dsh_home/.env"
+  fi
 fi
 
 if [[ "$#" -eq 0 ]]; then
