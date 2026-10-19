@@ -29,6 +29,8 @@ def test_harness_client_creates_prompts_and_reads_final_history() -> None:
         rpc_id = body["rpcId"]
         if method == "session.create":
             return _response(rpc_id, {"sessionId": "session-1"})
+        if method == "session.selectModel":
+            return _response(rpc_id, {"selected": {"provider": "cliproxyapp", "model": "fast"}})
         if method == "session.history":
             history_calls += 1
             if history_calls == 1:
@@ -86,12 +88,13 @@ def test_harness_client_creates_prompts_and_reads_final_history() -> None:
     assert result["memories"] == []
     assert [request.url.path for request in requests] == [
         "/api/session.create",
+        "/api/session.selectModel",
         "/api/session.history",
         "/api/session.prompt",
         "/api/session.history",
         "/api/session.history",
     ]
-    prompt_body = json.loads(requests[2].content)
+    prompt_body = json.loads(requests[3].content)
     assert prompt_body["payload"]["content"][0] == {"type": "text", "text": "我的护照在哪里"}
     assert prompt_body["payload"]["content"][1]["mediaType"] == "image/png"
     assert prompt_body["payload"]["content"][1]["data"] == base64.b64encode(b"x").decode()

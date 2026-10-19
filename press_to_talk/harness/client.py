@@ -13,6 +13,9 @@ from typing import Any
 import httpx
 
 
+from ..utils.logging import log
+
+
 class HarnessError(RuntimeError):
     """Raised when DeepSeek Harness cannot accept or complete a request."""
 
@@ -47,6 +50,8 @@ class DeepSeekHarnessClient:
         api_url: str,
         *,
         agent_preset: str = "memo-mem0",
+        model: str | None = None,
+        provider: str | None = None,
         timeout_seconds: float = 60.0,
         poll_interval_seconds: float = 0.25,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -56,6 +61,8 @@ class DeepSeekHarnessClient:
             raise HarnessError("DeepSeek Harness API 地址为空")
         self.api_url = normalized_url
         self.agent_preset = agent_preset.strip()
+        self.model = (model or "fast").strip()
+        self.provider = (provider or "cliproxyapp").strip()
         self.timeout_seconds = max(1.0, timeout_seconds)
         self.poll_interval_seconds = max(0.05, poll_interval_seconds)
         self._client = httpx.AsyncClient(
@@ -71,6 +78,8 @@ class DeepSeekHarnessClient:
         cls,
         *,
         agent_preset: str | None = None,
+        model: str | None = None,
+        provider: str | None = None,
         timeout_seconds: float | None = None,
         poll_interval_seconds: float | None = None,
     ) -> "DeepSeekHarnessClient":
@@ -79,6 +88,17 @@ class DeepSeekHarnessClient:
             agent_preset=(
                 agent_preset
                 or os.environ.get("PTT_HARNESS_AGENT_PRESET", "memo-mem0")
+            ),
+            model=(
+                model
+                or os.environ.get("PTT_HARNESS_MODEL")
+                or os.environ.get("PTT_MODEL")
+                or "fast"
+            ),
+            provider=(
+                provider
+                or os.environ.get("PTT_HARNESS_PROVIDER")
+                or "cliproxyapp"
             ),
             timeout_seconds=(
                 timeout_seconds
@@ -227,6 +247,20 @@ class DeepSeekHarnessClient:
         session_id = str(value.get("sessionId", "")).strip()
         if not session_id:
             raise HarnessError("DeepSeek Harness 创建会话成功但没有返回 sessionId")
+
+        if self.model and self.provider:
+            try:
+                await self._rpc(
+                    "session.selectModel",
+                    {
+                        "sessionId": session_id,
+                        "provider": self.provider,
+                        "model": self.model,
+                    },
+                )
+            except Exception as exc:
+                log(f"DeepSeek Harness 选择模型 {self.provider}:{self.model} 失败: {exc}", level="warn")
+
         self._session_id = session_id
         return session_id
 

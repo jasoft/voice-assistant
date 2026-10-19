@@ -35,7 +35,7 @@ echo "🌐 Step 2: Triggering remote deployment on 'docker' host..."
 # only the non-secret default-model line before recreating containers, so the
 # new process starts with the selected model.
 REMOTE_PATH='[ -d /opt/docker/voice-assistant ] && cd /opt/docker/voice-assistant || cd ~/voice-assistant'
-ssh docker "${REMOTE_PATH} && git fetch origin main && git checkout main && git reset --hard origin/main && git clean -fd && ./scripts/set_dsh_model.sh paid && docker compose down && docker compose up -d --build"
+ssh docker "${REMOTE_PATH} && git fetch origin main && git checkout main && git reset --hard origin/main && git clean -fd && ./scripts/set_dsh_model.sh fast && docker compose down && docker compose up -d --build"
 
 # 3. Verification
 echo "🔍 Step 3: Verifying service status..."

@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-model="${1:-paid}"
+model="${1:-fast}"
 resolved_model="$model"
 fast_max_tokens="${DSH_FAST_MAX_TOKENS:-4096}"
 agent_preset="memo-minimal"
