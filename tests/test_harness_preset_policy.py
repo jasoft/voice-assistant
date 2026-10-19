@@ -113,7 +113,7 @@ def test_compose_allows_wrapper_execution_inside_disposable_harness_container() 
 def test_deploy_defaults_to_fast_model() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
 
-    assert "./scripts/set_dsh_model.sh gpt-6-luna" in deploy
+    assert "./scripts/set_dsh_model.sh fast" in deploy
     assert "./scripts/set_dsh_model.sh free" not in deploy
 
 
