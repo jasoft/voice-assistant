@@ -122,8 +122,9 @@ agent-presets:
     set_model_fast(settings)
 
     text = settings.read_text(encoding="utf-8")
-    assert "agent-presets:\n  default: memo-minimal\n" in text
+    assert "agent-presets:\n  default: chat-fast\n" in text
     assert "memo-mem0" not in text
+    assert "memo-minimal" not in text
 
 
 def test_fast_route_preserves_model_neighbors(tmp_path: Path) -> None:

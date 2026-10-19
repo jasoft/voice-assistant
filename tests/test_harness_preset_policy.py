@@ -4,9 +4,8 @@ import yaml
 
 ROOT = Path(__file__).parents[1]
 PRESET_ROOT = ROOT / "config" / "deepseek-harness" / "agent-presets"
-MINIMAL_DIR = PRESET_ROOT / "memo-minimal"
-MINIMAL_PRESET = MINIMAL_DIR / "agent.cordis.yml"
-FALLBACK_PRESET = PRESET_ROOT / "memo-mem0" / "agent.cordis.yml"
+CHAT_FAST_DIR = PRESET_ROOT / "chat-fast"
+CHAT_FAST_PRESET = CHAT_FAST_DIR / "agent.cordis.yml"
 
 
 class PresetYamlLoader(yaml.SafeLoader):
@@ -19,18 +18,14 @@ PresetYamlLoader.add_constructor(
 )
 
 
-
-def test_project_harness_preset_requires_explicit_record_intent() -> None:
-    text = MINIMAL_PRESET.read_text(encoding="utf-8")
-
-    assert "只有用户明确要求" in text
-    assert "完整用户原文" in text
-    assert "必须通过 bash 工具调用执行" in text
-    assert "绝对不能把命令文本直接作为回复输出" in text
+def test_obsolete_presets_are_removed() -> None:
+    assert not (PRESET_ROOT / "memo-mem0").exists()
+    assert not (PRESET_ROOT / "memo-minimal").exists()
+    assert (PRESET_ROOT / "chat-fast").exists()
 
 
-def test_minimal_preset_blocks_all_skill_loading() -> None:
-    preset_text = MINIMAL_PRESET.read_text(encoding="utf-8")
+def test_chat_fast_preset_blocks_all_skill_loading() -> None:
+    preset_text = CHAT_FAST_PRESET.read_text(encoding="utf-8")
     entries = yaml.load(preset_text, Loader=PresetYamlLoader)
 
     assert isinstance(entries, list)
@@ -43,25 +38,23 @@ def test_minimal_preset_blocks_all_skill_loading() -> None:
     assert entries[1]["config"]["enableRunInBackground"] is False
     assert entries[2]["name"] == "@deepseek-ai/dsh-skill-filesystem"
     assert entries[2]["config"]["includeDefaultRoots"] is False
-    # No customSkillDirs: do not load workspace skills.
     assert "customSkillDirs" not in preset_text
     assert "mcp-client" not in preset_text
     assert "- id: tool-skill" not in preset_text
-    # Skills must not ship inside this preset.
-    assert not (MINIMAL_DIR / "skills").exists()
+    assert not (CHAT_FAST_DIR / "skills").exists()
 
 
-def test_minimal_preset_uses_direct_compact_memos_wrapper() -> None:
-    text = MINIMAL_PRESET.read_text(encoding="utf-8")
+def test_chat_fast_preset_integrates_tools_and_commands() -> None:
+    text = CHAT_FAST_PRESET.read_text(encoding="utf-8")
 
-    assert "process.env.MEMO_API_SCRIPT" in text
-    assert '"/app/scripts/memo_api.py"' in text
+    assert "search_api.py" in text
+    assert "weather_api.py" in text
+    assert "memo_api.py" in text
+    assert "禁止反复搜索" in text
+    assert "bash" in text
+    assert "不追问" in text
     assert "`python3 ${memoApi} add --text <完整用户原文>`" in text
     assert "`python3 ${memoApi} search --query <完整用户问题> --limit 3`" in text
-    assert "`python3 ${memoApi} list --page 1 --page-size 20`" in text
-    assert "`python3 ${memoApi} delete --id <memory-id>`" in text
-    assert "--limit 3" in text
-    assert "完整保留 Memos 返回的记忆内容" in text
 
 
 def test_local_dsh_startup_pins_wrapper_and_refreshes_presets() -> None:
@@ -73,35 +66,17 @@ def test_local_dsh_startup_pins_wrapper_and_refreshes_presets() -> None:
     assert 'cp -R "$preset_source" "$dsh_home/.agent-presets/$preset_name"' in text
 
 
-def test_project_harness_preset_has_multi_pass_recall_rules() -> None:
-    text = FALLBACK_PRESET.read_text(encoding="utf-8")
-
-    assert "第一次用完整用户问题检索" in text
-    assert "最多两轮" in text
-    assert "get_memories + user_id 过滤" in text
-    assert "人名、地名、日期、数字、书名和位置尽量逐字保留原文" in text
-
-
-def test_project_harness_preset_does_not_contain_a_literal_mem0_token() -> None:
-    text = FALLBACK_PRESET.read_text(encoding="utf-8")
-
-    assert "MEM0_MCP_TOKEN" in text
-    assert "Authorization: !!js" in text
-    assert "Token <" not in text
-
-
-def test_compose_uses_minimal_preset_and_mounts_presets() -> None:
+def test_compose_uses_chat_fast_preset_and_mounts_presets() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert compose.count("PTT_HARNESS_AGENT_PRESET: memo-minimal") == 2
-    # 主链路 10s；memo-web 回退链路 20s
+    assert compose.count("PTT_HARNESS_AGENT_PRESET: chat-fast") == 2
     assert compose.count('PTT_HARNESS_TIMEOUT_SECONDS: "10"') == 1
     assert compose.count('PTT_HARNESS_TIMEOUT_SECONDS: "20"') == 1
-    # 主链路与 memo-web 回退链路的 fast-path（chat-fast）放宽到 45s（网络搜索耗时更长）
     assert compose.count('PTT_CHAT_TIMEOUT_SECONDS: "45"') == 2
     assert 'PTT_HARNESS_ASYNC_TIMEOUT_SECONDS: "60"' in compose
-    assert "./config/deepseek-harness/agent-presets/memo-minimal:/root/.dsh/.agent-presets/memo-minimal" in compose
-    assert "./config/deepseek-harness/agent-presets/memo-mem0:/root/.dsh/.agent-presets/memo-mem0" in compose
+    assert "./config/deepseek-harness/agent-presets/chat-fast:/root/.dsh/.agent-presets/chat-fast" in compose
+    assert "memo-minimal" not in compose
+    assert "memo-mem0" not in compose
 
 
 def test_compose_allows_wrapper_execution_inside_disposable_harness_container() -> None:
@@ -118,32 +93,6 @@ def test_deploy_defaults_to_fast_model() -> None:
     assert "./scripts/set_dsh_model.sh paid" not in deploy
 
 
-def test_fast_chat_preset_routes_memory_and_brave_without_skills() -> None:
-    chat_dir = PRESET_ROOT / "chat-fast"
-    entries = yaml.load(
-        (chat_dir / "agent.cordis.yml").read_text(encoding="utf-8"),
-        Loader=PresetYamlLoader,
-    )
-
-    assert [entry["id"] for entry in entries] == [
-        "persona",
-        "memory-shell",
-        "skill-filesystem",
-    ]
-    persona = entries[0]["config"].get("prefix") or entries[0]["config"].get("text", "")
-    assert "search_api.py" in persona
-    assert "weather_api.py" in persona
-    assert "禁止反复搜索" in persona
-    assert "bash" in persona
-    assert "不追问" in persona
-    assert entries[1]["name"] == "@deepseek-ai/dsh-tool-bash"
-    assert entries[2]["name"] == "@deepseek-ai/dsh-skill-filesystem"
-    assert entries[2]["config"]["includeDefaultRoots"] is False
-    # chat-fast 刻意不加载 web 工具，避免模型陷入反复搜索/抓取的循环
-    assert "tool-web" not in [entry["id"] for entry in entries]
-    assert not (chat_dir / "skills").exists()
-
-
 def test_compose_and_api_wire_the_fast_chat_endpoint() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     api = (ROOT / "press_to_talk" / "api" / "main.py").read_text(encoding="utf-8")
@@ -153,41 +102,7 @@ def test_compose_and_api_wire_the_fast_chat_endpoint() -> None:
     assert 'PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast' in compose
     assert 'PTT_CHAT_TIMEOUT_SECONDS: "45"' in compose
     assert 'MEM0_REQUEST_TIMEOUT_SECONDS: "3"' in compose
-    assert '@app.post(\n    "/v1/chat"' in api
-    assert '@app.post(\n    "/chat"' in api
-    assert "_chat_harness_client_for(user_id)" in api
-    assert "POST /v1/chat" in docs
+    assert 'DEFAULT_AGENT_PRESET = "chat-fast"' in api or 'agent_preset=os.environ.get("PTT_CHAT_HARNESS_AGENT_PRESET", "chat-fast")' in api
+    assert "/v1/chat" in docs
 
-
-def test_base_bundle_mounts_native_time_context() -> None:
-    harness_dir = ROOT / "deepseek-harness"
-    if not harness_dir.exists():
-        external_harness = Path.home() / ".dsh" / "deepseek-harness"
-        if external_harness.exists():
-            harness_dir = external_harness
-        else:
-            harness_dir = None
-
-    if harness_dir and (harness_dir / "packages" / "bundle" / "base" / "cordis.patch.yml").exists():
-        patch = (harness_dir / "packages" / "bundle" / "base" / "cordis.patch.yml").read_text(
-            encoding="utf-8"
-        )
-        package = (harness_dir / "packages" / "bundle" / "base" / "package.json").read_text(
-            encoding="utf-8"
-        )
-
-        assert "- id: time-context" in patch
-        assert "@deepseek-ai/dsh-time-context" in patch
-        assert "timeZone: Asia/Shanghai" in patch
-        assert '"@deepseek-ai/dsh-time-context": "workspace:^"' in package
-        assert "searchProvider: deepseek-official" in patch
-        assert "fetchProvider: http" in patch
-        assert "- id: web-fetch-http" in patch
-        assert '"@deepseek-ai/dsh-web-fetch-http": "workspace:^"' in package
-
-    # The one-shot chat persona preserves runtime context so that
-    # time and date information are accessible to the model.
-    assert "includeRuntimeContext: true" in (PRESET_ROOT / "chat-fast" / "agent.cordis.yml").read_text(
-        encoding="utf-8"
-    )
 
