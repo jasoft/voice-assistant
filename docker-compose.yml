@@ -18,6 +18,7 @@ services:
       MEM0_API_KEY: ${MEM0_API_KEY:-mem0-admin-sk-lan-secure-2026}
       PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast
       PTT_CHAT_TIMEOUT_SECONDS: "45"
+      PTT_HARNESS_MODEL: fast
       PTT_REMINDER_STORE_PATH: /app/data/reminders.json
     ports:
       - "10031:10031"
@@ -99,6 +100,7 @@ services:
       # fast-path 拆词/回答走 chat-fast（可能触发 freeserp 网络搜索，耗时更长）
       PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast
       PTT_CHAT_TIMEOUT_SECONDS: "45"
+      PTT_HARNESS_MODEL: fast
     entrypoint: ["uv"]
     command:
       - run

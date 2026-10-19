@@ -110,11 +110,12 @@ def test_compose_allows_wrapper_execution_inside_disposable_harness_container() 
     assert "DSH_PERMISSION_MODE: danger-full-access" in compose
 
 
-def test_deploy_defaults_to_paid_model() -> None:
+def test_deploy_defaults_to_fast_model() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
 
-    assert "./scripts/set_dsh_model.sh paid" in deploy
+    assert "./scripts/set_dsh_model.sh fast" in deploy
     assert "./scripts/set_dsh_model.sh free" not in deploy
+    assert "./scripts/set_dsh_model.sh paid" not in deploy
 
 
 def test_fast_chat_preset_routes_memory_and_brave_without_skills() -> None:
