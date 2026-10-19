@@ -19,7 +19,9 @@ RUN node /app/scripts/patch_dsh_runtime.js && rm -f /app/scripts/patch_dsh_runti
 COPY scripts/start_dsh.sh ./scripts/start_dsh.sh
 COPY scripts/memo_api.py /app/scripts/memo_api.py
 COPY scripts/reminder_http_create.py /app/scripts/reminder_http_create.py
-RUN chmod +x /app/scripts/start_dsh.sh /app/scripts/memo_api.py /app/scripts/reminder_http_create.py
+COPY scripts/weather_api.py /app/scripts/weather_api.py
+COPY scripts/search_api.py /app/scripts/search_api.py
+RUN chmod +x /app/scripts/start_dsh.sh /app/scripts/memo_api.py /app/scripts/reminder_http_create.py /app/scripts/weather_api.py /app/scripts/search_api.py
 
 EXPOSE 3080
 
