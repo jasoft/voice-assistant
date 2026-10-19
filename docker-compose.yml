@@ -10,7 +10,7 @@ services:
       TZ: Asia/Shanghai
       PTT_QUERY_BACKEND: deepseek-harness
       PTT_HARNESS_API_URL: http://deepseek-harness:3080
-      PTT_HARNESS_AGENT_PRESET: memo-minimal
+      PTT_HARNESS_AGENT_PRESET: chat-fast
       PTT_HARNESS_TIMEOUT_SECONDS: "10"
       PTT_HARNESS_ASYNC_TIMEOUT_SECONDS: "60"
       PTT_REMEMBER_BACKEND: mem0
@@ -63,8 +63,6 @@ services:
       - deepseek-harness.docker.home
     volumes:
       - ./config/deepseek-harness/runtime:/root/.dsh
-      - ./config/deepseek-harness/agent-presets/memo-minimal:/root/.dsh/.agent-presets/memo-minimal
-      - ./config/deepseek-harness/agent-presets/memo-mem0:/root/.dsh/.agent-presets/memo-mem0
       - ./config/deepseek-harness/agent-presets/chat-fast:/root/.dsh/.agent-presets/chat-fast
       - ./scripts:/app/scripts
     ports:
@@ -80,7 +78,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       PTT_HARNESS_API_URL: http://deepseek-harness:3080
-      PTT_HARNESS_AGENT_PRESET: memo-minimal
+      PTT_HARNESS_AGENT_PRESET: chat-fast
       PTT_HARNESS_TIMEOUT_SECONDS: "20"
       # fast-path 拆词/回答走 chat-fast（可能触发 DeepSeek 全网搜索，耗时更长）
       PTT_CHAT_HARNESS_AGENT_PRESET: chat-fast

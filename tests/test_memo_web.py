@@ -7,7 +7,7 @@ from press_to_talk.api import fast_chat
 
 
 class FakeHarnessClient:
-    agent_preset = "memo-mem0"
+    agent_preset = "chat-fast"
 
     def __init__(self) -> None:
         self.instructions: list[str] = []
@@ -44,7 +44,7 @@ def test_memo_web_sends_instruction_and_displays_final_reply(monkeypatch) -> Non
     assert response.status_code == 200
     assert response.json() == {
         "reply": "护照在书房白柜子的第一个抽屉里。",
-        "agent": "memo-mem0",
+        "agent": "chat-fast",
         "session_id": "memo-session-1",
     }
     assert fake_client.instructions == ["我的护照在哪里？"]
@@ -75,7 +75,7 @@ def test_memo_web_serves_mobile_shell(monkeypatch) -> None:
 
 def test_memo_web_hides_memo_ids(monkeypatch) -> None:
     class FakeHarnessWithIds:
-        agent_preset = "memo-mem0"
+        agent_preset = "chat-fast"
         async def query(self, instruction: str) -> dict:
             return {
                 "reply": "找到记录：\n- 护照在书房抽屉里 (memos/Zd8VQWwWqvnNXWX3BDYapD)\n- 身份证在钱包里 (ID: memos/MBvA6rmWupfKmLy6bf8kom)",

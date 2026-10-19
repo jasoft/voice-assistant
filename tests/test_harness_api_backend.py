@@ -351,7 +351,7 @@ def test_set_dsh_model_updates_default_model_before_deployment(tmp_path) -> None
         '  model: untouched\n'
         '\n'
         'agent-presets:\n'
-        '  default: memo-minimal\n'
+        '  default: chat-fast\n'
     )
     deploy_script = __import__("pathlib").Path("scripts/deploy.sh").read_text(encoding="utf-8")
     model_position = deploy_script.find("./scripts/set_dsh_model.sh")
@@ -366,6 +366,7 @@ def test_chat_is_one_shot_with_dedicated_fast_agent(path: str, monkeypatch) -> N
     monkeypatch.setenv("PTT_QUERY_BACKEND", "deepseek-harness")
     monkeypatch.setenv("PTT_CHAT_HARNESS_AGENT_PRESET", "chat-fast")
     monkeypatch.setattr(api_main, "base_config", SimpleNamespace())
+    monkeypatch.setattr(api_main, "try_fast_memory_chat", AsyncMock(return_value=None))
     api_main.app.dependency_overrides[get_user_id] = lambda: "test-user"
 
     fake_client = AsyncMock()
@@ -409,6 +410,7 @@ def test_chat_returns_504_within_configured_deadline(monkeypatch) -> None:
     monkeypatch.setenv("PTT_QUERY_BACKEND", "deepseek-harness")
     monkeypatch.setenv("PTT_CHAT_TIMEOUT_SECONDS", "0.01")
     monkeypatch.setattr(api_main, "base_config", SimpleNamespace())
+    monkeypatch.setattr(api_main, "try_fast_memory_chat", AsyncMock(return_value=None))
     api_main.app.dependency_overrides[get_user_id] = lambda: "test-user"
 
     async def slow_query(*_args, **_kwargs):

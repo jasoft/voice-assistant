@@ -49,7 +49,7 @@ class DeepSeekHarnessClient:
         self,
         api_url: str,
         *,
-        agent_preset: str = "memo-mem0",
+        agent_preset: str = "chat-fast",
         model: str | None = None,
         provider: str | None = None,
         timeout_seconds: float = 60.0,
@@ -87,7 +87,7 @@ class DeepSeekHarnessClient:
             os.environ.get("PTT_HARNESS_API_URL", "http://127.0.0.1:3080"),
             agent_preset=(
                 agent_preset
-                or os.environ.get("PTT_HARNESS_AGENT_PRESET", "memo-mem0")
+                or os.environ.get("PTT_HARNESS_AGENT_PRESET", "chat-fast")
             ),
             model=(
                 model
